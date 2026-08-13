@@ -5,12 +5,6 @@ import {
 } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
 
-// A signup code so advisors can't self-grant manager visibility.
-// Share this only with people who should see the whole team's data.
-// (This is a client-side convenience gate, not real security — the real
-// access control is the Row Level Security policies in Supabase.)
-const MANAGER_CODE = 'LEAD-ACCESS-2026';
-
 const WEEKEND_TARGET = 8;
 const WEEKDAY_TARGET = 5;
 
@@ -241,8 +235,6 @@ function AuthScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [role, setRole] = useState('advisor');
-  const [managerCode, setManagerCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -256,13 +248,10 @@ function AuthScreen() {
       if (mode === 'signup') {
         if (!displayName.trim()) { setError('Enter your full name.'); setBusy(false); return; }
         if (password.length < 6) { setError('Password needs to be at least 6 characters.'); setBusy(false); return; }
-        if (role === 'manager' && managerCode !== MANAGER_CODE) {
-          setError('That manager access code is incorrect.'); setBusy(false); return;
-        }
         const { data, error: signErr } = await supabase.auth.signUp({
           email: mail,
           password,
-          options: { data: { display_name: displayName.trim(), role } },
+          options: { data: { display_name: displayName.trim() } },
         });
         if (signErr) { setError(signErr.message); setBusy(false); return; }
         if (!data.session) {
@@ -306,23 +295,6 @@ function AuthScreen() {
               <span>Password</span>
               <input type="password" value={password} onChange={e => setPassword(e.target.value)} />
             </label>
-            {mode === 'signup' && (
-              <>
-                <label className="tr-field">
-                  <span>Account type</span>
-                  <select value={role} onChange={e => setRole(e.target.value)}>
-                    <option value="advisor">Advisor</option>
-                    <option value="manager">Manager</option>
-                  </select>
-                </label>
-                {role === 'manager' && (
-                  <label className="tr-field">
-                    <span>Manager access code</span>
-                    <input value={managerCode} onChange={e => setManagerCode(e.target.value)} placeholder="Provided by your organization" />
-                  </label>
-                )}
-              </>
-            )}
             {notice && <div className="tr-badge tr-badge-weekday">{notice}</div>}
             {error && <div className="tr-error">{error}</div>}
             <button type="button" className="tr-btn tr-btn-brass tr-btn-block" onClick={submit} disabled={busy}>
@@ -503,7 +475,7 @@ function MiniBar({ count, target }) {
     </div>
   );
 }
-function ManagerView({ user }) {
+function TeamPaceBody({ user }) {
   const [advisors, setAdvisors] = useState([]);
   const [weekAppts, setWeekAppts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -524,60 +496,146 @@ function ManagerView({ user }) {
   useEffect(() => { refresh(); }, [refresh]);
 
   return (
+    <>
+      <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(mondayOf(todayStr()))} />
+      <div className="tr-row-head">
+        <h2 className="tr-h2"><Users size={18} /> Team pace</h2>
+        <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+      </div>
+      {loading ? <Spinner label="Loading team data…" /> : advisors.length === 0 ? (
+        <div className="tr-card"><p className="tr-empty">No advisor accounts yet. Once advisors create accounts and start logging, they'll show up here.</p></div>
+      ) : (
+        <div className="tr-card tr-summary-card">
+          <div className="tr-table-wrap">
+            <table className="tr-table tr-table-summary">
+              <thead>
+                <tr>
+                  <th>Advisor</th>
+                  {DATE_SET_OPTIONS.map(opt => <th key={opt.value}>{opt.shortLabel}</th>)}
+                  <th>Total</th><th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {advisors.map(adv => {
+                  const list = weekAppts.filter(a => a.userId === adv.id);
+                  const groups = DATE_SET_OPTIONS.map(opt => list.filter(a => a.dateSetOption === opt.value));
+                  const counts = groups.map(g => g.length);
+                  const total = counts.reduce((s, c) => s + c, 0);
+                  const status = getStatus(counts, weekMonday);
+                  const isOpen = expanded === adv.id;
+                  return (
+                    <React.Fragment key={adv.id}>
+                      <tr className="tr-clickable-row" onClick={() => setExpanded(isOpen ? null : adv.id)}>
+                        <td>{adv.display_name}</td>
+                        {DATE_SET_OPTIONS.map((opt, i) => (
+                          <td key={opt.value}><MiniBar count={counts[i]} target={opt.target} /></td>
+                        ))}
+                        <td className="tr-mono">{total}/{WEEK_TOTAL_TARGET}</td>
+                        <td><StatusBadge status={status} /></td>
+                      </tr>
+                      {isOpen && (
+                        <tr className="tr-expand-row"><td colSpan={DATE_SET_OPTIONS.length + 3}>
+                          {DATE_SET_OPTIONS.map((opt, i) => (
+                            <ApptGroup key={opt.value} title={`${opt.batchLabel} (${counts[i]}/${opt.target})`} list={groups[i]} empty="None logged." />
+                          ))}
+                        </td></tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+function ManagerView({ user }) {
+  return (
     <Shell>
       <Header user={user} />
       <main className="tr-main">
-        <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(mondayOf(todayStr()))} />
-        <div className="tr-row-head">
-          <h2 className="tr-h2"><Users size={18} /> Team pace</h2>
-          <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+        <TeamPaceBody user={user} />
+      </main>
+    </Shell>
+  );
+}
+
+// ---------------------------------------------------------------------
+// super admin — promote/demote people, plus the same team pace view
+// ---------------------------------------------------------------------
+async function fetchAllUsers() {
+  const { data, error } = await supabase.from('profiles').select('*').order('display_name');
+  if (error) { console.error(error); return []; }
+  return data;
+}
+async function changeUserRole(id, newRole) {
+  const { error } = await supabase.from('profiles').update({ role: newRole }).eq('id', id);
+  return !error ? null : error.message;
+}
+function ManageUsersView({ currentUserId }) {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [savingId, setSavingId] = useState(null);
+  const [error, setError] = useState('');
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setUsers(await fetchAllUsers());
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  async function handleChange(id, newRole) {
+    setSavingId(id);
+    setError('');
+    const err = await changeUserRole(id, newRole);
+    setSavingId(null);
+    if (err) { setError(err); return; }
+    setUsers(prev => prev.map(u => u.id === id ? { ...u, role: newRole } : u));
+  }
+
+  return (
+    <div className="tr-card tr-summary-card">
+      {error && <div className="tr-error" style={{ margin: 16 }}>{error}</div>}
+      {loading ? <Spinner label="Loading team…" /> : (
+        <div className="tr-table-wrap">
+          <table className="tr-table tr-table-summary">
+            <thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead>
+            <tbody>
+              {users.map(u => (
+                <tr key={u.id}>
+                  <td>{u.display_name}{u.id === currentUserId ? ' (you)' : ''}</td>
+                  <td>{u.email || '—'}</td>
+                  <td>
+                    <select value={u.role} disabled={savingId === u.id} onChange={e => handleChange(u.id, e.target.value)}>
+                      <option value="advisor">Advisor</option>
+                      <option value="manager">Manager</option>
+                      <option value="super_admin">Super Admin</option>
+                    </select>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-        {loading ? <Spinner label="Loading team data…" /> : advisors.length === 0 ? (
-          <div className="tr-card"><p className="tr-empty">No advisor accounts yet. Once advisors create accounts and start logging, they'll show up here.</p></div>
-        ) : (
-          <div className="tr-card tr-summary-card">
-            <div className="tr-table-wrap">
-              <table className="tr-table tr-table-summary">
-                <thead>
-                  <tr>
-                    <th>Advisor</th>
-                    {DATE_SET_OPTIONS.map(opt => <th key={opt.value}>{opt.shortLabel}</th>)}
-                    <th>Total</th><th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {advisors.map(adv => {
-                    const list = weekAppts.filter(a => a.userId === adv.id);
-                    const groups = DATE_SET_OPTIONS.map(opt => list.filter(a => a.dateSetOption === opt.value));
-                    const counts = groups.map(g => g.length);
-                    const total = counts.reduce((s, c) => s + c, 0);
-                    const status = getStatus(counts, weekMonday);
-                    const isOpen = expanded === adv.id;
-                    return (
-                      <React.Fragment key={adv.id}>
-                        <tr className="tr-clickable-row" onClick={() => setExpanded(isOpen ? null : adv.id)}>
-                          <td>{adv.display_name}</td>
-                          {DATE_SET_OPTIONS.map((opt, i) => (
-                            <td key={opt.value}><MiniBar count={counts[i]} target={opt.target} /></td>
-                          ))}
-                          <td className="tr-mono">{total}/{WEEK_TOTAL_TARGET}</td>
-                          <td><StatusBadge status={status} /></td>
-                        </tr>
-                        {isOpen && (
-                          <tr className="tr-expand-row"><td colSpan={DATE_SET_OPTIONS.length + 3}>
-                            {DATE_SET_OPTIONS.map((opt, i) => (
-                              <ApptGroup key={opt.value} title={`${opt.batchLabel} (${counts[i]}/${opt.target})`} list={groups[i]} empty="None logged." />
-                            ))}
-                          </td></tr>
-                        )}
-                      </React.Fragment>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
+      )}
+    </div>
+  );
+}
+function AdminView({ user }) {
+  const [tab, setTab] = useState('users');
+  return (
+    <Shell>
+      <Header user={user} />
+      <main className="tr-main">
+        <div className="tr-tabs" style={{ maxWidth: 320 }}>
+          <button className={`tr-tab ${tab === 'users' ? 'tr-tab-active' : ''}`} onClick={() => setTab('users')}>Manage Team</button>
+          <button className={`tr-tab ${tab === 'pace' ? 'tr-tab-active' : ''}`} onClick={() => setTab('pace')}>Team Pace</button>
+        </div>
+        {tab === 'users' ? <ManageUsersView currentUserId={user.id} /> : <TeamPaceBody user={user} />}
       </main>
     </Shell>
   );
@@ -628,6 +686,7 @@ export default function App() {
   if (profileLoading || !profile) return <Shell><Spinner label="Loading your account…" /></Shell>;
 
   const user = { id: session.user.id, displayName: profile.display_name, role: profile.role };
+  if (user.role === 'super_admin') return <AdminView user={user} />;
   if (user.role === 'manager') return <ManagerView user={user} />;
   return <AdvisorView user={user} />;
 }
