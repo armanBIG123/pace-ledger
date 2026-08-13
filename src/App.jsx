@@ -259,14 +259,12 @@ function AuthScreen() {
         if (role === 'manager' && managerCode !== MANAGER_CODE) {
           setError('That manager access code is incorrect.'); setBusy(false); return;
         }
-        const { data, error: signErr } = await supabase.auth.signUp({ email: mail, password });
+        const { data, error: signErr } = await supabase.auth.signUp({
+          email: mail,
+          password,
+          options: { data: { display_name: displayName.trim(), role } },
+        });
         if (signErr) { setError(signErr.message); setBusy(false); return; }
-        if (data.user) {
-          const { error: profErr } = await supabase.from('profiles').insert({
-            id: data.user.id, display_name: displayName.trim(), role,
-          });
-          if (profErr) { setError('Account created, but the profile could not be saved: ' + profErr.message); setBusy(false); return; }
-        }
         if (!data.session) {
           setNotice('Account created — check your email to confirm it, then log in.');
           setMode('login');
