@@ -384,9 +384,9 @@ function AppointmentForm({ defaultPresenter, weekMonday, onCancel, onSubmit, sav
 }
 
 // ---------------------------------------------------------------------
-// advisor view
+// advisor capabilities — available to advisors, managers, and super admins
 // ---------------------------------------------------------------------
-function AdvisorView({ user }) {
+function MyAppointmentsBody({ user }) {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [weekMonday, setWeekMonday] = useState(mondayOf(todayStr()));
@@ -427,32 +427,39 @@ function AdvisorView({ user }) {
   }
 
   return (
+    <>
+      <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(mondayOf(todayStr()))} />
+      <PaceStrip groups={groups.map(g => ({ option: g.option, count: g.list.length, list: g.list }))} />
+      <div className="tr-row-head">
+        <h2 className="tr-h2">Your appointments this week</h2>
+        <button className="tr-btn tr-btn-brass" onClick={() => setShowForm(s => !s)}>
+          <Plus size={16} /> {showForm ? 'Close' : 'Log appointment'}
+        </button>
+      </div>
+      {error && <div className="tr-error">{error}</div>}
+      {showForm && (
+        <AppointmentForm defaultPresenter={user.displayName} weekMonday={weekMonday} onCancel={() => setShowForm(false)} onSubmit={handleAdd} saving={saving} />
+      )}
+      {loading ? <Spinner label="Loading appointments…" /> : (
+        <>
+          {groups.map(g => (
+            <ApptGroup
+              key={g.option.value}
+              title={`${g.option.batchLabel} (${g.list.length}/${g.option.target})`}
+              list={g.list} onDelete={handleDelete}
+              empty={`No appointments logged for ${g.option.label} yet.`} />
+          ))}
+        </>
+      )}
+    </>
+  );
+}
+function AdvisorView({ user }) {
+  return (
     <Shell>
       <Header user={user} />
       <main className="tr-main">
-        <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(mondayOf(todayStr()))} />
-        <PaceStrip groups={groups.map(g => ({ option: g.option, count: g.list.length, list: g.list }))} />
-        <div className="tr-row-head">
-          <h2 className="tr-h2">Your appointments this week</h2>
-          <button className="tr-btn tr-btn-brass" onClick={() => setShowForm(s => !s)}>
-            <Plus size={16} /> {showForm ? 'Close' : 'Log appointment'}
-          </button>
-        </div>
-        {error && <div className="tr-error">{error}</div>}
-        {showForm && (
-          <AppointmentForm defaultPresenter={user.displayName} weekMonday={weekMonday} onCancel={() => setShowForm(false)} onSubmit={handleAdd} saving={saving} />
-        )}
-        {loading ? <Spinner label="Loading appointments…" /> : (
-          <>
-            {groups.map(g => (
-              <ApptGroup
-                key={g.option.value}
-                title={`${g.option.batchLabel} (${g.list.length}/${g.option.target})`}
-                list={g.list} onDelete={handleDelete}
-                empty={`No appointments logged for ${g.option.label} yet.`} />
-            ))}
-          </>
-        )}
+        <MyAppointmentsBody user={user} />
       </main>
     </Shell>
   );
@@ -552,11 +559,16 @@ function TeamPaceBody({ user }) {
   );
 }
 function ManagerView({ user }) {
+  const [tab, setTab] = useState('mine');
   return (
     <Shell>
       <Header user={user} />
       <main className="tr-main">
-        <TeamPaceBody user={user} />
+        <div className="tr-tabs" style={{ maxWidth: 320 }}>
+          <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
+          <button className={`tr-tab ${tab === 'pace' ? 'tr-tab-active' : ''}`} onClick={() => setTab('pace')}>Team Pace</button>
+        </div>
+        {tab === 'mine' ? <MyAppointmentsBody user={user} /> : <TeamPaceBody user={user} />}
       </main>
     </Shell>
   );
@@ -626,16 +638,19 @@ function ManageUsersView({ currentUserId }) {
   );
 }
 function AdminView({ user }) {
-  const [tab, setTab] = useState('users');
+  const [tab, setTab] = useState('mine');
   return (
     <Shell>
       <Header user={user} />
       <main className="tr-main">
-        <div className="tr-tabs" style={{ maxWidth: 320 }}>
-          <button className={`tr-tab ${tab === 'users' ? 'tr-tab-active' : ''}`} onClick={() => setTab('users')}>Manage Team</button>
+        <div className="tr-tabs" style={{ maxWidth: 460 }}>
+          <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
           <button className={`tr-tab ${tab === 'pace' ? 'tr-tab-active' : ''}`} onClick={() => setTab('pace')}>Team Pace</button>
+          <button className={`tr-tab ${tab === 'users' ? 'tr-tab-active' : ''}`} onClick={() => setTab('users')}>Manage Team</button>
         </div>
-        {tab === 'users' ? <ManageUsersView currentUserId={user.id} /> : <TeamPaceBody user={user} />}
+        {tab === 'mine' && <MyAppointmentsBody user={user} />}
+        {tab === 'pace' && <TeamPaceBody user={user} />}
+        {tab === 'users' && <ManageUsersView currentUserId={user.id} />}
       </main>
     </Shell>
   );
