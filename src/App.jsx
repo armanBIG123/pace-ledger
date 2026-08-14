@@ -124,9 +124,16 @@ async function deleteAppointmentRow(id) {
   const { error } = await supabase.from('appointments').delete().eq('id', id);
   return !error;
 }
-async function fetchAdvisors() {
-  const { data, error } = await supabase
+async function fetchAdvisors(managerId) {
+  let query = supabase
     .from('profiles').select('*').eq('role', 'advisor').order('display_name');
+  if (managerId) query = query.eq('manager_id', managerId);
+  const { data, error } = await query;
+  if (error) { console.error(error); return []; }
+  return data;
+}
+async function fetchManagerDirectory() {
+  const { data, error } = await supabase.from('manager_directory').select('*').order('display_name');
   if (error) { console.error(error); return []; }
   return data;
 }
@@ -235,9 +242,15 @@ function AuthScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [managerId, setManagerId] = useState('');
+  const [managers, setManagers] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+
+  useEffect(() => {
+    fetchManagerDirectory().then(setManagers);
+  }, []);
 
   async function submit() {
     setError(''); setNotice('');
@@ -248,10 +261,11 @@ function AuthScreen() {
       if (mode === 'signup') {
         if (!displayName.trim()) { setError('Enter your full name.'); setBusy(false); return; }
         if (password.length < 6) { setError('Password needs to be at least 6 characters.'); setBusy(false); return; }
+        if (managers.length > 0 && !managerId) { setError('Please select your manager.'); setBusy(false); return; }
         const { data, error: signErr } = await supabase.auth.signUp({
           email: mail,
           password,
-          options: { data: { display_name: displayName.trim() } },
+          options: { data: { display_name: displayName.trim(), manager_id: managerId || '' } },
         });
         if (signErr) { setError(signErr.message); setBusy(false); return; }
         if (!data.session) {
@@ -295,6 +309,18 @@ function AuthScreen() {
               <span>Password</span>
               <input type="password" value={password} onChange={e => setPassword(e.target.value)} />
             </label>
+            {mode === 'signup' && managers.length > 0 && (
+              <label className="tr-field">
+                <span>Your manager</span>
+                <select value={managerId} onChange={e => setManagerId(e.target.value)}>
+                  <option value="">Select your manager…</option>
+                  {managers.map(m => <option key={m.id} value={m.id}>{m.display_name}</option>)}
+                </select>
+              </label>
+            )}
+            {mode === 'signup' && managers.length === 0 && (
+              <div className="tr-badge tr-badge-weekday">No managers set up yet — you can sign up now and be assigned one later.</div>
+            )}
             {notice && <div className="tr-badge tr-badge-weekday">{notice}</div>}
             {error && <div className="tr-error">{error}</div>}
             <button type="button" className="tr-btn tr-btn-brass tr-btn-block" onClick={submit} disabled={busy}>
@@ -492,13 +518,13 @@ function TeamPaceBody({ user }) {
   const refresh = useCallback(async () => {
     setLoading(true);
     const [advisorList, appts] = await Promise.all([
-      fetchAdvisors(),
+      fetchAdvisors(user.role === 'manager' ? user.id : null),
       fetchAppointmentsForWeek(weekMonday),
     ]);
     setAdvisors(advisorList);
     setWeekAppts(appts);
     setLoading(false);
-  }, [weekMonday]);
+  }, [weekMonday, user.id, user.role]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -586,6 +612,14 @@ async function changeUserRole(id, newRole) {
   const { error } = await supabase.from('profiles').update({ role: newRole }).eq('id', id);
   return !error ? null : error.message;
 }
+async function deleteUserProfile(id) {
+  const { error } = await supabase.from('profiles').delete().eq('id', id);
+  return !error ? null : error.message;
+}
+async function changeUserManager(id, newManagerId) {
+  const { error } = await supabase.from('profiles').update({ manager_id: newManagerId || null }).eq('id', id);
+  return !error ? null : error.message;
+}
 function ManageUsersView({ currentUserId }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -600,6 +634,8 @@ function ManageUsersView({ currentUserId }) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  const managerOptions = users.filter(u => u.role === 'manager');
+
   async function handleChange(id, newRole) {
     setSavingId(id);
     setError('');
@@ -609,13 +645,33 @@ function ManageUsersView({ currentUserId }) {
     setUsers(prev => prev.map(u => u.id === id ? { ...u, role: newRole } : u));
   }
 
+  async function handleManagerChange(id, newManagerId) {
+    setSavingId(id);
+    setError('');
+    const err = await changeUserManager(id, newManagerId);
+    setSavingId(null);
+    if (err) { setError(err); return; }
+    setUsers(prev => prev.map(u => u.id === id ? { ...u, manager_id: newManagerId || null } : u));
+  }
+
+  async function handleDelete(id, name) {
+    const ok = window.confirm(`Remove ${name} from the team? They'll no longer be able to use the app. Their past appointment history is kept, not deleted.`);
+    if (!ok) return;
+    setSavingId(id);
+    setError('');
+    const err = await deleteUserProfile(id);
+    setSavingId(null);
+    if (err) { setError(err); return; }
+    setUsers(prev => prev.filter(u => u.id !== id));
+  }
+
   return (
     <div className="tr-card tr-summary-card">
       {error && <div className="tr-error" style={{ margin: 16 }}>{error}</div>}
       {loading ? <Spinner label="Loading team…" /> : (
         <div className="tr-table-wrap">
           <table className="tr-table tr-table-summary">
-            <thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead>
+            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Manager</th><th></th></tr></thead>
             <tbody>
               {users.map(u => (
                 <tr key={u.id}>
@@ -627,6 +683,21 @@ function ManageUsersView({ currentUserId }) {
                       <option value="manager">Manager</option>
                       <option value="super_admin">Super Admin</option>
                     </select>
+                  </td>
+                  <td>
+                    {u.role === 'advisor' ? (
+                      <select value={u.manager_id || ''} disabled={savingId === u.id} onChange={e => handleManagerChange(u.id, e.target.value)}>
+                        <option value="">— none —</option>
+                        {managerOptions.map(m => <option key={m.id} value={m.id}>{m.display_name}</option>)}
+                      </select>
+                    ) : '—'}
+                  </td>
+                  <td>
+                    {u.id !== currentUserId && (
+                      <button className="tr-icon-btn" onClick={() => handleDelete(u.id, u.display_name)} disabled={savingId === u.id} title="Remove from team">
+                        <Trash2 size={14} />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
