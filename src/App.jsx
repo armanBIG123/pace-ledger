@@ -282,6 +282,18 @@ function AuthScreen() {
       setBusy(false);
     }
   }
+  async function forgotPassword() {
+    setError(''); setNotice('');
+    const mail = email.trim();
+    if (!mail) { setError('Enter your email above first, then click "Forgot password?".'); return; }
+    setBusy(true);
+    const { error: err } = await supabase.auth.resetPasswordForEmail(mail, {
+      redirectTo: window.location.origin,
+    });
+    setBusy(false);
+    if (err) { setError(err.message); return; }
+    setNotice('Check your email for a link to reset your password.');
+  }
   function handleKeyDown(e) { if (e.key === 'Enter') { e.preventDefault(); submit(); } }
 
   return (
@@ -309,6 +321,9 @@ function AuthScreen() {
               <span>Password</span>
               <input type="password" value={password} onChange={e => setPassword(e.target.value)} />
             </label>
+            {mode === 'login' && (
+              <button type="button" className="tr-link-btn" onClick={forgotPassword} disabled={busy}>Forgot password?</button>
+            )}
             {mode === 'signup' && managers.length > 0 && (
               <label className="tr-field">
                 <span>Your manager</span>
@@ -333,9 +348,59 @@ function AuthScreen() {
   );
 }
 
+function ResetPasswordScreen({ onDone }) {
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function submit() {
+    setError('');
+    if (password.length < 6) { setError('Password needs to be at least 6 characters.'); return; }
+    if (password !== confirm) { setError("Passwords don't match."); return; }
+    setBusy(true);
+    const { error: err } = await supabase.auth.updateUser({ password });
+    setBusy(false);
+    if (err) { setError(err.message); return; }
+    onDone();
+  }
+  function handleKeyDown(e) { if (e.key === 'Enter') { e.preventDefault(); submit(); } }
+
+  return (
+    <Shell>
+      <div className="tr-auth-wrap">
+        <div className="tr-auth-card" onKeyDown={handleKeyDown}>
+          <div className="tr-brand tr-brand-center"><ShieldCheck size={22} /> <span>Pace<em>Ledger</em></span></div>
+          <p className="tr-auth-sub">Set a new password for your account.</p>
+          <div className="tr-auth-form">
+            <label className="tr-field">
+              <span>New password</span>
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} />
+            </label>
+            <label className="tr-field">
+              <span>Confirm new password</span>
+              <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} />
+            </label>
+            {error && <div className="tr-error">{error}</div>}
+            <button type="button" className="tr-btn tr-btn-brass tr-btn-block" onClick={submit} disabled={busy}>
+              {busy ? 'Saving…' : 'Set new password'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Shell>
+  );
+}
+
 // ---------------------------------------------------------------------
 // appointment form
 // ---------------------------------------------------------------------
+function openPicker(e) {
+  if (typeof e.target.showPicker === 'function') {
+    try { e.target.showPicker(); } catch { /* unsupported in this browser, ignore */ }
+  }
+}
+
 function AppointmentForm({ defaultPresenter, weekMonday, onCancel, onSubmit, saving }) {
   const [dateSetOption, setDateSetOption] = useState(defaultDateSetOption());
   const [appointmentDate, setAppointmentDate] = useState('');
@@ -377,11 +442,11 @@ function AppointmentForm({ defaultPresenter, weekMonday, onCancel, onSubmit, sav
         </div>
         <label className="tr-field">
           <span>Appointment date</span>
-          <input type="date" value={appointmentDate} onChange={e => setAppointmentDate(e.target.value)} />
+          <input type="date" value={appointmentDate} onChange={e => setAppointmentDate(e.target.value)} onClick={openPicker} />
         </label>
         <label className="tr-field">
           <span>Appointment time</span>
-          <input type="time" value={appointmentTime} onChange={e => setAppointmentTime(e.target.value)} />
+          <input type="time" value={appointmentTime} onChange={e => setAppointmentTime(e.target.value)} onClick={openPicker} />
         </label>
         <label className="tr-field">
           <span>Presenter</span>
@@ -735,10 +800,14 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState('');
+  const [recoveryMode, setRecoveryMode] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null));
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, sess) => setSession(sess));
+    const { data: sub } = supabase.auth.onAuthStateChange((event, sess) => {
+      setSession(sess);
+      if (event === 'PASSWORD_RECOVERY') setRecoveryMode(true);
+    });
     return () => sub.subscription.unsubscribe();
   }, []);
 
@@ -761,6 +830,7 @@ export default function App() {
   }, [session]);
 
   if (session === undefined) return <Shell><Spinner label="Loading…" /></Shell>;
+  if (recoveryMode) return <ResetPasswordScreen onDone={() => setRecoveryMode(false)} />;
   if (!session) return <AuthScreen />;
   if (profileError) {
     return (
@@ -876,6 +946,9 @@ const CSS = `
 .tr-badge-weekday { color: #2E6E51; border-color: rgba(63,143,108,0.4); background: rgba(63,143,108,0.08); }
 .tr-form-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
 .tr-error { margin-top: 10px; font-size: 13px; color: var(--rust); background: rgba(184,80,61,0.08); border: 1px solid rgba(184,80,61,0.3); padding: 8px 10px; border-radius: 6px; }
+.tr-link-btn { align-self: flex-start; background: none; border: none; padding: 0; margin-top: -4px; font-family: inherit; font-size: 12.5px; font-weight: 500; color: var(--brass-dark); cursor: pointer; text-decoration: underline; }
+.tr-link-btn:hover { color: var(--ink); }
+.tr-link-btn:disabled { opacity: 0.6; cursor: default; }
 
 /* tables */
 .tr-table-wrap { overflow-x: auto; }
