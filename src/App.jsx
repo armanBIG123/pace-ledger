@@ -127,10 +127,14 @@ async function deleteAppointmentRow(id) {
   const { error } = await supabase.from('appointments').delete().eq('id', id);
   return !error;
 }
-async function fetchAdvisors(managerId) {
-  let query = supabase
-    .from('profiles').select('*').eq('role', 'advisor').order('display_name');
-  if (managerId) query = query.eq('manager_id', managerId);
+async function fetchTeamMembers(viewer) {
+  let query = supabase.from('profiles').select('*').order('display_name');
+  if (viewer.role === 'super_admin') {
+    query = query.in('role', ['advisor', 'manager']);
+  } else {
+    // regular managers only ever see their own assigned advisors
+    query = query.eq('role', 'advisor').eq('manager_id', viewer.id);
+  }
   const { data, error } = await query;
   if (error) { console.error(error); return []; }
   return data;
@@ -646,7 +650,7 @@ function MiniBar({ count, target }) {
   );
 }
 function TeamPaceBody({ user }) {
-  const [advisors, setAdvisors] = useState([]);
+  const [members, setMembers] = useState([]);
   const [weekAppts, setWeekAppts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [weekMonday, setWeekMonday] = useState(weekStartOf(todayStr()));
@@ -654,11 +658,11 @@ function TeamPaceBody({ user }) {
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const [advisorList, appts] = await Promise.all([
-      fetchAdvisors(user.role === 'manager' ? user.id : null),
+    const [memberList, appts] = await Promise.all([
+      fetchTeamMembers(user),
       fetchAppointmentsForWeek(weekMonday),
     ]);
-    setAdvisors(advisorList);
+    setMembers(memberList);
     setWeekAppts(appts);
     setLoading(false);
   }, [weekMonday, user.id, user.role]);
@@ -672,21 +676,21 @@ function TeamPaceBody({ user }) {
         <h2 className="tr-h2"><Users size={18} /> Team pace</h2>
         <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
       </div>
-      {loading ? <Spinner label="Loading team data…" /> : advisors.length === 0 ? (
-        <div className="tr-card"><p className="tr-empty">No advisor accounts yet. Once advisors create accounts and start logging, they'll show up here.</p></div>
+      {loading ? <Spinner label="Loading team data…" /> : members.length === 0 ? (
+        <div className="tr-card"><p className="tr-empty">No team members yet. Once people create accounts and start logging, they'll show up here.</p></div>
       ) : (
         <div className="tr-card tr-summary-card">
           <div className="tr-table-wrap">
             <table className="tr-table tr-table-summary">
               <thead>
                 <tr>
-                  <th>Advisor</th>
+                  <th>Team member</th>
                   {DATE_SET_OPTIONS.map(opt => <th key={opt.value}>{opt.shortLabel}</th>)}
                   <th>Total</th><th>Status</th>
                 </tr>
               </thead>
               <tbody>
-                {advisors.map(adv => {
+                {members.map(adv => {
                   const list = weekAppts.filter(a => a.userId === adv.id);
                   const groups = DATE_SET_OPTIONS.map(opt => list.filter(a => a.dateSetOption === opt.value));
                   const counts = groups.map(g => g.length);
@@ -696,7 +700,7 @@ function TeamPaceBody({ user }) {
                   return (
                     <React.Fragment key={adv.id}>
                       <tr className="tr-clickable-row" onClick={() => setExpanded(isOpen ? null : adv.id)}>
-                        <td>{adv.display_name}</td>
+                        <td>{adv.display_name}{adv.role === 'manager' ? <span className="tr-note"> — manager</span> : null}</td>
                         {DATE_SET_OPTIONS.map((opt, i) => (
                           <td key={opt.value}><MiniBar count={counts[i]} target={opt.target} /></td>
                         ))}
