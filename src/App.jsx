@@ -16,10 +16,13 @@ function todayStr() { return fmtDate(new Date()); }
 function parseDate(s) { return new Date(s + 'T00:00:00'); }
 function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
 
-function mondayOf(dateStr) {
+// Tracking weeks run Saturday through the following Friday — the weekend
+// that "opens" a week (e.g. Sat Aug 15 / Sun Aug 16) belongs to that same
+// week (Aug 15–21), not the calendar week after it.
+function weekStartOf(dateStr) {
   const d = parseDate(dateStr);
-  const day = d.getDay();
-  const diff = day === 0 ? -6 : 1 - day;
+  const day = d.getDay(); // 0=Sun...6=Sat
+  const diff = -((day + 1) % 7);
   return fmtDate(addDays(d, diff));
 }
 
@@ -548,7 +551,7 @@ function CalendlyLinkEditor({ user }) {
 function MyAppointmentsBody({ user }) {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [weekMonday, setWeekMonday] = useState(mondayOf(todayStr()));
+  const [weekMonday, setWeekMonday] = useState(weekStartOf(todayStr()));
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -588,7 +591,7 @@ function MyAppointmentsBody({ user }) {
   return (
     <>
       {(user.role === 'manager' || user.role === 'super_admin') && <CalendlyLinkEditor user={user} />}
-      <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(mondayOf(todayStr()))} />
+      <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
       <PaceStrip groups={groups.map(g => ({ option: g.option, count: g.list.length, list: g.list }))} />
       <div className="tr-row-head">
         <h2 className="tr-h2">Your appointments this week</h2>
@@ -646,7 +649,7 @@ function TeamPaceBody({ user }) {
   const [advisors, setAdvisors] = useState([]);
   const [weekAppts, setWeekAppts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [weekMonday, setWeekMonday] = useState(mondayOf(todayStr()));
+  const [weekMonday, setWeekMonday] = useState(weekStartOf(todayStr()));
   const [expanded, setExpanded] = useState(null);
 
   const refresh = useCallback(async () => {
@@ -664,7 +667,7 @@ function TeamPaceBody({ user }) {
 
   return (
     <>
-      <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(mondayOf(todayStr()))} />
+      <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
       <div className="tr-row-head">
         <h2 className="tr-h2"><Users size={18} /> Team pace</h2>
         <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
