@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   LogIn, LogOut, Plus, Trash2, ChevronLeft, ChevronRight, Users,
-  CalendarDays, ShieldCheck, UserPlus, Loader2
+  CalendarDays, ShieldCheck, UserPlus, Loader2, Pencil, ClipboardCheck
 } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
 
@@ -97,11 +97,32 @@ function rowToRecord(row) {
     interestedTax: row.interested_tax,
     interestedInsurance: row.interested_insurance,
     followUpCompletedAt: row.follow_up_completed_at,
+    status: row.status || '',
+    presentationType: row.presentation_type || '',
   };
 }
 function isPastAppointment(a) {
   const dt = new Date(`${a.appointmentDate}T${a.appointmentTime || '00:00'}`);
   return dt.getTime() < Date.now();
+}
+// Days/months/years since a timestamp, e.g. "1y 2m 5d"
+function tenureSince(createdAt) {
+  if (!createdAt) return '—';
+  const start = new Date(createdAt);
+  const now = new Date();
+  let years = now.getFullYear() - start.getFullYear();
+  let months = now.getMonth() - start.getMonth();
+  let days = now.getDate() - start.getDate();
+  if (days < 0) {
+    months -= 1;
+    days += new Date(now.getFullYear(), now.getMonth(), 0).getDate();
+  }
+  if (months < 0) { years -= 1; months += 12; }
+  const parts = [];
+  if (years > 0) parts.push(`${years}y`);
+  if (months > 0) parts.push(`${months}m`);
+  parts.push(`${days}d`);
+  return parts.join(' ');
 }
 async function saveFollowUp(id, data) {
   const { error } = await supabase.from('appointments').update({
@@ -112,6 +133,10 @@ async function saveFollowUp(id, data) {
     interested_insurance: data.interestedInsurance,
     follow_up_completed_at: new Date().toISOString(),
   }).eq('id', id);
+  return !error;
+}
+async function updateAppointmentStatus(id, status) {
+  const { error } = await supabase.from('appointments').update({ status: status || null }).eq('id', id);
   return !error;
 }
 async function fetchMyAppointments(userId) {
@@ -140,7 +165,27 @@ async function insertAppointment(userId, form) {
     trainee: form.trainee.trim() || null,
     client_name: form.client.trim(),
     notes: form.notes.trim() || null,
+    presentation_type: form.presentationType || null,
   }).select().single();
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, record: rowToRecord(data) };
+}
+// Editing never touches week_of or user_id — it can only ever change how an
+// appointment looks within the week it was already logged for, never move
+// it to a different week.
+async function updateAppointment(id, form) {
+  const meta = dateSetMeta(form.dateSetOption);
+  const { data, error } = await supabase.from('appointments').update({
+    date_set_option: form.dateSetOption,
+    category: meta.category,
+    appointment_date: form.appointmentDate,
+    appointment_time: form.appointmentTime,
+    presenter: form.presenter.trim(),
+    trainee: form.trainee.trim() || null,
+    client_name: form.client.trim(),
+    notes: form.notes.trim() || null,
+    presentation_type: form.presentationType || null,
+  }).eq('id', id).select().single();
   if (error) return { ok: false, error: error.message };
   return { ok: true, record: rowToRecord(data) };
 }
@@ -233,7 +278,27 @@ function PaceStrip({ groups }) {
     </div>
   );
 }
-function ApptGroup({ title, list, onDelete, onFollowUp, empty }) {
+const STATUS_OPTIONS = [
+  { value: '', label: 'No status', color: 'none' },
+  { value: 'completed', label: 'Completed', color: 'green' },
+  { value: 'needs_follow_up', label: 'Needs follow-up', color: 'amber' },
+  { value: 'not_completed', label: "Didn't happen", color: 'rust' },
+  { value: 'needs_reschedule', label: 'Needs reschedule', color: 'violet' },
+];
+function StatusSelect({ value, onChange }) {
+  const opt = STATUS_OPTIONS.find(o => o.value === (value || '')) || STATUS_OPTIONS[0];
+  return (
+    <select className={`tr-status tr-status-${opt.color}`} value={value || ''} onChange={e => onChange(e.target.value || null)}>
+      {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  );
+}
+function StatusChip({ status }) {
+  const opt = STATUS_OPTIONS.find(o => o.value === status);
+  if (!opt || !opt.value) return null;
+  return <span className={`tr-status tr-status-${opt.color}`}>{opt.label}</span>;
+}
+function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, onStatusChange, empty }) {
   return (
     <div className="tr-card tr-appt-group">
       <h3 className="tr-h3">{title}</h3>
@@ -241,32 +306,41 @@ function ApptGroup({ title, list, onDelete, onFollowUp, empty }) {
         <div className="tr-table-wrap">
           <table className="tr-table">
             <thead>
-              <tr><th>Set</th><th>Appointment</th><th>Presenter</th><th>Trainee</th><th>Client / recruit</th>{onDelete && <th></th>}</tr>
+              <tr><th>Set</th><th>Appointment</th><th>Presenter</th><th>Trainee</th><th>Client / recruit</th><th>Status</th>{onDelete && <th></th>}</tr>
             </thead>
             <tbody>
-              {list.map(a => (
-                <tr key={a.id}>
-                  <td>{a.dateSetLabel}</td>
-                  <td>{fmtDisplayDate(a.appointmentDate)} · {fmtTime(a.appointmentTime)}</td>
-                  <td>{a.presenter}</td>
-                  <td>{a.trainee || '—'}</td>
-                  <td>
-                    {a.client}
-                    {a.followUpCompletedAt ? <span className="tr-status tr-status-green" style={{ marginLeft: 6 }}>✓ followed up</span> : null}
-                    {a.notes ? <span className="tr-note"> — {a.notes}</span> : null}
-                  </td>
-                  {onDelete && (
-                    <td style={{ whiteSpace: 'nowrap' }}>
-                      {onFollowUp && isPastAppointment(a) && (
-                        <button className="tr-btn tr-btn-ghost tr-btn-sm" style={{ marginRight: 6 }} onClick={() => onFollowUp(a)}>
-                          {a.followUpCompletedAt ? 'Edit' : 'Follow up'}
-                        </button>
-                      )}
-                      <button className="tr-icon-btn" onClick={() => onDelete(a.id)} title="Delete"><Trash2 size={14} /></button>
+              {list.map(a => {
+                const typeClass = a.presentationType === 'recruit' ? 'tr-type-recruit' : a.presentationType === 'sale' ? 'tr-type-sale' : '';
+                return (
+                  <tr key={a.id}>
+                    <td className={typeClass}>{a.dateSetLabel}</td>
+                    <td>{fmtDisplayDate(a.appointmentDate)} · {fmtTime(a.appointmentTime)}</td>
+                    <td>{a.presenter}</td>
+                    <td>{a.trainee || '—'}</td>
+                    <td>
+                      {a.client}
+                      {a.followUpCompletedAt ? <span className="tr-status tr-status-green" style={{ marginLeft: 6 }}>✓ followed up</span> : null}
+                      {a.notes ? <span className="tr-note"> — {a.notes}</span> : null}
                     </td>
-                  )}
-                </tr>
-              ))}
+                    <td>
+                      {onDelete && onStatusChange
+                        ? <StatusSelect value={a.status} onChange={v => onStatusChange(a.id, v)} />
+                        : <StatusChip status={a.status} />}
+                    </td>
+                    {onDelete && (
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        {onFollowUp && isPastAppointment(a) && (
+                          <button className="tr-icon-btn" onClick={() => onFollowUp(a)} title={a.followUpCompletedAt ? 'Edit follow-up' : 'Follow up'}>
+                            <ClipboardCheck size={14} />
+                          </button>
+                        )}
+                        {onEdit && <button className="tr-icon-btn" onClick={() => onEdit(a)} title="Edit appointment"><Pencil size={14} /></button>}
+                        <button className="tr-icon-btn" onClick={() => onDelete(a.id)} title="Delete"><Trash2 size={14} /></button>
+                      </td>
+                    )}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -529,14 +603,24 @@ function FollowUpModal({ appointment, onClose, onSave, saving }) {
   );
 }
 
-function AppointmentForm({ defaultPresenter, weekMonday, onCancel, onSubmit, saving }) {
-  const [dateSetOption, setDateSetOption] = useState(defaultDateSetOption());
-  const [appointmentDate, setAppointmentDate] = useState('');
-  const [appointmentTime, setAppointmentTime] = useState('');
-  const [presenter, setPresenter] = useState(defaultPresenter || '');
-  const [trainee, setTrainee] = useState('');
-  const [client, setClient] = useState('');
-  const [notes, setNotes] = useState('');
+function TypeChoice({ value, onChange }) {
+  return (
+    <div className="tr-pillrow">
+      <button type="button" className={`tr-pill-btn tr-pill-recruit ${value === 'recruit' ? 'tr-pill-btn-active-recruit' : ''}`} onClick={() => onChange('recruit')}>Recruit</button>
+      <button type="button" className={`tr-pill-btn tr-pill-sale ${value === 'sale' ? 'tr-pill-btn-active-sale' : ''}`} onClick={() => onChange('sale')}>Sale</button>
+    </div>
+  );
+}
+
+function AppointmentForm({ defaultPresenter, weekMonday, editing, onCancel, onSubmit, saving }) {
+  const [dateSetOption, setDateSetOption] = useState(editing?.dateSetOption || defaultDateSetOption());
+  const [appointmentDate, setAppointmentDate] = useState(editing?.appointmentDate || '');
+  const [appointmentTime, setAppointmentTime] = useState(editing?.appointmentTime || '');
+  const [presenter, setPresenter] = useState(editing?.presenter || defaultPresenter || '');
+  const [trainee, setTrainee] = useState(editing?.trainee || '');
+  const [client, setClient] = useState(editing?.client || '');
+  const [notes, setNotes] = useState(editing?.notes || '');
+  const [presentationType, setPresentationType] = useState(editing?.presentationType || '');
   const [err, setErr] = useState('');
   const [calendlyContacts, setCalendlyContacts] = useState([]);
 
@@ -545,12 +629,12 @@ function AppointmentForm({ defaultPresenter, weekMonday, onCancel, onSubmit, sav
   const meta = dateSetMeta(dateSetOption);
 
   function submit() {
-    if (!appointmentDate || !appointmentTime || !presenter.trim() || !client.trim()) {
-      setErr('Fill in the appointment date/time, presenter, and client/recruit.');
+    if (!appointmentDate || !appointmentTime || !presenter.trim() || !client.trim() || !presentationType) {
+      setErr('Fill in the appointment date/time, presenter, client/recruit, and whether it\'s a recruit or sale.');
       return;
     }
     setErr('');
-    onSubmit({ dateSetOption, appointmentDate, appointmentTime, presenter, trainee, client, notes });
+    onSubmit({ dateSetOption, appointmentDate, appointmentTime, presenter, trainee, client, notes, presentationType });
   }
   function handleKeyDown(e) {
     if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') { e.preventDefault(); submit(); }
@@ -558,6 +642,7 @@ function AppointmentForm({ defaultPresenter, weekMonday, onCancel, onSubmit, sav
 
   return (
     <div className="tr-card tr-form" onKeyDown={handleKeyDown}>
+      <h3 className="tr-h3">{editing ? 'Edit appointment' : 'Log a new appointment'}</h3>
       {calendlyContacts.length > 0 && (
         <div className="tr-field tr-field-wide" style={{ marginBottom: 14 }}>
           <span>If a manager is presenting, open their Calendly to schedule</span>
@@ -570,6 +655,10 @@ function AppointmentForm({ defaultPresenter, weekMonday, onCancel, onSubmit, sav
           </div>
         </div>
       )}
+      <div className="tr-field tr-field-wide" style={{ marginBottom: 14 }}>
+        <span>Recruit or sale presentation?</span>
+        <TypeChoice value={presentationType} onChange={setPresentationType} />
+      </div>
       <div className="tr-form-grid">
         <label className="tr-field">
           <span>Date set</span>
@@ -611,7 +700,7 @@ function AppointmentForm({ defaultPresenter, weekMonday, onCancel, onSubmit, sav
       {err && <div className="tr-error">{err}</div>}
       <div className="tr-form-actions">
         <button type="button" className="tr-btn tr-btn-ghost" onClick={onCancel}>Cancel</button>
-        <button type="button" className="tr-btn tr-btn-brass" onClick={submit} disabled={saving}>{saving ? 'Saving…' : 'Save appointment'}</button>
+        <button type="button" className="tr-btn tr-btn-brass" onClick={submit} disabled={saving}>{saving ? 'Saving…' : editing ? 'Save changes' : 'Save appointment'}</button>
       </div>
     </div>
   );
@@ -669,10 +758,12 @@ function MyAppointmentsBody({ user }) {
   const [loading, setLoading] = useState(true);
   const [weekMonday, setWeekMonday] = useState(weekStartOf(todayStr()));
   const [showForm, setShowForm] = useState(false);
+  const [editingAppt, setEditingAppt] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [followUpTarget, setFollowUpTarget] = useState(null);
   const [followUpSaving, setFollowUpSaving] = useState(false);
+  const [legendShown, setLegendShown] = useState(true);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -690,14 +781,25 @@ function MyAppointmentsBody({ user }) {
     list: weekAppts.filter(a => a.dateSetOption === opt.value),
   }));
 
-  async function handleAdd(form) {
+  function closeForm() { setShowForm(false); setEditingAppt(null); }
+  function openEdit(appt) { setEditingAppt(appt); setShowForm(true); }
+
+  async function handleFormSubmit(form) {
     setSaving(true);
     setError('');
-    const res = await insertAppointment(user.id, { ...form, weekOf: weekMonday });
-    setSaving(false);
-    if (!res.ok) { setError(res.error || 'Could not save. Try again.'); return; }
-    setAppointments(prev => [...prev, res.record]);
-    setShowForm(false);
+    if (editingAppt) {
+      const res = await updateAppointment(editingAppt.id, form);
+      setSaving(false);
+      if (!res.ok) { setError(res.error || 'Could not save. Try again.'); return; }
+      setAppointments(prev => prev.map(a => a.id === editingAppt.id ? res.record : a));
+      closeForm();
+    } else {
+      const res = await insertAppointment(user.id, { ...form, weekOf: weekMonday });
+      setSaving(false);
+      if (!res.ok) { setError(res.error || 'Could not save. Try again.'); return; }
+      setAppointments(prev => [...prev, res.record]);
+      closeForm();
+    }
   }
   async function handleDelete(id) {
     const prev = appointments;
@@ -715,6 +817,12 @@ function MyAppointmentsBody({ user }) {
     } : a));
     setFollowUpTarget(null);
   }
+  async function handleStatusChange(id, status) {
+    const prev = appointments;
+    setAppointments(appointments.map(a => a.id === id ? { ...a, status: status || '' } : a));
+    const ok = await updateAppointmentStatus(id, status);
+    if (!ok) setAppointments(prev);
+  }
 
   return (
     <>
@@ -723,13 +831,20 @@ function MyAppointmentsBody({ user }) {
       <PaceStrip groups={groups.map(g => ({ option: g.option, count: g.list.length, list: g.list }))} />
       <div className="tr-row-head">
         <h2 className="tr-h2">Your appointments this week</h2>
-        <button className="tr-btn tr-btn-brass" onClick={() => setShowForm(s => !s)}>
+        <button className="tr-btn tr-btn-brass" onClick={() => (showForm ? closeForm() : setShowForm(true))}>
           <Plus size={16} /> {showForm ? 'Close' : 'Log appointment'}
         </button>
       </div>
+      {legendShown && (
+        <p className="tr-empty" style={{ margin: '-8px 0 0' }}>
+          <span className="tr-legend-dot" style={{ background: 'var(--type-recruit)' }} /> Recruit &nbsp;
+          <span className="tr-legend-dot" style={{ background: 'var(--type-sale)' }} /> Sale
+          <button type="button" className="tr-link-btn" style={{ marginLeft: 10 }} onClick={() => setLegendShown(false)}>hide</button>
+        </p>
+      )}
       {error && <div className="tr-error">{error}</div>}
       {showForm && (
-        <AppointmentForm defaultPresenter={user.displayName} weekMonday={weekMonday} onCancel={() => setShowForm(false)} onSubmit={handleAdd} saving={saving} />
+        <AppointmentForm defaultPresenter={user.displayName} weekMonday={weekMonday} editing={editingAppt} onCancel={closeForm} onSubmit={handleFormSubmit} saving={saving} />
       )}
       {loading ? <Spinner label="Loading appointments…" /> : (
         <>
@@ -738,6 +853,7 @@ function MyAppointmentsBody({ user }) {
               key={g.option.value}
               title={`${g.option.batchLabel} (${g.list.length}/${g.option.target})`}
               list={g.list} onDelete={handleDelete} onFollowUp={setFollowUpTarget}
+              onEdit={openEdit} onStatusChange={handleStatusChange}
               empty={`No appointments logged for ${g.option.label} yet.`} />
           ))}
         </>
@@ -831,7 +947,10 @@ function TeamPaceBody({ user }) {
                   return (
                     <React.Fragment key={adv.id}>
                       <tr className="tr-clickable-row" onClick={() => setExpanded(isOpen ? null : adv.id)}>
-                        <td>{adv.display_name}{adv.role === 'manager' ? <span className="tr-note"> — manager</span> : null}</td>
+                        <td>
+                          {adv.display_name}{adv.role === 'manager' ? <span className="tr-note"> — manager</span> : null}
+                          <div className="tr-tenure">Member for {tenureSince(adv.created_at)}</div>
+                        </td>
                         {DATE_SET_OPTIONS.map((opt, i) => (
                           <td key={opt.value}><MiniBar count={counts[i]} target={opt.target} /></td>
                         ))}
@@ -947,7 +1066,10 @@ function ManageUsersView({ currentUserId }) {
             <tbody>
               {users.map(u => (
                 <tr key={u.id}>
-                  <td>{u.display_name}{u.id === currentUserId ? ' (you)' : ''}</td>
+                  <td>
+                    {u.display_name}{u.id === currentUserId ? ' (you)' : ''}
+                    <div className="tr-tenure">Member for {tenureSince(u.created_at)}</div>
+                  </td>
                   <td>{u.email || '—'}</td>
                   <td>
                     <select value={u.role} disabled={savingId === u.id} onChange={e => handleChange(u.id, e.target.value)}>
@@ -1071,6 +1193,12 @@ const CSS = `
   --green: #3F8F6C;
   --amber: #D98E3B;
   --rust: #B8503D;
+  --violet: #7C5FA6;
+  --violet-dark: #6B4E96;
+  --type-recruit: #3574B8;
+  --type-recruit-dark: #285A91;
+  --type-sale: #D9772E;
+  --type-sale-dark: #B45F1E;
   --slate: #33414D;
   --slate-light: #7C8998;
   --line: rgba(19,35,48,0.12);
@@ -1192,6 +1320,19 @@ const CSS = `
 .tr-status-green { background: rgba(63,143,108,0.12); color: #2E6E51; }
 .tr-status-amber { background: rgba(217,142,59,0.14); color: #9C6423; }
 .tr-status-rust { background: rgba(184,80,61,0.12); color: var(--rust); }
+.tr-status-violet { background: rgba(124,95,166,0.14); color: var(--violet-dark); }
+.tr-status-none { background: transparent; color: var(--slate-light); border: 1px dashed var(--line); }
+select.tr-status { border: none; cursor: pointer; font-family: inherit; -webkit-appearance: menulist; appearance: auto; }
+
+/* recruit/sale type coding */
+.tr-type-recruit { box-shadow: inset 3px 0 0 0 var(--type-recruit); }
+.tr-type-sale { box-shadow: inset 3px 0 0 0 var(--type-sale); }
+.tr-pill-recruit.tr-pill-btn-active-recruit { background: var(--type-recruit); border-color: var(--type-recruit-dark); color: #fff; }
+.tr-pill-sale.tr-pill-btn-active-sale { background: var(--type-sale); border-color: var(--type-sale-dark); color: #fff; }
+.tr-legend-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+
+/* tenure */
+.tr-tenure { font-size: 11px; color: var(--slate-light); margin-top: 2px; }
 
 /* auth */
 .tr-auth-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
