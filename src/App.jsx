@@ -91,7 +91,28 @@ function rowToRecord(row) {
     client: row.client_name,
     notes: row.notes || '',
     createdAt: row.created_at,
+    outcome: row.outcome || '',
+    followUpScheduled: row.follow_up_scheduled,
+    result: row.result || '',
+    interestedTax: row.interested_tax,
+    interestedInsurance: row.interested_insurance,
+    followUpCompletedAt: row.follow_up_completed_at,
   };
+}
+function isPastAppointment(a) {
+  const dt = new Date(`${a.appointmentDate}T${a.appointmentTime || '00:00'}`);
+  return dt.getTime() < Date.now();
+}
+async function saveFollowUp(id, data) {
+  const { error } = await supabase.from('appointments').update({
+    outcome: data.outcome || null,
+    follow_up_scheduled: data.followUpScheduled,
+    result: data.result || null,
+    interested_tax: data.interestedTax,
+    interested_insurance: data.interestedInsurance,
+    follow_up_completed_at: new Date().toISOString(),
+  }).eq('id', id);
+  return !error;
 }
 async function fetchMyAppointments(userId) {
   const { data, error } = await supabase
@@ -212,7 +233,7 @@ function PaceStrip({ groups }) {
     </div>
   );
 }
-function ApptGroup({ title, list, onDelete, empty }) {
+function ApptGroup({ title, list, onDelete, onFollowUp, empty }) {
   return (
     <div className="tr-card tr-appt-group">
       <h3 className="tr-h3">{title}</h3>
@@ -229,8 +250,21 @@ function ApptGroup({ title, list, onDelete, empty }) {
                   <td>{fmtDisplayDate(a.appointmentDate)} · {fmtTime(a.appointmentTime)}</td>
                   <td>{a.presenter}</td>
                   <td>{a.trainee || '—'}</td>
-                  <td>{a.client}{a.notes ? <span className="tr-note"> — {a.notes}</span> : null}</td>
-                  {onDelete && <td><button className="tr-icon-btn" onClick={() => onDelete(a.id)} title="Delete"><Trash2 size={14} /></button></td>}
+                  <td>
+                    {a.client}
+                    {a.followUpCompletedAt ? <span className="tr-status tr-status-green" style={{ marginLeft: 6 }}>✓ followed up</span> : null}
+                    {a.notes ? <span className="tr-note"> — {a.notes}</span> : null}
+                  </td>
+                  {onDelete && (
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {onFollowUp && isPastAppointment(a) && (
+                        <button className="tr-btn tr-btn-ghost tr-btn-sm" style={{ marginRight: 6 }} onClick={() => onFollowUp(a)}>
+                          {a.followUpCompletedAt ? 'Edit' : 'Follow up'}
+                        </button>
+                      )}
+                      <button className="tr-icon-btn" onClick={() => onDelete(a.id)} title="Delete"><Trash2 size={14} /></button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -417,6 +451,84 @@ async function fetchCalendlyContacts() {
   return data;
 }
 
+// ---------------------------------------------------------------------
+// follow-up — quick, tap-to-answer questions for past appointments
+// ---------------------------------------------------------------------
+function Modal({ onClose, children }) {
+  function handleKeyDown(e) { if (e.key === 'Escape') onClose(); }
+  return (
+    <div className="tr-modal-backdrop" onClick={onClose} onKeyDown={handleKeyDown} tabIndex={-1}>
+      <div className="tr-modal-card" onClick={e => e.stopPropagation()}>{children}</div>
+    </div>
+  );
+}
+function PillChoice({ options, value, onChange }) {
+  return (
+    <div className="tr-pillrow">
+      {options.map(opt => (
+        <button
+          key={opt.value} type="button"
+          className={`tr-pill-btn ${value === opt.value ? 'tr-pill-btn-active' : ''}`}
+          onClick={() => onChange(opt.value)}>
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+const OUTCOME_OPTIONS = [
+  { value: 'went_well', label: 'Went well' },
+  { value: 'no_show', label: 'No show' },
+  { value: 'rescheduled', label: 'Rescheduled' },
+  { value: 'not_interested', label: 'Not interested' },
+];
+const RESULT_OPTIONS = [
+  { value: 'recruit', label: 'Recruit' },
+  { value: 'sale', label: 'Sale' },
+  { value: 'neither', label: 'Neither' },
+];
+const YES_NO_OPTIONS = [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }];
+function boolToYesNo(v) { return v === true ? 'yes' : v === false ? 'no' : ''; }
+function yesNoToBool(v) { return v === 'yes' ? true : v === 'no' ? false : null; }
+
+function FollowUpModal({ appointment, onClose, onSave, saving }) {
+  const [outcome, setOutcome] = useState(appointment.outcome || '');
+  const [followUpScheduled, setFollowUpScheduled] = useState(boolToYesNo(appointment.followUpScheduled));
+  const [result, setResult] = useState(appointment.result || '');
+  const [interestedTax, setInterestedTax] = useState(boolToYesNo(appointment.interestedTax));
+  const [interestedInsurance, setInterestedInsurance] = useState(boolToYesNo(appointment.interestedInsurance));
+
+  function submit() {
+    onSave(appointment.id, {
+      outcome,
+      followUpScheduled: yesNoToBool(followUpScheduled),
+      result,
+      interestedTax: yesNoToBool(interestedTax),
+      interestedInsurance: yesNoToBool(interestedInsurance),
+    });
+  }
+
+  return (
+    <Modal onClose={onClose}>
+      <h3 className="tr-h3">Follow-up — {appointment.client}</h3>
+      <p className="tr-empty" style={{ marginTop: -4, marginBottom: 18 }}>
+        {fmtDisplayDate(appointment.appointmentDate)} · {fmtTime(appointment.appointmentTime)}
+      </p>
+      <div className="tr-followup-list">
+        <div className="tr-field"><span>How'd it go?</span><PillChoice options={OUTCOME_OPTIONS} value={outcome} onChange={setOutcome} /></div>
+        <div className="tr-field"><span>Follow-up appointment scheduled?</span><PillChoice options={YES_NO_OPTIONS} value={followUpScheduled} onChange={setFollowUpScheduled} /></div>
+        <div className="tr-field"><span>Result</span><PillChoice options={RESULT_OPTIONS} value={result} onChange={setResult} /></div>
+        <div className="tr-field"><span>Interested in tax strategies?</span><PillChoice options={YES_NO_OPTIONS} value={interestedTax} onChange={setInterestedTax} /></div>
+        <div className="tr-field"><span>Interested in reviewing home/auto insurance?</span><PillChoice options={YES_NO_OPTIONS} value={interestedInsurance} onChange={setInterestedInsurance} /></div>
+      </div>
+      <div className="tr-form-actions">
+        <button type="button" className="tr-btn tr-btn-ghost" onClick={onClose}>Cancel</button>
+        <button type="button" className="tr-btn tr-btn-brass" onClick={submit} disabled={saving}>{saving ? 'Saving…' : 'Save follow-up'}</button>
+      </div>
+    </Modal>
+  );
+}
+
 function AppointmentForm({ defaultPresenter, weekMonday, onCancel, onSubmit, saving }) {
   const [dateSetOption, setDateSetOption] = useState(defaultDateSetOption());
   const [appointmentDate, setAppointmentDate] = useState('');
@@ -559,6 +671,8 @@ function MyAppointmentsBody({ user }) {
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [followUpTarget, setFollowUpTarget] = useState(null);
+  const [followUpSaving, setFollowUpSaving] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -591,6 +705,16 @@ function MyAppointmentsBody({ user }) {
     const ok = await deleteAppointmentRow(id);
     if (!ok) setAppointments(prev);
   }
+  async function handleSaveFollowUp(id, data) {
+    setFollowUpSaving(true);
+    const ok = await saveFollowUp(id, data);
+    setFollowUpSaving(false);
+    if (!ok) return;
+    setAppointments(prev => prev.map(a => a.id === id ? {
+      ...a, ...data, followUpCompletedAt: new Date().toISOString(),
+    } : a));
+    setFollowUpTarget(null);
+  }
 
   return (
     <>
@@ -613,10 +737,17 @@ function MyAppointmentsBody({ user }) {
             <ApptGroup
               key={g.option.value}
               title={`${g.option.batchLabel} (${g.list.length}/${g.option.target})`}
-              list={g.list} onDelete={handleDelete}
+              list={g.list} onDelete={handleDelete} onFollowUp={setFollowUpTarget}
               empty={`No appointments logged for ${g.option.label} yet.`} />
           ))}
         </>
+      )}
+      {followUpTarget && (
+        <FollowUpModal
+          appointment={followUpTarget}
+          onClose={() => setFollowUpTarget(null)}
+          onSave={handleSaveFollowUp}
+          saving={followUpSaving} />
       )}
     </>
   );
@@ -1025,6 +1156,15 @@ const CSS = `
 .tr-link-btn { align-self: flex-start; background: none; border: none; padding: 0; margin-top: -4px; font-family: inherit; font-size: 12.5px; font-weight: 500; color: var(--brass-dark); cursor: pointer; text-decoration: underline; }
 .tr-link-btn:hover { color: var(--ink); }
 .tr-link-btn:disabled { opacity: 0.6; cursor: default; }
+
+/* follow-up modal + pill choices */
+.tr-modal-backdrop { position: fixed; inset: 0; background: rgba(20,32,43,0.55); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 20px; }
+.tr-modal-card { background: var(--card); border-radius: 12px; padding: 24px 22px; max-width: 440px; width: 100%; max-height: 90vh; overflow-y: auto; box-shadow: 0 8px 40px rgba(19,35,48,0.28); }
+.tr-followup-list { display: flex; flex-direction: column; gap: 16px; margin-top: 4px; }
+.tr-pillrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+.tr-pill-btn { font-family: inherit; font-size: 12.5px; font-weight: 500; padding: 7px 13px; border-radius: 999px; border: 1px solid var(--line); background: var(--paper); color: var(--slate); cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
+.tr-pill-btn:hover { border-color: var(--brass); }
+.tr-pill-btn-active { background: var(--brass); border-color: var(--brass-dark); color: var(--ink); }
 
 /* tables */
 .tr-table-wrap { overflow-x: auto; }
