@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   LogIn, LogOut, Plus, Trash2, ChevronLeft, ChevronRight, Users,
-  CalendarDays, ShieldCheck, UserPlus, Loader2, Pencil, ClipboardCheck
+  CalendarDays, ShieldCheck, UserPlus, Loader2, Pencil, ClipboardCheck, TrendingUp
 } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
 
@@ -99,11 +99,16 @@ function rowToRecord(row) {
     followUpCompletedAt: row.follow_up_completed_at,
     status: row.status || '',
     presentationType: row.presentation_type || '',
+    targetPremium: row.target_premium,
   };
 }
 function isPastAppointment(a) {
   const dt = new Date(`${a.appointmentDate}T${a.appointmentTime || '00:00'}`);
   return dt.getTime() < Date.now();
+}
+function fmtCurrency(n) {
+  if (n === null || n === undefined || isNaN(n)) return '$0';
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
 }
 // Days/months/years since a timestamp, e.g. "1y 2m 5d"
 function tenureSince(createdAt) {
@@ -131,6 +136,7 @@ async function saveFollowUp(id, data) {
     result: data.result || null,
     interested_tax: data.interestedTax,
     interested_insurance: data.interestedInsurance,
+    target_premium: data.result === 'sale' && data.targetPremium ? Number(data.targetPremium) : null,
     follow_up_completed_at: new Date().toISOString(),
   }).eq('id', id);
   return !error;
@@ -301,7 +307,7 @@ function StatusChip({ status }) {
 function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, onStatusChange, empty }) {
   return (
     <div className="tr-card tr-appt-group">
-      <h3 className="tr-h3">{title}</h3>
+      {title ? <h3 className="tr-h3">{title}</h3> : null}
       {list.length === 0 ? <p className="tr-empty">{empty}</p> : (
         <div className="tr-table-wrap">
           <table className="tr-table">
@@ -569,6 +575,7 @@ function FollowUpModal({ appointment, onClose, onSave, saving }) {
   const [outcome, setOutcome] = useState(appointment.outcome || '');
   const [followUpScheduled, setFollowUpScheduled] = useState(boolToYesNo(appointment.followUpScheduled));
   const [result, setResult] = useState(appointment.result || '');
+  const [targetPremium, setTargetPremium] = useState(appointment.targetPremium != null ? String(appointment.targetPremium) : '');
   const [interestedTax, setInterestedTax] = useState(boolToYesNo(appointment.interestedTax));
   const [interestedInsurance, setInterestedInsurance] = useState(boolToYesNo(appointment.interestedInsurance));
 
@@ -577,6 +584,7 @@ function FollowUpModal({ appointment, onClose, onSave, saving }) {
       outcome,
       followUpScheduled: yesNoToBool(followUpScheduled),
       result,
+      targetPremium,
       interestedTax: yesNoToBool(interestedTax),
       interestedInsurance: yesNoToBool(interestedInsurance),
     });
@@ -591,7 +599,13 @@ function FollowUpModal({ appointment, onClose, onSave, saving }) {
       <div className="tr-followup-list">
         <div className="tr-field"><span>How'd it go?</span><PillChoice options={OUTCOME_OPTIONS} value={outcome} onChange={setOutcome} /></div>
         <div className="tr-field"><span>Follow-up appointment scheduled?</span><PillChoice options={YES_NO_OPTIONS} value={followUpScheduled} onChange={setFollowUpScheduled} /></div>
-        <div className="tr-field"><span>Result</span><PillChoice options={RESULT_OPTIONS} value={result} onChange={setResult} /></div>
+        <div className="tr-field"><span>Officially recruited, or sold?</span><PillChoice options={RESULT_OPTIONS} value={result} onChange={setResult} /></div>
+        {result === 'sale' && (
+          <label className="tr-field">
+            <span>Target premium</span>
+            <input type="number" min="0" step="1" inputMode="decimal" value={targetPremium} onChange={e => setTargetPremium(e.target.value)} placeholder="e.g. 1200" />
+          </label>
+        )}
         <div className="tr-field"><span>Interested in tax strategies?</span><PillChoice options={YES_NO_OPTIONS} value={interestedTax} onChange={setInterestedTax} /></div>
         <div className="tr-field"><span>Interested in reviewing home/auto insurance?</span><PillChoice options={YES_NO_OPTIONS} value={interestedInsurance} onChange={setInterestedInsurance} /></div>
       </div>
@@ -753,6 +767,49 @@ function CalendlyLinkEditor({ user }) {
     </div>
   );
 }
+// ---------------------------------------------------------------------
+// "Needs attention" — a left-hand status filter over every past
+// appointment, regardless of which week it belongs to.
+// ---------------------------------------------------------------------
+function NeedsAttention({ appointments, onDelete, onFollowUp, onEdit, onStatusChange }) {
+  const [activeStatus, setActiveStatus] = useState('');
+  const pastAppts = appointments.filter(isPastAppointment);
+  const counts = STATUS_OPTIONS.reduce((acc, opt) => {
+    acc[opt.value] = pastAppts.filter(a => (a.status || '') === opt.value).length;
+    return acc;
+  }, {});
+  const filtered = pastAppts
+    .filter(a => (a.status || '') === activeStatus)
+    .sort((a, b) => (b.appointmentDate + b.appointmentTime).localeCompare(a.appointmentDate + a.appointmentTime));
+
+  return (
+    <div className="tr-card">
+      <h3 className="tr-h3">Needs attention</h3>
+      <p className="tr-empty" style={{ marginTop: -4, marginBottom: 14 }}>Every past appointment, filterable by where it stands.</p>
+      <div className="tr-attention-layout">
+        <div className="tr-attention-sidebar">
+          {STATUS_OPTIONS.map(opt => (
+            <button
+              key={opt.value} type="button"
+              className={`tr-sidebar-item tr-sidebar-item-${opt.color} ${activeStatus === opt.value ? 'tr-sidebar-item-active' : ''}`}
+              onClick={() => setActiveStatus(opt.value)}>
+              <span>{opt.label}</span>
+              <span className="tr-mono">{counts[opt.value]}</span>
+            </button>
+          ))}
+        </div>
+        <div className="tr-attention-content">
+          {filtered.length === 0 ? (
+            <p className="tr-empty">Nothing here.</p>
+          ) : (
+            <ApptGroup list={filtered} onDelete={onDelete} onFollowUp={onFollowUp} onEdit={onEdit} onStatusChange={onStatusChange} empty="" />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MyAppointmentsBody({ user }) {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -856,6 +913,10 @@ function MyAppointmentsBody({ user }) {
               onEdit={openEdit} onStatusChange={handleStatusChange}
               empty={`No appointments logged for ${g.option.label} yet.`} />
           ))}
+          <NeedsAttention
+            appointments={appointments}
+            onDelete={handleDelete} onFollowUp={setFollowUpTarget}
+            onEdit={openEdit} onStatusChange={handleStatusChange} />
         </>
       )}
       {followUpTarget && (
@@ -975,17 +1036,81 @@ function TeamPaceBody({ user }) {
     </>
   );
 }
+
+// ---------------------------------------------------------------------
+// track production — sold premium + recruits for the week, manager/admin only
+// ---------------------------------------------------------------------
+function TrackProductionBody({ user }) {
+  const [members, setMembers] = useState([]);
+  const [weekAppts, setWeekAppts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [weekMonday, setWeekMonday] = useState(weekStartOf(todayStr()));
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    const [memberList, appts] = await Promise.all([
+      fetchTeamMembers(user),
+      fetchAppointmentsForWeek(weekMonday),
+    ]);
+    setMembers(memberList);
+    setWeekAppts(appts);
+    setLoading(false);
+  }, [weekMonday, user.id, user.role]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  return (
+    <>
+      <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
+      <div className="tr-row-head">
+        <h2 className="tr-h2"><TrendingUp size={18} /> Track production</h2>
+        <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+      </div>
+      <p className="tr-empty" style={{ marginTop: -8 }}>Based on what's been marked Sold or Recruited in each person's follow-up for this week.</p>
+      {loading ? <Spinner label="Loading production…" /> : members.length === 0 ? (
+        <div className="tr-card"><p className="tr-empty">No team members yet.</p></div>
+      ) : (
+        <div className="tr-card tr-summary-card">
+          <div className="tr-table-wrap">
+            <table className="tr-table tr-table-summary">
+              <thead><tr><th>Team member</th><th>Sold premium</th><th>Recruits</th></tr></thead>
+              <tbody>
+                {members.map(m => {
+                  const list = weekAppts.filter(a => a.userId === m.id);
+                  const sold = list.filter(a => a.result === 'sale');
+                  const recruited = list.filter(a => a.result === 'recruit');
+                  const totalPremium = sold.reduce((s, a) => s + (Number(a.targetPremium) || 0), 0);
+                  return (
+                    <tr key={m.id}>
+                      <td>{m.display_name}{m.role === 'manager' ? <span className="tr-note"> — manager</span> : null}</td>
+                      <td className="tr-mono">{fmtCurrency(totalPremium)}{sold.length ? <span className="tr-note"> ({sold.length})</span> : null}</td>
+                      <td>{recruited.length === 0 ? '—' : recruited.map(a => a.client).join(', ')}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 function ManagerView({ user }) {
   const [tab, setTab] = useState('mine');
   return (
     <Shell>
       <Header user={user} />
       <main className="tr-main">
-        <div className="tr-tabs" style={{ maxWidth: 320 }}>
+        <div className="tr-tabs" style={{ maxWidth: 460 }}>
           <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
           <button className={`tr-tab ${tab === 'pace' ? 'tr-tab-active' : ''}`} onClick={() => setTab('pace')}>Team Pace</button>
+          <button className={`tr-tab ${tab === 'production' ? 'tr-tab-active' : ''}`} onClick={() => setTab('production')}>Track Production</button>
         </div>
-        {tab === 'mine' ? <MyAppointmentsBody user={user} /> : <TeamPaceBody user={user} />}
+        {tab === 'mine' && <MyAppointmentsBody user={user} />}
+        {tab === 'pace' && <TeamPaceBody user={user} />}
+        {tab === 'production' && <TrackProductionBody user={user} />}
       </main>
     </Shell>
   );
@@ -1108,13 +1233,15 @@ function AdminView({ user }) {
     <Shell>
       <Header user={user} />
       <main className="tr-main">
-        <div className="tr-tabs" style={{ maxWidth: 460 }}>
+        <div className="tr-tabs" style={{ maxWidth: 620 }}>
           <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
           <button className={`tr-tab ${tab === 'pace' ? 'tr-tab-active' : ''}`} onClick={() => setTab('pace')}>Team Pace</button>
+          <button className={`tr-tab ${tab === 'production' ? 'tr-tab-active' : ''}`} onClick={() => setTab('production')}>Track Production</button>
           <button className={`tr-tab ${tab === 'users' ? 'tr-tab-active' : ''}`} onClick={() => setTab('users')}>Manage Team</button>
         </div>
         {tab === 'mine' && <MyAppointmentsBody user={user} />}
         {tab === 'pace' && <TeamPaceBody user={user} />}
+        {tab === 'production' && <TrackProductionBody user={user} />}
         {tab === 'users' && <ManageUsersView currentUserId={user.id} />}
       </main>
     </Shell>
@@ -1334,6 +1461,21 @@ select.tr-status { border: none; cursor: pointer; font-family: inherit; -webkit-
 /* tenure */
 .tr-tenure { font-size: 11px; color: var(--slate-light); margin-top: 2px; }
 
+/* needs-attention sidebar */
+.tr-attention-layout { display: flex; gap: 18px; align-items: flex-start; }
+.tr-attention-sidebar { display: flex; flex-direction: column; gap: 4px; min-width: 175px; flex-shrink: 0; }
+.tr-sidebar-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 8px; border: 1px solid transparent; border-left-width: 3px; background: transparent; font-family: inherit; font-size: 13px; font-weight: 500; color: var(--slate); cursor: pointer; text-align: left; }
+.tr-sidebar-item:hover { background: var(--paper-dim); }
+.tr-sidebar-item-active { background: var(--paper-dim); border-color: var(--line); }
+.tr-sidebar-item .tr-mono { font-size: 11.5px; color: var(--slate-light); background: var(--paper); border-radius: 999px; padding: 1px 7px; }
+.tr-sidebar-item-none { border-left-color: var(--slate-light); }
+.tr-sidebar-item-green { border-left-color: var(--green); }
+.tr-sidebar-item-amber { border-left-color: var(--amber); }
+.tr-sidebar-item-rust { border-left-color: var(--rust); }
+.tr-sidebar-item-violet { border-left-color: var(--violet); }
+.tr-attention-content { flex: 1; min-width: 0; }
+.tr-attention-content .tr-appt-group { border: none; padding: 0; box-shadow: none; }
+
 /* auth */
 .tr-auth-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
 .tr-auth-card { width: 100%; max-width: 400px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 28px 26px; box-shadow: 0 4px 24px rgba(19,35,48,0.08); }
@@ -1358,5 +1500,9 @@ select.tr-status { border: none; cursor: pointer; font-family: inherit; -webkit-
   .tr-header { padding: 12px 16px; }
   .tr-header-name { display: none; }
   .tr-main { padding: 18px 14px 48px; }
+  .tr-tabs { flex-wrap: wrap; }
+  .tr-tabs .tr-tab { flex: 1 1 45%; }
+  .tr-attention-layout { flex-direction: column; }
+  .tr-attention-sidebar { flex-direction: row; flex-wrap: wrap; min-width: 0; width: 100%; }
 }
 `;
