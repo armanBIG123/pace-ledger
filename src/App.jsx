@@ -767,49 +767,6 @@ function CalendlyLinkEditor({ user }) {
     </div>
   );
 }
-// ---------------------------------------------------------------------
-// "Needs attention" — a left-hand status filter over every past
-// appointment, regardless of which week it belongs to.
-// ---------------------------------------------------------------------
-function NeedsAttention({ appointments, onDelete, onFollowUp, onEdit, onStatusChange }) {
-  const [activeStatus, setActiveStatus] = useState('');
-  const pastAppts = appointments.filter(isPastAppointment);
-  const counts = STATUS_OPTIONS.reduce((acc, opt) => {
-    acc[opt.value] = pastAppts.filter(a => (a.status || '') === opt.value).length;
-    return acc;
-  }, {});
-  const filtered = pastAppts
-    .filter(a => (a.status || '') === activeStatus)
-    .sort((a, b) => (b.appointmentDate + b.appointmentTime).localeCompare(a.appointmentDate + a.appointmentTime));
-
-  return (
-    <div className="tr-card">
-      <h3 className="tr-h3">Needs attention</h3>
-      <p className="tr-empty" style={{ marginTop: -4, marginBottom: 14 }}>Every past appointment, filterable by where it stands.</p>
-      <div className="tr-attention-layout">
-        <div className="tr-attention-sidebar">
-          {STATUS_OPTIONS.map(opt => (
-            <button
-              key={opt.value} type="button"
-              className={`tr-sidebar-item tr-sidebar-item-${opt.color} ${activeStatus === opt.value ? 'tr-sidebar-item-active' : ''}`}
-              onClick={() => setActiveStatus(opt.value)}>
-              <span>{opt.label}</span>
-              <span className="tr-mono">{counts[opt.value]}</span>
-            </button>
-          ))}
-        </div>
-        <div className="tr-attention-content">
-          {filtered.length === 0 ? (
-            <p className="tr-empty">Nothing here.</p>
-          ) : (
-            <ApptGroup list={filtered} onDelete={onDelete} onFollowUp={onFollowUp} onEdit={onEdit} onStatusChange={onStatusChange} empty="" />
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function MyAppointmentsBody({ user }) {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -821,6 +778,9 @@ function MyAppointmentsBody({ user }) {
   const [followUpTarget, setFollowUpTarget] = useState(null);
   const [followUpSaving, setFollowUpSaving] = useState(false);
   const [legendShown, setLegendShown] = useState(true);
+  // null = the normal "This week" view; otherwise one of STATUS_OPTIONS.value
+  // (including '' for "No status") — a real sub-page, not a nested widget.
+  const [statusView, setStatusView] = useState(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -837,6 +797,15 @@ function MyAppointmentsBody({ user }) {
     option: opt,
     list: weekAppts.filter(a => a.dateSetOption === opt.value),
   }));
+
+  const pastAppts = appointments.filter(isPastAppointment);
+  const statusCounts = STATUS_OPTIONS.reduce((acc, opt) => {
+    acc[opt.value] = pastAppts.filter(a => (a.status || '') === opt.value).length;
+    return acc;
+  }, {});
+  const statusFiltered = statusView === null ? [] : pastAppts
+    .filter(a => (a.status || '') === statusView)
+    .sort((a, b) => (b.appointmentDate + b.appointmentTime).localeCompare(a.appointmentDate + a.appointmentTime));
 
   function closeForm() { setShowForm(false); setEditingAppt(null); }
   function openEdit(appt) { setEditingAppt(appt); setShowForm(true); }
@@ -882,51 +851,78 @@ function MyAppointmentsBody({ user }) {
   }
 
   return (
-    <>
-      {(user.role === 'manager' || user.role === 'super_admin') && <CalendlyLinkEditor user={user} />}
-      <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
-      <PaceStrip groups={groups.map(g => ({ option: g.option, count: g.list.length, list: g.list }))} />
-      <div className="tr-row-head">
-        <h2 className="tr-h2">Your appointments this week</h2>
-        <button className="tr-btn tr-btn-brass" onClick={() => (showForm ? closeForm() : setShowForm(true))}>
-          <Plus size={16} /> {showForm ? 'Close' : 'Log appointment'}
+    <div className="tr-appts-shell">
+      <nav className="tr-appts-sidebar">
+        <button
+          type="button"
+          className={`tr-sidebar-item tr-sidebar-item-week ${statusView === null ? 'tr-sidebar-item-active' : ''}`}
+          onClick={() => setStatusView(null)}>
+          <span>This week</span>
         </button>
+        <div className="tr-sidebar-divider">Needs attention</div>
+        {STATUS_OPTIONS.map(opt => (
+          <button
+            key={opt.value || 'none'} type="button"
+            className={`tr-sidebar-item tr-sidebar-item-${opt.color} ${statusView === opt.value ? 'tr-sidebar-item-active' : ''}`}
+            onClick={() => setStatusView(opt.value)}>
+            <span>{opt.label}</span>
+            <span className="tr-mono">{statusCounts[opt.value]}</span>
+          </button>
+        ))}
+      </nav>
+
+      <div className="tr-appts-main">
+        {statusView === null ? (
+          <>
+            {(user.role === 'manager' || user.role === 'super_admin') && <CalendlyLinkEditor user={user} />}
+            <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
+            <PaceStrip groups={groups.map(g => ({ option: g.option, count: g.list.length, list: g.list }))} />
+            <div className="tr-row-head">
+              <h2 className="tr-h2">Your appointments this week</h2>
+              <button className="tr-btn tr-btn-brass" onClick={() => (showForm ? closeForm() : setShowForm(true))}>
+                <Plus size={16} /> {showForm ? 'Close' : 'Log appointment'}
+              </button>
+            </div>
+            {legendShown && (
+              <p className="tr-empty" style={{ margin: '-8px 0 0' }}>
+                <span className="tr-legend-dot" style={{ background: 'var(--type-recruit)' }} /> Recruit &nbsp;
+                <span className="tr-legend-dot" style={{ background: 'var(--type-sale)' }} /> Sale
+                <button type="button" className="tr-link-btn" style={{ marginLeft: 10 }} onClick={() => setLegendShown(false)}>hide</button>
+              </p>
+            )}
+            {error && <div className="tr-error">{error}</div>}
+            {showForm && (
+              <AppointmentForm defaultPresenter={user.displayName} weekMonday={weekMonday} editing={editingAppt} onCancel={closeForm} onSubmit={handleFormSubmit} saving={saving} />
+            )}
+            {loading ? <Spinner label="Loading appointments…" /> : groups.map(g => (
+              <ApptGroup
+                key={g.option.value}
+                title={`${g.option.batchLabel} (${g.list.length}/${g.option.target})`}
+                list={g.list} onDelete={handleDelete} onFollowUp={setFollowUpTarget}
+                onEdit={openEdit} onStatusChange={handleStatusChange}
+                empty={`No appointments logged for ${g.option.label} yet.`} />
+            ))}
+          </>
+        ) : (
+          <>
+            <h2 className="tr-h2">{STATUS_OPTIONS.find(o => o.value === statusView)?.label}</h2>
+            <p className="tr-empty" style={{ marginTop: -8 }}>Every past appointment currently in this state.</p>
+            {loading ? <Spinner label="Loading…" /> : statusFiltered.length === 0 ? (
+              <div className="tr-card"><p className="tr-empty">Nothing here.</p></div>
+            ) : (
+              <ApptGroup list={statusFiltered} onDelete={handleDelete} onFollowUp={setFollowUpTarget} onEdit={openEdit} onStatusChange={handleStatusChange} empty="" />
+            )}
+          </>
+        )}
+        {followUpTarget && (
+          <FollowUpModal
+            appointment={followUpTarget}
+            onClose={() => setFollowUpTarget(null)}
+            onSave={handleSaveFollowUp}
+            saving={followUpSaving} />
+        )}
       </div>
-      {legendShown && (
-        <p className="tr-empty" style={{ margin: '-8px 0 0' }}>
-          <span className="tr-legend-dot" style={{ background: 'var(--type-recruit)' }} /> Recruit &nbsp;
-          <span className="tr-legend-dot" style={{ background: 'var(--type-sale)' }} /> Sale
-          <button type="button" className="tr-link-btn" style={{ marginLeft: 10 }} onClick={() => setLegendShown(false)}>hide</button>
-        </p>
-      )}
-      {error && <div className="tr-error">{error}</div>}
-      {showForm && (
-        <AppointmentForm defaultPresenter={user.displayName} weekMonday={weekMonday} editing={editingAppt} onCancel={closeForm} onSubmit={handleFormSubmit} saving={saving} />
-      )}
-      {loading ? <Spinner label="Loading appointments…" /> : (
-        <>
-          {groups.map(g => (
-            <ApptGroup
-              key={g.option.value}
-              title={`${g.option.batchLabel} (${g.list.length}/${g.option.target})`}
-              list={g.list} onDelete={handleDelete} onFollowUp={setFollowUpTarget}
-              onEdit={openEdit} onStatusChange={handleStatusChange}
-              empty={`No appointments logged for ${g.option.label} yet.`} />
-          ))}
-          <NeedsAttention
-            appointments={appointments}
-            onDelete={handleDelete} onFollowUp={setFollowUpTarget}
-            onEdit={openEdit} onStatusChange={handleStatusChange} />
-        </>
-      )}
-      {followUpTarget && (
-        <FollowUpModal
-          appointment={followUpTarget}
-          onClose={() => setFollowUpTarget(null)}
-          onSave={handleSaveFollowUp}
-          saving={followUpSaving} />
-      )}
-    </>
+    </div>
   );
 }
 function AdvisorView({ user }) {
@@ -1462,19 +1458,20 @@ select.tr-status { border: none; cursor: pointer; font-family: inherit; -webkit-
 .tr-tenure { font-size: 11px; color: var(--slate-light); margin-top: 2px; }
 
 /* needs-attention sidebar */
-.tr-attention-layout { display: flex; gap: 18px; align-items: flex-start; }
-.tr-attention-sidebar { display: flex; flex-direction: column; gap: 4px; min-width: 175px; flex-shrink: 0; }
+.tr-appts-shell { display: flex; gap: 24px; align-items: flex-start; }
+.tr-appts-sidebar { display: flex; flex-direction: column; gap: 4px; min-width: 190px; flex-shrink: 0; }
+.tr-appts-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 20px; }
 .tr-sidebar-item { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 9px 12px; border-radius: 8px; border: 1px solid transparent; border-left-width: 3px; background: transparent; font-family: inherit; font-size: 13px; font-weight: 500; color: var(--slate); cursor: pointer; text-align: left; }
 .tr-sidebar-item:hover { background: var(--paper-dim); }
 .tr-sidebar-item-active { background: var(--paper-dim); border-color: var(--line); }
 .tr-sidebar-item .tr-mono { font-size: 11.5px; color: var(--slate-light); background: var(--paper); border-radius: 999px; padding: 1px 7px; }
+.tr-sidebar-item-week { border-left-color: var(--brass); font-family: 'Newsreader', serif; font-size: 14.5px; }
 .tr-sidebar-item-none { border-left-color: var(--slate-light); }
 .tr-sidebar-item-green { border-left-color: var(--green); }
 .tr-sidebar-item-amber { border-left-color: var(--amber); }
 .tr-sidebar-item-rust { border-left-color: var(--rust); }
 .tr-sidebar-item-violet { border-left-color: var(--violet); }
-.tr-attention-content { flex: 1; min-width: 0; }
-.tr-attention-content .tr-appt-group { border: none; padding: 0; box-shadow: none; }
+.tr-sidebar-divider { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--slate-light); padding: 14px 12px 2px; }
 
 /* auth */
 .tr-auth-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
@@ -1502,7 +1499,8 @@ select.tr-status { border: none; cursor: pointer; font-family: inherit; -webkit-
   .tr-main { padding: 18px 14px 48px; }
   .tr-tabs { flex-wrap: wrap; }
   .tr-tabs .tr-tab { flex: 1 1 45%; }
-  .tr-attention-layout { flex-direction: column; }
-  .tr-attention-sidebar { flex-direction: row; flex-wrap: wrap; min-width: 0; width: 100%; }
+  .tr-appts-shell { flex-direction: column; }
+  .tr-appts-sidebar { flex-direction: row; flex-wrap: wrap; min-width: 0; width: 100%; gap: 6px; }
+  .tr-sidebar-divider { flex-basis: 100%; padding: 8px 4px 0; }
 }
 `;
