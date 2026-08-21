@@ -141,8 +141,27 @@ async function saveFollowUp(id, data) {
   }).eq('id', id);
   return !error;
 }
-async function updateAppointmentStatus(id, status) {
-  const { error } = await supabase.from('appointments').update({ status: status || null }).eq('id', id);
+// Status is derived entirely from the follow-up answers — there's no
+// separate manual status control, so the two can never disagree.
+function deriveStatus(outcome, followUpScheduled) {
+  if (followUpScheduled === true) return 'needs_follow_up';
+  if (outcome === 'rescheduled') return 'needs_reschedule';
+  if (outcome === 'no_show') return 'not_completed';
+  if (outcome === 'went_well' || outcome === 'not_interested') return 'completed';
+  return '';
+}
+async function saveFollowUp(id, data) {
+  const status = deriveStatus(data.outcome, data.followUpScheduled);
+  const { error } = await supabase.from('appointments').update({
+    outcome: data.outcome || null,
+    follow_up_scheduled: data.followUpScheduled,
+    result: data.result || null,
+    interested_tax: data.interestedTax,
+    interested_insurance: data.interestedInsurance,
+    target_premium: data.result === 'sale' && data.targetPremium ? Number(data.targetPremium) : null,
+    follow_up_completed_at: new Date().toISOString(),
+    status: status || null,
+  }).eq('id', id);
   return !error;
 }
 async function fetchMyAppointments(userId) {
@@ -291,20 +310,12 @@ const STATUS_OPTIONS = [
   { value: 'not_completed', label: "Didn't happen", color: 'rust' },
   { value: 'needs_reschedule', label: 'Needs reschedule', color: 'violet' },
 ];
-function StatusSelect({ value, onChange }) {
-  const opt = STATUS_OPTIONS.find(o => o.value === (value || '')) || STATUS_OPTIONS[0];
-  return (
-    <select className={`tr-status tr-status-${opt.color}`} value={value || ''} onChange={e => onChange(e.target.value || null)}>
-      {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-    </select>
-  );
-}
 function StatusChip({ status }) {
   const opt = STATUS_OPTIONS.find(o => o.value === status);
   if (!opt || !opt.value) return null;
   return <span className={`tr-status tr-status-${opt.color}`}>{opt.label}</span>;
 }
-function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, onStatusChange, empty }) {
+function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty }) {
   return (
     <div className="tr-card tr-appt-group">
       {title ? <h3 className="tr-h3">{title}</h3> : null}
@@ -312,7 +323,7 @@ function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, onStatusChange, 
         <div className="tr-table-wrap">
           <table className="tr-table">
             <thead>
-              <tr><th>Set</th><th>Appointment</th><th>Presenter</th><th>Trainee</th><th>Client / recruit</th><th>Status</th>{onDelete && <th></th>}</tr>
+              <tr><th>Set</th><th>Appointment</th><th>Presenter</th><th>Trainee</th><th>Client / recruit</th>{onDelete && <th></th>}</tr>
             </thead>
             <tbody>
               {list.map(a => {
@@ -325,13 +336,8 @@ function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, onStatusChange, 
                     <td>{a.trainee || '—'}</td>
                     <td>
                       {a.client}
-                      {a.followUpCompletedAt ? <span className="tr-status tr-status-green" style={{ marginLeft: 6 }}>✓ followed up</span> : null}
+                      {a.status ? <span style={{ marginLeft: 6 }}><StatusChip status={a.status} /></span> : null}
                       {a.notes ? <span className="tr-note"> — {a.notes}</span> : null}
-                    </td>
-                    <td>
-                      {onDelete && onStatusChange
-                        ? <StatusSelect value={a.status} onChange={v => onStatusChange(a.id, v)} />
-                        : <StatusChip status={a.status} />}
                     </td>
                     {onDelete && (
                       <td style={{ whiteSpace: 'nowrap' }}>
@@ -777,6 +783,8 @@ function MyAppointmentsBody({ user }) {
   const [error, setError] = useState('');
   const [followUpTarget, setFollowUpTarget] = useState(null);
   const [followUpSaving, setFollowUpSaving] = useState(false);
+  const [completionTarget, setCompletionTarget] = useState(null);
+  const [completionSaving, setCompletionSaving] = useState(false);
   const [legendShown, setLegendShown] = useState(true);
   // null = the normal "This week" view; otherwise one of STATUS_OPTIONS.value
   // (including '' for "No status") — a real sub-page, not a nested widget.
@@ -838,16 +846,11 @@ function MyAppointmentsBody({ user }) {
     const ok = await saveFollowUp(id, data);
     setFollowUpSaving(false);
     if (!ok) return;
+    const status = deriveStatus(data.outcome, data.followUpScheduled);
     setAppointments(prev => prev.map(a => a.id === id ? {
-      ...a, ...data, followUpCompletedAt: new Date().toISOString(),
+      ...a, ...data, status, followUpCompletedAt: new Date().toISOString(),
     } : a));
     setFollowUpTarget(null);
-  }
-  async function handleStatusChange(id, status) {
-    const prev = appointments;
-    setAppointments(appointments.map(a => a.id === id ? { ...a, status: status || '' } : a));
-    const ok = await updateAppointmentStatus(id, status);
-    if (!ok) setAppointments(prev);
   }
 
   return (
@@ -899,7 +902,7 @@ function MyAppointmentsBody({ user }) {
                 key={g.option.value}
                 title={`${g.option.batchLabel} (${g.list.length}/${g.option.target})`}
                 list={g.list} onDelete={handleDelete} onFollowUp={setFollowUpTarget}
-                onEdit={openEdit} onStatusChange={handleStatusChange}
+                onEdit={openEdit}
                 empty={`No appointments logged for ${g.option.label} yet.`} />
             ))}
           </>
@@ -910,7 +913,7 @@ function MyAppointmentsBody({ user }) {
             {loading ? <Spinner label="Loading…" /> : statusFiltered.length === 0 ? (
               <div className="tr-card"><p className="tr-empty">Nothing here.</p></div>
             ) : (
-              <ApptGroup list={statusFiltered} onDelete={handleDelete} onFollowUp={setFollowUpTarget} onEdit={openEdit} onStatusChange={handleStatusChange} empty="" />
+              <ApptGroup list={statusFiltered} onDelete={handleDelete} onFollowUp={setFollowUpTarget} onEdit={openEdit} empty="" />
             )}
           </>
         )}
@@ -1445,7 +1448,6 @@ const CSS = `
 .tr-status-rust { background: rgba(184,80,61,0.12); color: var(--rust); }
 .tr-status-violet { background: rgba(124,95,166,0.14); color: var(--violet-dark); }
 .tr-status-none { background: transparent; color: var(--slate-light); border: 1px dashed var(--line); }
-select.tr-status { border: none; cursor: pointer; font-family: inherit; -webkit-appearance: menulist; appearance: auto; }
 
 /* recruit/sale type coding */
 .tr-type-recruit { box-shadow: inset 3px 0 0 0 var(--type-recruit); }
