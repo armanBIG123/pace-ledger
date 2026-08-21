@@ -152,6 +152,28 @@ async function saveFollowUp(id, data) {
   }).eq('id', id);
   return !error;
 }
+// Creates the actual next appointment when someone says a follow-up was
+// scheduled — carries over presenter/client/type from the original so
+// nothing needs re-entering, "set" as of today (right now).
+async function insertFollowUpAppointment(userId, original, followUpDate, followUpTime) {
+  const dateSetOption = defaultDateSetOption();
+  const meta = dateSetMeta(dateSetOption);
+  const { data, error } = await supabase.from('appointments').insert({
+    user_id: userId,
+    date_set_option: dateSetOption,
+    category: meta.category,
+    week_of: weekStartOf(todayStr()),
+    appointment_date: followUpDate,
+    appointment_time: followUpTime,
+    presenter: original.presenter,
+    trainee: original.trainee || null,
+    client_name: original.client,
+    notes: `Follow-up to appointment on ${fmtDisplayDate(original.appointmentDate)}`,
+    presentation_type: original.presentationType || null,
+  }).select().single();
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, record: rowToRecord(data) };
+}
 async function fetchMyAppointments(userId) {
   const { data, error } = await supabase
     .from('appointments').select('*').eq('user_id', userId)
@@ -568,15 +590,25 @@ function yesNoToBool(v) { return v === 'yes' ? true : v === 'no' ? false : null;
 function FollowUpModal({ appointment, onClose, onSave, saving }) {
   const [outcome, setOutcome] = useState(appointment.outcome || '');
   const [followUpScheduled, setFollowUpScheduled] = useState(boolToYesNo(appointment.followUpScheduled));
+  const [followUpDate, setFollowUpDate] = useState('');
+  const [followUpTime, setFollowUpTime] = useState('');
   const [result, setResult] = useState(appointment.result || '');
   const [targetPremium, setTargetPremium] = useState(appointment.targetPremium != null ? String(appointment.targetPremium) : '');
   const [interestedTax, setInterestedTax] = useState(boolToYesNo(appointment.interestedTax));
   const [interestedInsurance, setInterestedInsurance] = useState(boolToYesNo(appointment.interestedInsurance));
+  const [err, setErr] = useState('');
 
   function submit() {
+    if (followUpScheduled === 'yes' && (!followUpDate || !followUpTime)) {
+      setErr('Enter the date and time for the follow-up appointment.');
+      return;
+    }
+    setErr('');
     onSave(appointment.id, {
       outcome,
       followUpScheduled: yesNoToBool(followUpScheduled),
+      followUpDate: followUpScheduled === 'yes' ? followUpDate : null,
+      followUpTime: followUpScheduled === 'yes' ? followUpTime : null,
       result,
       targetPremium,
       interestedTax: yesNoToBool(interestedTax),
@@ -593,6 +625,19 @@ function FollowUpModal({ appointment, onClose, onSave, saving }) {
       <div className="tr-followup-list">
         <div className="tr-field"><span>How'd it go?</span><PillChoice options={OUTCOME_OPTIONS} value={outcome} onChange={setOutcome} /></div>
         <div className="tr-field"><span>Follow-up appointment scheduled?</span><PillChoice options={YES_NO_OPTIONS} value={followUpScheduled} onChange={setFollowUpScheduled} /></div>
+        {followUpScheduled === 'yes' && (
+          <div className="tr-followup-subfields">
+            <label className="tr-field">
+              <span>Follow-up date</span>
+              <input type="date" value={followUpDate} onChange={e => setFollowUpDate(e.target.value)} onClick={openPicker} />
+            </label>
+            <label className="tr-field">
+              <span>Follow-up time</span>
+              <input type="time" value={followUpTime} onChange={e => setFollowUpTime(e.target.value)} onClick={openPicker} />
+            </label>
+            <p className="tr-empty" style={{ margin: 0 }}>This'll be added to your appointments log automatically when you save.</p>
+          </div>
+        )}
         <div className="tr-field"><span>Officially recruited, or sold?</span><PillChoice options={RESULT_OPTIONS} value={result} onChange={setResult} /></div>
         {result === 'sale' && (
           <label className="tr-field">
@@ -603,6 +648,7 @@ function FollowUpModal({ appointment, onClose, onSave, saving }) {
         <div className="tr-field"><span>Interested in tax strategies?</span><PillChoice options={YES_NO_OPTIONS} value={interestedTax} onChange={setInterestedTax} /></div>
         <div className="tr-field"><span>Interested in reviewing home/auto insurance?</span><PillChoice options={YES_NO_OPTIONS} value={interestedInsurance} onChange={setInterestedInsurance} /></div>
       </div>
+      {err && <div className="tr-error">{err}</div>}
       <div className="tr-form-actions">
         <button type="button" className="tr-btn tr-btn-ghost" onClick={onClose}>Cancel</button>
         <button type="button" className="tr-btn tr-btn-brass" onClick={submit} disabled={saving}>{saving ? 'Saving…' : 'Save follow-up'}</button>
@@ -611,6 +657,15 @@ function FollowUpModal({ appointment, onClose, onSave, saving }) {
   );
 }
 
+function TypeFilter({ value, onChange }) {
+  return (
+    <div className="tr-pillrow">
+      <button type="button" className={`tr-pill-btn ${value === 'all' ? 'tr-pill-btn-active' : ''}`} onClick={() => onChange('all')}>All</button>
+      <button type="button" className={`tr-pill-btn tr-pill-recruit ${value === 'recruit' ? 'tr-pill-btn-active-recruit' : ''}`} onClick={() => onChange('recruit')}>Recruits</button>
+      <button type="button" className={`tr-pill-btn tr-pill-sale ${value === 'sale' ? 'tr-pill-btn-active-sale' : ''}`} onClick={() => onChange('sale')}>Sales</button>
+    </div>
+  );
+}
 function TypeChoice({ value, onChange }) {
   return (
     <div className="tr-pillrow">
@@ -771,12 +826,14 @@ function MyAppointmentsBody({ user }) {
   const [error, setError] = useState('');
   const [followUpTarget, setFollowUpTarget] = useState(null);
   const [followUpSaving, setFollowUpSaving] = useState(false);
-  const [completionTarget, setCompletionTarget] = useState(null);
-  const [completionSaving, setCompletionSaving] = useState(false);
-  const [legendShown, setLegendShown] = useState(true);
+  const [typeFilter, setTypeFilter] = useState('all'); // 'all' | 'recruit' | 'sale'
   // null = the normal "This week" view; otherwise one of STATUS_OPTIONS.value
   // (including '' for "No status") — a real sub-page, not a nested widget.
   const [statusView, setStatusView] = useState(null);
+
+  function byType(list) {
+    return typeFilter === 'all' ? list : list.filter(a => a.presentationType === typeFilter);
+  }
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -832,12 +889,23 @@ function MyAppointmentsBody({ user }) {
   async function handleSaveFollowUp(id, data) {
     setFollowUpSaving(true);
     const ok = await saveFollowUp(id, data);
+    if (!ok) { setFollowUpSaving(false); return; }
+
+    const original = appointments.find(a => a.id === id);
+    let newAppt = null;
+    if (data.followUpScheduled === true && data.followUpDate && data.followUpTime && original) {
+      const res = await insertFollowUpAppointment(user.id, original, data.followUpDate, data.followUpTime);
+      if (res.ok) newAppt = res.record;
+    }
     setFollowUpSaving(false);
-    if (!ok) return;
+
     const status = deriveStatus(data.outcome, data.followUpScheduled);
-    setAppointments(prev => prev.map(a => a.id === id ? {
-      ...a, ...data, status, followUpCompletedAt: new Date().toISOString(),
-    } : a));
+    setAppointments(prev => {
+      const updated = prev.map(a => a.id === id ? {
+        ...a, ...data, status, followUpCompletedAt: new Date().toISOString(),
+      } : a);
+      return newAppt ? [...updated, newAppt] : updated;
+    });
     setFollowUpTarget(null);
   }
 
@@ -863,6 +931,11 @@ function MyAppointmentsBody({ user }) {
       </nav>
 
       <div className="tr-appts-main">
+        <div className="tr-typefilter-row">
+          <span className="tr-typefilter-label">Show:</span>
+          <TypeFilter value={typeFilter} onChange={setTypeFilter} />
+          <span className="tr-typefilter-note">Only filters what's listed below — your weekly pace count always includes everything.</span>
+        </div>
         {statusView === null ? (
           <>
             {(user.role === 'manager' || user.role === 'super_admin') && <CalendlyLinkEditor user={user} />}
@@ -874,13 +947,6 @@ function MyAppointmentsBody({ user }) {
                 <Plus size={16} /> {showForm ? 'Close' : 'Log appointment'}
               </button>
             </div>
-            {legendShown && (
-              <p className="tr-empty" style={{ margin: '-8px 0 0' }}>
-                <span className="tr-legend-dot" style={{ background: 'var(--type-recruit)' }} /> Recruit &nbsp;
-                <span className="tr-legend-dot" style={{ background: 'var(--type-sale)' }} /> Sale
-                <button type="button" className="tr-link-btn" style={{ marginLeft: 10 }} onClick={() => setLegendShown(false)}>hide</button>
-              </p>
-            )}
             {error && <div className="tr-error">{error}</div>}
             {showForm && (
               <AppointmentForm defaultPresenter={user.displayName} weekMonday={weekMonday} editing={editingAppt} onCancel={closeForm} onSubmit={handleFormSubmit} saving={saving} />
@@ -889,19 +955,19 @@ function MyAppointmentsBody({ user }) {
               <ApptGroup
                 key={g.option.value}
                 title={`${g.option.batchLabel} (${g.list.length}/${g.option.target})`}
-                list={g.list} onDelete={handleDelete} onFollowUp={setFollowUpTarget}
+                list={byType(g.list)} onDelete={handleDelete} onFollowUp={setFollowUpTarget}
                 onEdit={openEdit}
-                empty={`No appointments logged for ${g.option.label} yet.`} />
+                empty={`No ${typeFilter === 'all' ? '' : typeFilter + ' '}appointments logged for ${g.option.label} yet.`} />
             ))}
           </>
         ) : (
           <>
             <h2 className="tr-h2">{STATUS_OPTIONS.find(o => o.value === statusView)?.label}</h2>
             <p className="tr-empty" style={{ marginTop: -8 }}>Every past appointment currently in this state.</p>
-            {loading ? <Spinner label="Loading…" /> : statusFiltered.length === 0 ? (
+            {loading ? <Spinner label="Loading…" /> : byType(statusFiltered).length === 0 ? (
               <div className="tr-card"><p className="tr-empty">Nothing here.</p></div>
             ) : (
-              <ApptGroup list={statusFiltered} onDelete={handleDelete} onFollowUp={setFollowUpTarget} onEdit={openEdit} empty="" />
+              <ApptGroup list={byType(statusFiltered)} onDelete={handleDelete} onFollowUp={setFollowUpTarget} onEdit={openEdit} empty="" />
             )}
           </>
         )}
@@ -950,6 +1016,11 @@ function TeamPaceBody({ user }) {
   const [loading, setLoading] = useState(true);
   const [weekMonday, setWeekMonday] = useState(weekStartOf(todayStr()));
   const [expanded, setExpanded] = useState(null);
+  const [typeFilter, setTypeFilter] = useState('all');
+
+  function byType(list) {
+    return typeFilter === 'all' ? list : list.filter(a => a.presentationType === typeFilter);
+  }
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -970,6 +1041,11 @@ function TeamPaceBody({ user }) {
       <div className="tr-row-head">
         <h2 className="tr-h2"><Users size={18} /> Team pace</h2>
         <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+      </div>
+      <div className="tr-typefilter-row">
+        <span className="tr-typefilter-label">Show:</span>
+        <TypeFilter value={typeFilter} onChange={setTypeFilter} />
+        <span className="tr-typefilter-note">Only affects the expanded appointment lists below — pace counts always include everything.</span>
       </div>
       {loading ? <Spinner label="Loading team data…" /> : members.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">No team members yet. Once people create accounts and start logging, they'll show up here.</p></div>
@@ -1010,7 +1086,7 @@ function TeamPaceBody({ user }) {
                       {isOpen && (
                         <tr className="tr-expand-row"><td colSpan={DATE_SET_OPTIONS.length + 3}>
                           {DATE_SET_OPTIONS.map((opt, i) => (
-                            <ApptGroup key={opt.value} title={`${opt.batchLabel} (${counts[i]}/${opt.target})`} list={groups[i]} empty="None logged." />
+                            <ApptGroup key={opt.value} title={`${opt.batchLabel} (${counts[i]}/${opt.target})`} list={byType(groups[i])} empty="None logged." />
                           ))}
                         </td></tr>
                       )}
@@ -1409,6 +1485,7 @@ const CSS = `
 .tr-modal-backdrop { position: fixed; inset: 0; background: rgba(20,32,43,0.55); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 20px; }
 .tr-modal-card { background: var(--card); border-radius: 12px; padding: 24px 22px; max-width: 440px; width: 100%; max-height: 90vh; overflow-y: auto; box-shadow: 0 8px 40px rgba(19,35,48,0.28); }
 .tr-followup-list { display: flex; flex-direction: column; gap: 16px; margin-top: 4px; }
+.tr-followup-subfields { display: flex; flex-direction: column; gap: 12px; padding: 12px; margin-top: -4px; border-left: 2px solid var(--line); background: var(--paper); border-radius: 0 8px 8px 0; }
 .tr-pillrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
 .tr-pill-btn { font-family: inherit; font-size: 12.5px; font-weight: 500; padding: 7px 13px; border-radius: 999px; border: 1px solid var(--line); background: var(--paper); color: var(--slate); cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
 .tr-pill-btn:hover { border-color: var(--brass); }
@@ -1448,7 +1525,9 @@ const CSS = `
 .tr-type-sale { box-shadow: inset 3px 0 0 0 var(--type-sale); }
 .tr-pill-recruit.tr-pill-btn-active-recruit { background: var(--type-recruit); border-color: var(--type-recruit-dark); color: #fff; }
 .tr-pill-sale.tr-pill-btn-active-sale { background: var(--type-sale); border-color: var(--type-sale-dark); color: #fff; }
-.tr-legend-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
+.tr-typefilter-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.tr-typefilter-label { font-size: 13px; font-weight: 500; color: var(--slate); }
+.tr-typefilter-note { font-size: 12px; color: var(--slate-light); }
 
 /* tenure */
 .tr-tenure { font-size: 11px; color: var(--slate-light); margin-top: 2px; }
