@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   LogIn, LogOut, Plus, Trash2, ChevronLeft, ChevronRight, Users,
-  CalendarDays, ShieldCheck, UserPlus, Loader2, Pencil, ClipboardCheck, TrendingUp
+  CalendarDays, ShieldCheck, UserPlus, Loader2, Pencil, ClipboardCheck, TrendingUp, UserCog
 } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
 
@@ -237,6 +237,14 @@ async function fetchTeamMembers(viewer) {
     query = query.eq('role', 'advisor').eq('manager_id', viewer.id);
   }
   const { data, error } = await query;
+  if (error) { console.error(error); return []; }
+  return data;
+}
+// manager_id doubles as "reports to" for manager-role rows too — a manager
+// assigned to a super_admin just has manager_id set to that admin's id.
+async function fetchDirectManagers(viewer) {
+  const { data, error } = await supabase
+    .from('profiles').select('*').eq('role', 'manager').eq('manager_id', viewer.id).order('display_name');
   if (error) { console.error(error); return []; }
   return data;
 }
@@ -1010,7 +1018,7 @@ function MiniBar({ count, target }) {
     </div>
   );
 }
-function TeamPaceBody({ user }) {
+function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, memberLabel }) {
   const [members, setMembers] = useState([]);
   const [weekAppts, setWeekAppts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1025,7 +1033,7 @@ function TeamPaceBody({ user }) {
   const refresh = useCallback(async () => {
     setLoading(true);
     const [memberList, appts] = await Promise.all([
-      fetchTeamMembers(user),
+      fetchMembers(user),
       fetchAppointmentsForWeek(weekMonday),
     ]);
     setMembers(memberList);
@@ -1039,7 +1047,7 @@ function TeamPaceBody({ user }) {
     <>
       <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
       <div className="tr-row-head">
-        <h2 className="tr-h2"><Users size={18} /> Team pace</h2>
+        <h2 className="tr-h2"><Icon size={18} /> {heading}</h2>
         <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
       </div>
       <div className="tr-typefilter-row">
@@ -1047,15 +1055,15 @@ function TeamPaceBody({ user }) {
         <TypeFilter value={typeFilter} onChange={setTypeFilter} />
         <span className="tr-typefilter-note">Only affects the expanded appointment lists below — pace counts always include everything.</span>
       </div>
-      {loading ? <Spinner label="Loading team data…" /> : members.length === 0 ? (
-        <div className="tr-card"><p className="tr-empty">No team members yet. Once people create accounts and start logging, they'll show up here.</p></div>
+      {loading ? <Spinner label="Loading…" /> : members.length === 0 ? (
+        <div className="tr-card"><p className="tr-empty">{emptyMessage}</p></div>
       ) : (
         <div className="tr-card tr-summary-card">
           <div className="tr-table-wrap">
             <table className="tr-table tr-table-summary">
               <thead>
                 <tr>
-                  <th>Team member</th>
+                  <th>{memberLabel}</th>
                   {DATE_SET_OPTIONS.map(opt => <th key={opt.value}>{opt.shortLabel}</th>)}
                   <th>Total</th><th>Status</th>
                 </tr>
@@ -1099,6 +1107,20 @@ function TeamPaceBody({ user }) {
         </div>
       )}
     </>
+  );
+}
+function TeamPaceBody({ user }) {
+  return (
+    <PeoplePaceBody
+      user={user} fetchMembers={fetchTeamMembers} heading="Team pace" Icon={Users} memberLabel="Team member"
+      emptyMessage="No team members yet. Once people create accounts and start logging, they'll show up here." />
+  );
+}
+function DirectManagersBody({ user }) {
+  return (
+    <PeoplePaceBody
+      user={user} fetchMembers={fetchDirectManagers} heading="Direct managers" Icon={UserCog} memberLabel="Manager"
+      emptyMessage="No managers assigned to you yet. Assign them from Manage Team → Reports To." />
   );
 }
 
@@ -1220,6 +1242,7 @@ function ManageUsersView({ currentUserId }) {
   useEffect(() => { refresh(); }, [refresh]);
 
   const managerOptions = users.filter(u => u.role === 'manager');
+  const adminOptions = users.filter(u => u.role === 'super_admin');
 
   async function handleChange(id, newRole) {
     setSavingId(id);
@@ -1256,7 +1279,7 @@ function ManageUsersView({ currentUserId }) {
       {loading ? <Spinner label="Loading team…" /> : (
         <div className="tr-table-wrap">
           <table className="tr-table tr-table-summary">
-            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Manager</th><th></th></tr></thead>
+            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Reports To</th><th></th></tr></thead>
             <tbody>
               {users.map(u => (
                 <tr key={u.id}>
@@ -1277,6 +1300,11 @@ function ManageUsersView({ currentUserId }) {
                       <select value={u.manager_id || ''} disabled={savingId === u.id} onChange={e => handleManagerChange(u.id, e.target.value)}>
                         <option value="">— none —</option>
                         {managerOptions.map(m => <option key={m.id} value={m.id}>{m.display_name}</option>)}
+                      </select>
+                    ) : u.role === 'manager' ? (
+                      <select value={u.manager_id || ''} disabled={savingId === u.id} onChange={e => handleManagerChange(u.id, e.target.value)}>
+                        <option value="">— none —</option>
+                        {adminOptions.map(a => <option key={a.id} value={a.id}>{a.display_name}</option>)}
                       </select>
                     ) : '—'}
                   </td>
@@ -1302,14 +1330,16 @@ function AdminView({ user }) {
     <Shell>
       <Header user={user} />
       <main className="tr-main">
-        <div className="tr-tabs" style={{ maxWidth: 620 }}>
+        <div className="tr-tabs" style={{ maxWidth: 760 }}>
           <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
           <button className={`tr-tab ${tab === 'pace' ? 'tr-tab-active' : ''}`} onClick={() => setTab('pace')}>Team Pace</button>
+          <button className={`tr-tab ${tab === 'directs' ? 'tr-tab-active' : ''}`} onClick={() => setTab('directs')}>Direct Managers</button>
           <button className={`tr-tab ${tab === 'production' ? 'tr-tab-active' : ''}`} onClick={() => setTab('production')}>Track Production</button>
           <button className={`tr-tab ${tab === 'users' ? 'tr-tab-active' : ''}`} onClick={() => setTab('users')}>Manage Team</button>
         </div>
         {tab === 'mine' && <MyAppointmentsBody user={user} />}
         {tab === 'pace' && <TeamPaceBody user={user} />}
+        {tab === 'directs' && <DirectManagersBody user={user} />}
         {tab === 'production' && <TrackProductionBody user={user} />}
         {tab === 'users' && <ManageUsersView currentUserId={user.id} />}
       </main>
