@@ -129,18 +129,6 @@ function tenureSince(createdAt) {
   parts.push(`${days}d`);
   return parts.join(' ');
 }
-async function saveFollowUp(id, data) {
-  const { error } = await supabase.from('appointments').update({
-    outcome: data.outcome || null,
-    follow_up_scheduled: data.followUpScheduled,
-    result: data.result || null,
-    interested_tax: data.interestedTax,
-    interested_insurance: data.interestedInsurance,
-    target_premium: data.result === 'sale' && data.targetPremium ? Number(data.targetPremium) : null,
-    follow_up_completed_at: new Date().toISOString(),
-  }).eq('id', id);
-  return !error;
-}
 // Status is derived entirely from the follow-up answers — there's no
 // separate manual status control, so the two can never disagree.
 function deriveStatus(outcome, followUpScheduled) {
