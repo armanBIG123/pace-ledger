@@ -209,7 +209,7 @@ async function deleteAppointmentRow(id) {
 async function fetchTeamMembers(viewer) {
   let query = supabase.from('profiles').select('*').order('display_name');
   if (viewer.role === 'super_admin') {
-    query = query.in('role', ['advisor', 'manager']);
+    query = query.in('role', ['advisor', 'manager', 'super_admin']);
   } else {
     // regular managers only ever see their own assigned advisors
     query = query.eq('role', 'advisor').eq('manager_id', viewer.id);
@@ -996,7 +996,9 @@ function TeamPaceBody({ user }) {
                     <React.Fragment key={adv.id}>
                       <tr className="tr-clickable-row" onClick={() => setExpanded(isOpen ? null : adv.id)}>
                         <td>
-                          {adv.display_name}{adv.role === 'manager' ? <span className="tr-note"> — manager</span> : null}
+                          {adv.display_name}
+                          {adv.role === 'manager' ? <span className="tr-note"> — manager</span> : null}
+                          {adv.role === 'super_admin' ? <span className="tr-note"> — admin</span> : null}
                           <div className="tr-tenure">Member for {tenureSince(adv.created_at)}</div>
                         </td>
                         {DATE_SET_OPTIONS.map((opt, i) => (
@@ -1069,7 +1071,11 @@ function TrackProductionBody({ user }) {
                   const totalPremium = sold.reduce((s, a) => s + (Number(a.targetPremium) || 0), 0);
                   return (
                     <tr key={m.id}>
-                      <td>{m.display_name}{m.role === 'manager' ? <span className="tr-note"> — manager</span> : null}</td>
+                      <td>
+                        {m.display_name}
+                        {m.role === 'manager' ? <span className="tr-note"> — manager</span> : null}
+                        {m.role === 'super_admin' ? <span className="tr-note"> — admin</span> : null}
+                      </td>
                       <td className="tr-mono">{fmtCurrency(totalPremium)}{sold.length ? <span className="tr-note"> ({sold.length})</span> : null}</td>
                       <td>{recruited.length === 0 ? '—' : recruited.map(a => a.client).join(', ')}</td>
                     </tr>
