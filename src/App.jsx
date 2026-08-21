@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   LogIn, LogOut, Plus, Trash2, ChevronLeft, ChevronRight, Users,
   CalendarDays, ShieldCheck, UserPlus, Loader2, Pencil, ClipboardCheck, TrendingUp, UserCog
@@ -1356,6 +1356,10 @@ export default function App() {
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState('');
   const [recoveryMode, setRecoveryMode] = useState(false);
+  // Tracks which user we've already loaded a profile for, so a background
+  // token refresh (e.g. from switching browser tabs and back) doesn't
+  // re-trigger the loading screen and unmount everything below it.
+  const fetchedForUserId = useRef(null);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null));
@@ -1368,19 +1372,25 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
-    if (session && session.user) {
-      setProfileLoading(true);
-      setProfileError('');
-      supabase.from('profiles').select('*').eq('id', session.user.id).single()
-        .then(({ data, error }) => {
-          if (cancelled) return;
-          if (error) setProfileError('Could not load your profile. Try refreshing the page.');
-          setProfile(data || null);
-          setProfileLoading(false);
-        });
-    } else {
+    const userId = session && session.user ? session.user.id : null;
+
+    if (!userId) {
       setProfile(null);
+      fetchedForUserId.current = null;
+      return;
     }
+    if (fetchedForUserId.current === userId) return; // same person, already loaded — do nothing
+
+    setProfileLoading(true);
+    setProfileError('');
+    supabase.from('profiles').select('*').eq('id', userId).single()
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) setProfileError('Could not load your profile. Try refreshing the page.');
+        setProfile(data || null);
+        setProfileLoading(false);
+        fetchedForUserId.current = userId;
+      });
     return () => { cancelled = true; };
   }, [session]);
 
