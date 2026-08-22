@@ -64,6 +64,43 @@ function fmtTime(t) {
   const hh = ((h + 11) % 12) + 1;
   return `${hh}:${m.toString().padStart(2, '0')} ${ampm}`;
 }
+
+// ---------------------------------------------------------------------
+// timezones — appointment times are stored as a real UTC instant
+// (appointment_at) whenever a timezone was given, so anyone viewing it
+// sees it correctly converted to their own device's local time.
+// ---------------------------------------------------------------------
+const TIMEZONE_OPTIONS = [
+  { value: 'America/New_York', label: 'Eastern Time (ET)' },
+  { value: 'America/Chicago', label: 'Central Time (CT)' },
+  { value: 'America/Denver', label: 'Mountain Time (MT)' },
+  { value: 'America/Phoenix', label: 'Arizona (no DST)' },
+  { value: 'America/Los_Angeles', label: 'Pacific Time (PT)' },
+  { value: 'America/Anchorage', label: 'Alaska Time (AKT)' },
+  { value: 'Pacific/Honolulu', label: 'Hawaii Time (HST)' },
+];
+function detectTimezone() {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/New_York'; }
+  catch { return 'America/New_York'; }
+}
+function timezoneOptionsWithDetected() {
+  const detected = detectTimezone();
+  if (TIMEZONE_OPTIONS.some(o => o.value === detected)) return TIMEZONE_OPTIONS;
+  return [{ value: detected, label: `Your timezone (${detected})` }, ...TIMEZONE_OPTIONS];
+}
+// Shows the appointment converted to whoever is looking at it right now.
+// Falls back to the raw stored value (old behavior) for appointments
+// logged before timezones were tracked.
+function fmtApptDateTime(a) {
+  if (a.appointmentAt) {
+    const d = new Date(a.appointmentAt);
+    const dateStr = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+    return `${dateStr} · ${timeStr}`;
+  }
+  return `${fmtDisplayDate(a.appointmentDate)} · ${fmtTime(a.appointmentTime)}`;
+}
+
 function getStatus(counts, weekMonday) {
   const allMet = DATE_SET_OPTIONS.every((opt, i) => (counts[i] || 0) >= opt.target);
   if (allMet) return 'met';
@@ -100,9 +137,12 @@ function rowToRecord(row) {
     status: row.status || '',
     presentationType: row.presentation_type || '',
     targetPremium: row.target_premium,
+    appointmentTimezone: row.appointment_timezone || '',
+    appointmentAt: row.appointment_at || null,
   };
 }
 function isPastAppointment(a) {
+  if (a.appointmentAt) return new Date(a.appointmentAt).getTime() < Date.now();
   const dt = new Date(`${a.appointmentDate}T${a.appointmentTime || '00:00'}`);
   return dt.getTime() < Date.now();
 }
@@ -165,6 +205,7 @@ async function insertFollowUpAppointment(userId, original, followUpDate, followU
     week_of: weekStartOf(todayStr()),
     appointment_date: followUpDate,
     appointment_time: followUpTime,
+    appointment_timezone: original.appointmentTimezone || detectTimezone(),
     presenter: original.presenter,
     trainee: original.trainee || null,
     client_name: original.client,
@@ -196,6 +237,7 @@ async function insertAppointment(userId, form) {
     week_of: form.weekOf,
     appointment_date: form.appointmentDate,
     appointment_time: form.appointmentTime,
+    appointment_timezone: form.timezone || null,
     presenter: form.presenter.trim(),
     trainee: form.trainee.trim() || null,
     client_name: form.client.trim(),
@@ -215,6 +257,7 @@ async function updateAppointment(id, form) {
     category: meta.category,
     appointment_date: form.appointmentDate,
     appointment_time: form.appointmentTime,
+    appointment_timezone: form.timezone || null,
     presenter: form.presenter.trim(),
     trainee: form.trainee.trim() || null,
     client_name: form.client.trim(),
@@ -349,7 +392,7 @@ function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty }) {
                 return (
                   <tr key={a.id}>
                     <td className={typeClass}>{a.dateSetLabel}</td>
-                    <td>{fmtDisplayDate(a.appointmentDate)} · {fmtTime(a.appointmentTime)}</td>
+                    <td>{fmtApptDateTime(a)}</td>
                     <td>{a.presenter}</td>
                     <td>{a.trainee || '—'}</td>
                     <td>
@@ -628,7 +671,7 @@ function FollowUpModal({ appointment, onClose, onSave, saving }) {
     <Modal onClose={onClose}>
       <h3 className="tr-h3">Follow-up — {appointment.client}</h3>
       <p className="tr-empty" style={{ marginTop: -4, marginBottom: 18 }}>
-        {fmtDisplayDate(appointment.appointmentDate)} · {fmtTime(appointment.appointmentTime)}
+        {fmtApptDateTime(appointment)}
       </p>
       <div className="tr-followup-list">
         <div className="tr-field"><span>How'd it go?</span><PillChoice options={OUTCOME_OPTIONS} value={outcome} onChange={setOutcome} /></div>
@@ -687,6 +730,7 @@ function AppointmentForm({ defaultPresenter, weekMonday, editing, onCancel, onSu
   const [dateSetOption, setDateSetOption] = useState(editing?.dateSetOption || defaultDateSetOption());
   const [appointmentDate, setAppointmentDate] = useState(editing?.appointmentDate || '');
   const [appointmentTime, setAppointmentTime] = useState(editing?.appointmentTime || '');
+  const [timezone, setTimezone] = useState(editing?.appointmentTimezone || detectTimezone());
   const [presenter, setPresenter] = useState(editing?.presenter || defaultPresenter || '');
   const [trainee, setTrainee] = useState(editing?.trainee || '');
   const [client, setClient] = useState(editing?.client || '');
@@ -694,6 +738,7 @@ function AppointmentForm({ defaultPresenter, weekMonday, editing, onCancel, onSu
   const [presentationType, setPresentationType] = useState(editing?.presentationType || '');
   const [err, setErr] = useState('');
   const [calendlyContacts, setCalendlyContacts] = useState([]);
+  const timezoneOptions = timezoneOptionsWithDetected();
 
   useEffect(() => { fetchCalendlyContacts().then(setCalendlyContacts); }, []);
 
@@ -705,7 +750,7 @@ function AppointmentForm({ defaultPresenter, weekMonday, editing, onCancel, onSu
       return;
     }
     setErr('');
-    onSubmit({ dateSetOption, appointmentDate, appointmentTime, presenter, trainee, client, notes, presentationType });
+    onSubmit({ dateSetOption, appointmentDate, appointmentTime, timezone, presenter, trainee, client, notes, presentationType });
   }
   function handleKeyDown(e) {
     if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') { e.preventDefault(); submit(); }
@@ -750,6 +795,12 @@ function AppointmentForm({ defaultPresenter, weekMonday, editing, onCancel, onSu
         <label className="tr-field">
           <span>Appointment time</span>
           <input type="time" value={appointmentTime} onChange={e => setAppointmentTime(e.target.value)} onClick={openPicker} />
+        </label>
+        <label className="tr-field">
+          <span>Time zone</span>
+          <select value={timezone} onChange={e => setTimezone(e.target.value)}>
+            {timezoneOptions.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+          </select>
         </label>
         <label className="tr-field">
           <span>Presenter</span>
