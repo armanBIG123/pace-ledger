@@ -139,6 +139,7 @@ function rowToRecord(row) {
     targetPremium: row.target_premium,
     appointmentTimezone: row.appointment_timezone || '',
     appointmentAt: row.appointment_at || null,
+    isFollowUp: row.is_follow_up || false,
   };
 }
 function isPastAppointment(a) {
@@ -211,6 +212,7 @@ async function insertFollowUpAppointment(userId, original, followUpDate, followU
     client_name: original.client,
     notes: `Follow-up to appointment on ${fmtDisplayDate(original.appointmentDate)}`,
     presentation_type: original.presentationType || null,
+    is_follow_up: true,
   }).select().single();
   if (error) return { ok: false, error: error.message };
   return { ok: true, record: rowToRecord(data) };
@@ -903,12 +905,18 @@ function MyAppointmentsBody({ user }) {
   useEffect(() => { refresh(); }, [refresh]);
 
   const weekAppts = appointments
-    .filter(a => a.weekOf === weekMonday)
+    .filter(a => a.weekOf === weekMonday && !a.isFollowUp)
     .sort((a, b) => (a.appointmentDate + a.appointmentTime).localeCompare(b.appointmentDate + b.appointmentTime));
   const groups = DATE_SET_OPTIONS.map(opt => ({
     option: opt,
     list: weekAppts.filter(a => a.dateSetOption === opt.value),
   }));
+  // Auto-created follow-up appointments never count toward a batch — they
+  // show here instead, sorted by when they'll actually happen, regardless
+  // of which pace week is currently being viewed.
+  const upcomingFollowUps = appointments
+    .filter(a => a.isFollowUp && !isPastAppointment(a))
+    .sort((a, b) => (a.appointmentDate + a.appointmentTime).localeCompare(b.appointmentDate + b.appointmentTime));
 
   const pastAppts = appointments.filter(isPastAppointment);
   const statusCounts = STATUS_OPTIONS.reduce((acc, opt) => {
@@ -1000,6 +1008,12 @@ function MyAppointmentsBody({ user }) {
             {(user.role === 'manager' || user.role === 'super_admin') && <CalendlyLinkEditor user={user} />}
             <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
             <PaceStrip groups={groups.map(g => ({ option: g.option, count: g.list.length, list: g.list }))} />
+            {upcomingFollowUps.length > 0 && (
+              <ApptGroup
+                title={`Upcoming follow-ups (${upcomingFollowUps.length})`}
+                list={byType(upcomingFollowUps)} onDelete={handleDelete} onFollowUp={setFollowUpTarget}
+                onEdit={openEdit} empty="" />
+            )}
             <div className="tr-row-head">
               <h2 className="tr-h2">Your appointments this week</h2>
               <button className="tr-btn tr-btn-brass" onClick={() => (showForm ? closeForm() : setShowForm(true))}>
@@ -1121,7 +1135,7 @@ function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, membe
               </thead>
               <tbody>
                 {members.map(adv => {
-                  const list = weekAppts.filter(a => a.userId === adv.id);
+                  const list = weekAppts.filter(a => a.userId === adv.id && !a.isFollowUp);
                   const groups = DATE_SET_OPTIONS.map(opt => list.filter(a => a.dateSetOption === opt.value));
                   const counts = groups.map(g => g.length);
                   const total = counts.reduce((s, c) => s + c, 0);
