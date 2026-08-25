@@ -100,6 +100,19 @@ function fmtApptDateTime(a) {
   }
   return `${fmtDisplayDate(a.appointmentDate)} · ${fmtTime(a.appointmentTime)}`;
 }
+// The follow-up date/time saved on the ORIGINAL appointment — shown right
+// where the "Needs follow-up" status lives, not just on the separate
+// auto-created follow-up appointment.
+function fmtFollowUpDateTime(a) {
+  if (!a.followUpAppointmentDate) return '';
+  if (a.followUpAppointmentAt) {
+    const d = new Date(a.followUpAppointmentAt);
+    const dateStr = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+    return `${dateStr} · ${timeStr}`;
+  }
+  return `${fmtDisplayDate(a.followUpAppointmentDate)} · ${fmtTime(a.followUpAppointmentTime)}`;
+}
 
 function getStatus(counts, weekMonday) {
   const allMet = DATE_SET_OPTIONS.every((opt, i) => (counts[i] || 0) >= opt.target);
@@ -140,6 +153,10 @@ function rowToRecord(row) {
     appointmentTimezone: row.appointment_timezone || '',
     appointmentAt: row.appointment_at || null,
     isFollowUp: row.is_follow_up || false,
+    followUpAppointmentDate: row.follow_up_appointment_date || '',
+    followUpAppointmentTime: (row.follow_up_appointment_time || '').slice(0, 5),
+    followUpAppointmentTimezone: row.follow_up_appointment_timezone || '',
+    followUpAppointmentAt: row.follow_up_appointment_at || null,
   };
 }
 function isPastAppointment(a) {
@@ -179,8 +196,9 @@ function deriveStatus(outcome, followUpScheduled) {
   if (outcome === 'went_well' || outcome === 'not_interested') return 'completed';
   return '';
 }
-async function saveFollowUp(id, data) {
+async function saveFollowUp(id, data, followUpTimezone) {
   const status = deriveStatus(data.outcome, data.followUpScheduled);
+  const scheduled = data.followUpScheduled === true;
   const { error } = await supabase.from('appointments').update({
     outcome: data.outcome || null,
     follow_up_scheduled: data.followUpScheduled,
@@ -190,13 +208,16 @@ async function saveFollowUp(id, data) {
     target_premium: data.result === 'sale' && data.targetPremium ? Number(data.targetPremium) : null,
     follow_up_completed_at: new Date().toISOString(),
     status: status || null,
+    follow_up_appointment_date: scheduled ? (data.followUpDate || null) : null,
+    follow_up_appointment_time: scheduled ? (data.followUpTime || null) : null,
+    follow_up_appointment_timezone: scheduled ? (followUpTimezone || null) : null,
   }).eq('id', id);
   return !error;
 }
 // Creates the actual next appointment when someone says a follow-up was
 // scheduled — carries over presenter/client/type from the original so
 // nothing needs re-entering, "set" as of today (right now).
-async function insertFollowUpAppointment(userId, original, followUpDate, followUpTime) {
+async function insertFollowUpAppointment(userId, original, followUpDate, followUpTime, timezone) {
   const dateSetOption = defaultDateSetOption();
   const meta = dateSetMeta(dateSetOption);
   const { data, error } = await supabase.from('appointments').insert({
@@ -206,7 +227,7 @@ async function insertFollowUpAppointment(userId, original, followUpDate, followU
     week_of: weekStartOf(todayStr()),
     appointment_date: followUpDate,
     appointment_time: followUpTime,
-    appointment_timezone: original.appointmentTimezone || detectTimezone(),
+    appointment_timezone: timezone || original.appointmentTimezone || detectTimezone(),
     presenter: original.presenter,
     trainee: original.trainee || null,
     client_name: original.client,
@@ -400,6 +421,7 @@ function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty }) {
                     <td>
                       {a.client}
                       {a.status ? <span style={{ marginLeft: 6 }}><StatusChip status={a.status} /></span> : null}
+                      {a.followUpAppointmentDate ? <div className="tr-note" style={{ marginTop: 2 }}>Follow-up: {fmtFollowUpDateTime(a)}</div> : null}
                       {a.notes ? <span className="tr-note"> — {a.notes}</span> : null}
                     </td>
                     {onDelete && (
@@ -643,8 +665,8 @@ function yesNoToBool(v) { return v === 'yes' ? true : v === 'no' ? false : null;
 function FollowUpModal({ appointment, onClose, onSave, saving }) {
   const [outcome, setOutcome] = useState(appointment.outcome || '');
   const [followUpScheduled, setFollowUpScheduled] = useState(boolToYesNo(appointment.followUpScheduled));
-  const [followUpDate, setFollowUpDate] = useState('');
-  const [followUpTime, setFollowUpTime] = useState('');
+  const [followUpDate, setFollowUpDate] = useState(appointment.followUpAppointmentDate || '');
+  const [followUpTime, setFollowUpTime] = useState(appointment.followUpAppointmentTime || '');
   const [result, setResult] = useState(appointment.result || '');
   const [targetPremium, setTargetPremium] = useState(appointment.targetPremium != null ? String(appointment.targetPremium) : '');
   const [interestedTax, setInterestedTax] = useState(boolToYesNo(appointment.interestedTax));
@@ -955,21 +977,27 @@ function MyAppointmentsBody({ user }) {
   }
   async function handleSaveFollowUp(id, data) {
     setFollowUpSaving(true);
-    const ok = await saveFollowUp(id, data);
+    const original = appointments.find(a => a.id === id);
+    const followUpTimezone = (original && original.appointmentTimezone) || detectTimezone();
+    const ok = await saveFollowUp(id, data, followUpTimezone);
     if (!ok) { setFollowUpSaving(false); return; }
 
-    const original = appointments.find(a => a.id === id);
     let newAppt = null;
     if (data.followUpScheduled === true && data.followUpDate && data.followUpTime && original) {
-      const res = await insertFollowUpAppointment(user.id, original, data.followUpDate, data.followUpTime);
+      const res = await insertFollowUpAppointment(user.id, original, data.followUpDate, data.followUpTime, followUpTimezone);
       if (res.ok) newAppt = res.record;
     }
     setFollowUpSaving(false);
 
     const status = deriveStatus(data.outcome, data.followUpScheduled);
+    const scheduled = data.followUpScheduled === true;
     setAppointments(prev => {
       const updated = prev.map(a => a.id === id ? {
         ...a, ...data, status, followUpCompletedAt: new Date().toISOString(),
+        followUpAppointmentDate: scheduled ? data.followUpDate : '',
+        followUpAppointmentTime: scheduled ? data.followUpTime : '',
+        followUpAppointmentTimezone: scheduled ? followUpTimezone : '',
+        followUpAppointmentAt: newAppt ? newAppt.appointmentAt : a.followUpAppointmentAt,
       } : a);
       return newAppt ? [...updated, newAppt] : updated;
     });
