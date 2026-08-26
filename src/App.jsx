@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   LogIn, LogOut, Plus, Trash2, ChevronLeft, ChevronRight, Users,
-  CalendarDays, ShieldCheck, UserPlus, Loader2, Pencil, ClipboardCheck, TrendingUp, UserCog
+  CalendarDays, ShieldCheck, UserPlus, Loader2, Pencil, ClipboardCheck, TrendingUp, UserCog, DollarSign
 } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
 
@@ -157,12 +157,52 @@ function rowToRecord(row) {
     followUpAppointmentTime: (row.follow_up_appointment_time || '').slice(0, 5),
     followUpAppointmentTimezone: row.follow_up_appointment_timezone || '',
     followUpAppointmentAt: row.follow_up_appointment_at || null,
+    effectiveDate: row.effective_date || '',
+    requirementsCompleted: row.requirements_completed || false,
   };
 }
 function isPastAppointment(a) {
   if (a.appointmentAt) return new Date(a.appointmentAt).getTime() < Date.now();
   const dt = new Date(`${a.appointmentDate}T${a.appointmentTime || '00:00'}`);
   return dt.getTime() < Date.now();
+}
+// A sold policy moves from "Sold Premium" to "Issued Premium" once the
+// effective date has arrived AND requirements are marked complete —
+// computed live, nothing needs to manually "move" it.
+function isPolicyIssued(a) {
+  return !!a.effectiveDate && a.effectiveDate <= todayStr() && a.requirementsCompleted === true;
+}
+// Every appointment marked "Sale" in its follow-up is a policy. Row Level
+// Security automatically scopes this to whatever the current person is
+// allowed to see: an advisor gets their own, a manager gets their own
+// plus their assigned advisors', a super_admin gets everyone's.
+async function fetchSoldPolicies() {
+  const { data, error } = await supabase
+    .from('appointments').select('*').eq('result', 'sale')
+    .order('appointment_date', { ascending: false });
+  if (error) { console.error(error); return []; }
+  return data.map(rowToRecord);
+}
+async function updatePolicyFields(id, fields) {
+  const payload = {};
+  if ('effectiveDate' in fields) payload.effective_date = fields.effectiveDate || null;
+  if ('requirementsCompleted' in fields) payload.requirements_completed = !!fields.requirementsCompleted;
+  const { error } = await supabase.from('appointments').update(payload).eq('id', id);
+  return !error;
+}
+async function fetchPolicyNotes(appointmentId) {
+  const { data, error } = await supabase
+    .from('policy_notes').select('*').eq('appointment_id', appointmentId)
+    .order('created_at', { ascending: true });
+  if (error) { console.error(error); return []; }
+  return data;
+}
+async function addPolicyNote(appointmentId, authorId, authorName, note) {
+  const { data, error } = await supabase.from('policy_notes').insert({
+    appointment_id: appointmentId, author_id: authorId, author_name: authorName, note: note.trim(),
+  }).select().single();
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, record: data };
 }
 function fmtCurrency(n) {
   if (n === null || n === undefined || isNaN(n)) return '$0';
@@ -394,6 +434,11 @@ const STATUS_OPTIONS = [
   { value: 'not_completed', label: "Didn't happen", color: 'rust' },
   { value: 'needs_reschedule', label: 'Needs reschedule', color: 'violet' },
 ];
+// Sentinel values for the sidebar's Open Requirements section — distinct
+// from any real status value (including '') so they can share the same
+// statusView state cleanly.
+const SOLD_PREMIUM_VIEW = '__sold_premium__';
+const ISSUED_PREMIUM_VIEW = '__issued_premium__';
 function StatusChip({ status }) {
   const opt = STATUS_OPTIONS.find(o => o.value === status);
   if (!opt || !opt.value) return null;
@@ -855,6 +900,133 @@ function AppointmentForm({ defaultPresenter, weekMonday, editing, onCancel, onSu
 // ---------------------------------------------------------------------
 // advisor capabilities — available to advisors, managers, and super admins
 // ---------------------------------------------------------------------
+// ---------------------------------------------------------------------
+// open requirements — sold policies tracked through to issue
+// ---------------------------------------------------------------------
+function PolicyCard({ policy, canEdit, currentUser, onSaved }) {
+  const [effectiveDate, setEffectiveDate] = useState(policy.effectiveDate || '');
+  const [requirementsCompleted, setRequirementsCompleted] = useState(!!policy.requirementsCompleted);
+  const [saving, setSaving] = useState(false);
+  const [notes, setNotes] = useState([]);
+  const [notesLoading, setNotesLoading] = useState(true);
+  const [newNote, setNewNote] = useState('');
+  const [noteSaving, setNoteSaving] = useState(false);
+
+  useEffect(() => {
+    fetchPolicyNotes(policy.id).then(n => { setNotes(n); setNotesLoading(false); });
+  }, [policy.id]);
+
+  async function saveEffectiveDate(value) {
+    setSaving(true);
+    const ok = await updatePolicyFields(policy.id, { effectiveDate: value });
+    setSaving(false);
+    if (ok) onSaved();
+  }
+  async function toggleRequirements() {
+    const next = !requirementsCompleted;
+    setRequirementsCompleted(next);
+    setSaving(true);
+    const ok = await updatePolicyFields(policy.id, { requirementsCompleted: next });
+    setSaving(false);
+    if (ok) onSaved(); else setRequirementsCompleted(!next);
+  }
+  async function submitNote() {
+    if (!newNote.trim()) return;
+    setNoteSaving(true);
+    const res = await addPolicyNote(policy.id, currentUser.id, currentUser.displayName, newNote);
+    setNoteSaving(false);
+    if (res.ok) { setNotes(prev => [...prev, res.record]); setNewNote(''); }
+  }
+  function handleNoteKeyDown(e) { if (e.key === 'Enter') { e.preventDefault(); submitNote(); } }
+
+  return (
+    <div className="tr-card tr-policy-card">
+      <div className="tr-policy-head">
+        <div>
+          <strong>{policy.client}</strong>
+          <div className="tr-note">{policy.presenter} · Sold {fmtApptDateTime(policy)}</div>
+        </div>
+        <div className="tr-mono tr-policy-premium">{fmtCurrency(policy.targetPremium)}</div>
+      </div>
+      <div className="tr-policy-fields">
+        <label className="tr-field">
+          <span>Effective date</span>
+          {canEdit ? (
+            <input type="date" value={effectiveDate} onChange={e => { setEffectiveDate(e.target.value); saveEffectiveDate(e.target.value); }} onClick={openPicker} />
+          ) : (
+            <div className="tr-empty">{effectiveDate ? fmtDisplayDate(effectiveDate) : 'Not set yet'}</div>
+          )}
+        </label>
+        <div className="tr-field">
+          <span>Requirements</span>
+          {canEdit ? (
+            <button type="button" className={`tr-btn tr-btn-sm ${requirementsCompleted ? 'tr-btn-brass' : 'tr-btn-ghost'}`} onClick={toggleRequirements} disabled={saving}>
+              {requirementsCompleted ? '✓ Completed' : 'Mark complete'}
+            </button>
+          ) : (
+            <div className="tr-empty">{requirementsCompleted ? '✓ Completed' : 'Pending'}</div>
+          )}
+        </div>
+      </div>
+      <div className="tr-policy-notes">
+        <h4 className="tr-h4">Notes</h4>
+        {notesLoading ? <Spinner label="Loading notes…" /> : notes.length === 0 ? (
+          <p className="tr-empty">No notes yet.</p>
+        ) : (
+          <div className="tr-notes-list">
+            {notes.map(n => (
+              <div key={n.id} className="tr-note-item">
+                <div className="tr-note-meta">{n.author_name} · {new Date(n.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>
+                <div>{n.note}</div>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="tr-note-add" onKeyDown={handleNoteKeyDown}>
+          <input value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="Add a note about open requirements…" />
+          <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={submitNote} disabled={noteSaving || !newNote.trim()}>Add</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+function OpenRequirementsBody({ view, user }) {
+  const [policies, setPolicies] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setPolicies(await fetchSoldPolicies());
+    setLoading(false);
+  }, []);
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const filtered = policies
+    .filter(p => (view === 'issued' ? isPolicyIssued(p) : !isPolicyIssued(p)))
+    .sort((a, b) => b.appointmentDate.localeCompare(a.appointmentDate));
+
+  return (
+    <>
+      <div className="tr-row-head">
+        <h2 className="tr-h2">{view === 'issued' ? 'Issued Premium' : 'Sold Premium'}</h2>
+        <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+      </div>
+      <p className="tr-empty" style={{ marginTop: -8 }}>
+        {view === 'issued'
+          ? 'Policies whose effective date has arrived and all requirements are complete.'
+          : 'Sold policies still waiting on their effective date and/or open requirements.'}
+      </p>
+      {loading ? <Spinner label="Loading…" /> : filtered.length === 0 ? (
+        <div className="tr-card"><p className="tr-empty">Nothing here yet.</p></div>
+      ) : (
+        filtered.map(p => (
+          <PolicyCard key={p.id} policy={p} canEdit={p.userId === user.id} currentUser={user} onSaved={refresh} />
+        ))
+      )}
+    </>
+  );
+}
+
 function CalendlyLinkEditor({ user }) {
   const [link, setLink] = useState('');
   const [loaded, setLoaded] = useState(false);
@@ -1023,6 +1195,19 @@ function MyAppointmentsBody({ user }) {
             <span className="tr-mono">{statusCounts[opt.value]}</span>
           </button>
         ))}
+        <div className="tr-sidebar-divider">Open Requirements</div>
+        <button
+          type="button"
+          className={`tr-sidebar-item tr-sidebar-item-amber ${statusView === SOLD_PREMIUM_VIEW ? 'tr-sidebar-item-active' : ''}`}
+          onClick={() => setStatusView(SOLD_PREMIUM_VIEW)}>
+          <span>Sold Premium</span>
+        </button>
+        <button
+          type="button"
+          className={`tr-sidebar-item tr-sidebar-item-green ${statusView === ISSUED_PREMIUM_VIEW ? 'tr-sidebar-item-active' : ''}`}
+          onClick={() => setStatusView(ISSUED_PREMIUM_VIEW)}>
+          <span>Issued Premium</span>
+        </button>
       </nav>
 
       <div className="tr-appts-main">
@@ -1061,6 +1246,10 @@ function MyAppointmentsBody({ user }) {
                 empty={`No ${typeFilter === 'all' ? '' : typeFilter + ' '}appointments logged for ${g.option.label} yet.`} />
             ))}
           </>
+        ) : statusView === SOLD_PREMIUM_VIEW ? (
+          <OpenRequirementsBody view="sold" user={user} />
+        ) : statusView === ISSUED_PREMIUM_VIEW ? (
+          <OpenRequirementsBody view="issued" user={user} />
         ) : (
           <>
             <h2 className="tr-h2">{STATUS_OPTIONS.find(o => o.value === statusView)?.label}</h2>
@@ -1563,6 +1752,20 @@ const CSS = `
 .tr-row-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .tr-h2 { font-family: 'Newsreader', serif; font-size: 21px; font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: 8px; margin: 0; }
 .tr-h3 { font-family: 'Newsreader', serif; font-size: 16px; font-weight: 600; color: var(--ink); margin: 0 0 10px; }
+.tr-h4 { font-size: 12.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--slate-light); margin: 0 0 8px; }
+
+/* open requirements: policy cards */
+.tr-policy-card { display: flex; flex-direction: column; gap: 14px; }
+.tr-policy-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.tr-policy-premium { font-size: 17px; font-weight: 600; color: var(--brass-dark); }
+.tr-policy-fields { display: flex; flex-wrap: wrap; gap: 20px; padding: 12px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.tr-policy-notes { display: flex; flex-direction: column; gap: 10px; }
+.tr-notes-list { display: flex; flex-direction: column; gap: 10px; max-height: 260px; overflow-y: auto; }
+.tr-note-item { background: var(--paper); border-radius: 8px; padding: 8px 10px; font-size: 13.5px; }
+.tr-note-meta { font-size: 11px; color: var(--slate-light); margin-bottom: 3px; }
+.tr-note-add { display: flex; gap: 8px; }
+.tr-note-add input { flex: 1; font-family: inherit; font-size: 14px; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
+.tr-note-add input:focus { border-color: var(--brass); }
 
 /* card */
 .tr-card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; box-shadow: 0 1px 2px rgba(19,35,48,0.04); }
