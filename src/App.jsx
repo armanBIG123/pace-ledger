@@ -183,6 +183,42 @@ async function fetchSoldPolicies() {
   if (error) { console.error(error); return []; }
   return data.map(rowToRecord);
 }
+// Calendar view — same RLS-based scoping as everywhere else (own
+// appointments, or own + team for managers/admins), just fetched by actual
+// date range instead of pace week. Always reflects live appointment_date /
+// appointment_time, so reschedules, follow-ups, and edits show up
+// automatically with no extra sync logic needed.
+async function fetchAppointmentsInRange(startDate, endDate) {
+  const { data, error } = await supabase
+    .from('appointments').select('*')
+    .gte('appointment_date', startDate)
+    .lte('appointment_date', endDate)
+    .order('appointment_date', { ascending: true })
+    .order('appointment_time', { ascending: true });
+  if (error) { console.error(error); return []; }
+  return data.map(rowToRecord);
+}
+function monthStartOf(dateStr) {
+  const d = parseDate(dateStr);
+  return fmtDate(new Date(d.getFullYear(), d.getMonth(), 1));
+}
+function shiftMonth(dateStr, delta) {
+  const d = parseDate(dateStr);
+  return fmtDate(new Date(d.getFullYear(), d.getMonth() + delta, 1));
+}
+// A full 6x7 grid including the leading/trailing days from adjacent
+// months needed to fill complete weeks.
+function buildMonthGrid(monthStartStr) {
+  const start = parseDate(monthStartStr);
+  const month = start.getMonth();
+  const gridStart = addDays(start, -start.getDay());
+  const cells = [];
+  for (let i = 0; i < 42; i++) {
+    const d = addDays(gridStart, i);
+    cells.push({ date: fmtDate(d), inMonth: d.getMonth() === month, dayNum: d.getDate() });
+  }
+  return cells;
+}
 async function updatePolicyFields(id, fields) {
   const payload = {};
   if ('effectiveDate' in fields) payload.effective_date = fields.effectiveDate || null;
@@ -1051,6 +1087,106 @@ function OpenRequirementsBody({ view, user }) {
   );
 }
 
+// ---------------------------------------------------------------------
+// calendar — a live month view of every appointment's actual date/time
+// ---------------------------------------------------------------------
+function CalendarDay({ cell, appts, ownerName, onOpen }) {
+  const isToday = cell.date === todayStr();
+  const visible = appts.slice(0, 3);
+  const extra = appts.length - visible.length;
+  return (
+    <div
+      className={`tr-cal-day ${cell.inMonth ? '' : 'tr-cal-day-out'} ${isToday ? 'tr-cal-day-today' : ''}`}
+      onClick={() => appts.length > 0 && onOpen(cell.date, appts)}>
+      <div className="tr-cal-daynum">{cell.dayNum}</div>
+      <div className="tr-cal-appts">
+        {visible.map(a => (
+          <div key={a.id} className={`tr-cal-appt ${a.presentationType === 'recruit' ? 'tr-cal-appt-recruit' : a.presentationType === 'sale' ? 'tr-cal-appt-sale' : ''}`}>
+            {fmtTime(a.appointmentTime)} {a.client}
+          </div>
+        ))}
+        {extra > 0 && <div className="tr-cal-more">+{extra} more</div>}
+      </div>
+    </div>
+  );
+}
+function CalendarBody({ user }) {
+  const [monthStartStr, setMonthStartStr] = useState(monthStartOf(todayStr()));
+  const [appts, setAppts] = useState([]);
+  const [members, setMembers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [dayModal, setDayModal] = useState(null);
+
+  const cells = buildMonthGrid(monthStartStr);
+  const rangeStart = cells[0].date;
+  const rangeEnd = cells[cells.length - 1].date;
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    const tasks = [fetchAppointmentsInRange(rangeStart, rangeEnd)];
+    if (user.role !== 'advisor') tasks.push(fetchTeamMembers(user));
+    const [apptList, memberList] = await Promise.all(tasks);
+    setAppts(apptList);
+    if (memberList) setMembers(memberList);
+    setLoading(false);
+  }, [rangeStart, rangeEnd, user.id, user.role]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  function apptsForDay(dateStr) { return appts.filter(a => a.appointmentDate === dateStr); }
+  function ownerName(userId) {
+    if (user.role === 'advisor') return '';
+    if (userId === user.id) return user.displayName;
+    const m = members.find(mm => mm.id === userId);
+    return m ? m.display_name : '';
+  }
+
+  const monthLabel = parseDate(monthStartStr).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  return (
+    <>
+      <div className="tr-weeknav">
+        <button className="tr-icon-btn" onClick={() => setMonthStartStr(shiftMonth(monthStartStr, -1))} title="Previous month"><ChevronLeft size={18} /></button>
+        <div className="tr-weeknav-label"><CalendarDays size={16} /><span>{monthLabel}</span></div>
+        <button className="tr-icon-btn" onClick={() => setMonthStartStr(shiftMonth(monthStartStr, 1))} title="Next month"><ChevronRight size={18} /></button>
+        <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setMonthStartStr(monthStartOf(todayStr()))}>This month</button>
+        <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+      </div>
+      {loading ? <Spinner label="Loading calendar…" /> : (
+        <div className="tr-card tr-cal-card">
+          <div className="tr-cal-grid tr-cal-grid-head">
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => <div key={d} className="tr-cal-headcell">{d}</div>)}
+          </div>
+          <div className="tr-cal-grid">
+            {cells.map(cell => (
+              <CalendarDay key={cell.date} cell={cell} appts={apptsForDay(cell.date)} ownerName={ownerName} onOpen={(date, dayAppts) => setDayModal({ date, appts: dayAppts })} />
+            ))}
+          </div>
+        </div>
+      )}
+      {dayModal && (
+        <Modal onClose={() => setDayModal(null)}>
+          <h3 className="tr-h3">{fmtDisplayDate(dayModal.date)}</h3>
+          <div className="tr-notes-list" style={{ maxHeight: '60vh' }}>
+            {dayModal.appts.map(a => (
+              <div key={a.id} className="tr-note-item">
+                <div className="tr-note-meta">
+                  {fmtApptDateTime(a)}
+                  {a.presentationType ? ` · ${a.presentationType === 'recruit' ? 'Recruit' : 'Sale'}` : ''}
+                  {a.isFollowUp ? ' · Follow-up' : ''}
+                </div>
+                <div><strong>{a.client}</strong> — {a.presenter}{a.trainee ? ` (training ${a.trainee})` : ''}</div>
+                {ownerName(a.userId) && <div className="tr-note">Logged by {ownerName(a.userId)}</div>}
+                {a.notes && <div className="tr-note">{a.notes}</div>}
+              </div>
+            ))}
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
 function CalendlyLinkEditor({ user }) {
   const [link, setLink] = useState('');
   const [loaded, setLoaded] = useState(false);
@@ -1298,11 +1434,17 @@ function MyAppointmentsBody({ user }) {
   );
 }
 function AdvisorView({ user }) {
+  const [tab, setTab] = useState('mine');
   return (
     <Shell>
       <Header user={user} />
       <main className="tr-main">
-        <MyAppointmentsBody user={user} />
+        <div className="tr-tabs" style={{ maxWidth: 320 }}>
+          <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
+          <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
+        </div>
+        {tab === 'mine' && <MyAppointmentsBody user={user} />}
+        {tab === 'calendar' && <CalendarBody user={user} />}
       </main>
     </Shell>
   );
@@ -1501,12 +1643,14 @@ function ManagerView({ user }) {
     <Shell>
       <Header user={user} />
       <main className="tr-main">
-        <div className="tr-tabs" style={{ maxWidth: 460 }}>
+        <div className="tr-tabs" style={{ maxWidth: 600 }}>
           <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
+          <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
           <button className={`tr-tab ${tab === 'pace' ? 'tr-tab-active' : ''}`} onClick={() => setTab('pace')}>Team Pace</button>
           <button className={`tr-tab ${tab === 'production' ? 'tr-tab-active' : ''}`} onClick={() => setTab('production')}>Track Production</button>
         </div>
         {tab === 'mine' && <MyAppointmentsBody user={user} />}
+        {tab === 'calendar' && <CalendarBody user={user} />}
         {tab === 'pace' && <TeamPaceBody user={user} />}
         {tab === 'production' && <TrackProductionBody user={user} />}
       </main>
@@ -1637,14 +1781,16 @@ function AdminView({ user }) {
     <Shell>
       <Header user={user} />
       <main className="tr-main">
-        <div className="tr-tabs" style={{ maxWidth: 760 }}>
+        <div className="tr-tabs" style={{ maxWidth: 900 }}>
           <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
+          <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
           <button className={`tr-tab ${tab === 'pace' ? 'tr-tab-active' : ''}`} onClick={() => setTab('pace')}>Team Pace</button>
           <button className={`tr-tab ${tab === 'directs' ? 'tr-tab-active' : ''}`} onClick={() => setTab('directs')}>Direct Managers</button>
           <button className={`tr-tab ${tab === 'production' ? 'tr-tab-active' : ''}`} onClick={() => setTab('production')}>Track Production</button>
           <button className={`tr-tab ${tab === 'users' ? 'tr-tab-active' : ''}`} onClick={() => setTab('users')}>Manage Team</button>
         </div>
         {tab === 'mine' && <MyAppointmentsBody user={user} />}
+        {tab === 'calendar' && <CalendarBody user={user} />}
         {tab === 'pace' && <TeamPaceBody user={user} />}
         {tab === 'directs' && <DirectManagersBody user={user} />}
         {tab === 'production' && <TrackProductionBody user={user} />}
@@ -1893,6 +2039,24 @@ const CSS = `
 /* tenure */
 .tr-tenure { font-size: 11px; color: var(--slate-light); margin-top: 2px; }
 
+/* calendar */
+.tr-cal-card { padding: 0; overflow: hidden; }
+.tr-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+.tr-cal-grid-head { border-bottom: 1px solid var(--line); }
+.tr-cal-headcell { padding: 10px 6px; text-align: center; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--slate-light); }
+.tr-cal-day { min-height: 92px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 6px; cursor: default; display: flex; flex-direction: column; gap: 3px; }
+.tr-cal-day:nth-child(7n) { border-right: none; }
+.tr-cal-day-out { background: var(--paper); }
+.tr-cal-day-out .tr-cal-daynum { color: var(--slate-light); }
+.tr-cal-day-today { background: rgba(201,162,75,0.08); }
+.tr-cal-daynum { font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.tr-cal-appts { display: flex; flex-direction: column; gap: 2px; }
+.tr-cal-appt { font-size: 10.5px; line-height: 1.3; padding: 1px 4px; border-radius: 3px; background: var(--paper-dim); color: var(--slate); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.tr-cal-appt-recruit { border-left: 2px solid var(--type-recruit); }
+.tr-cal-appt-sale { border-left: 2px solid var(--type-sale); }
+.tr-cal-more { font-size: 10px; color: var(--slate-light); padding-left: 4px; }
+.tr-cal-day:hover { background: var(--paper-dim); }
+
 /* needs-attention sidebar */
 .tr-appts-shell { display: flex; gap: 24px; align-items: flex-start; }
 .tr-appts-sidebar { display: flex; flex-direction: column; gap: 4px; min-width: 190px; flex-shrink: 0; }
@@ -1938,5 +2102,9 @@ const CSS = `
   .tr-appts-shell { flex-direction: column; }
   .tr-appts-sidebar { flex-direction: row; flex-wrap: wrap; min-width: 0; width: 100%; gap: 6px; }
   .tr-sidebar-divider { flex-basis: 100%; padding: 8px 4px 0; }
+  .tr-cal-day { min-height: 60px; padding: 3px; }
+  .tr-cal-headcell { font-size: 9px; padding: 6px 1px; }
+  .tr-cal-daynum { font-size: 11px; }
+  .tr-cal-appt { font-size: 8.5px; padding: 0 2px; }
 }
 `;
