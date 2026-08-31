@@ -313,9 +313,15 @@ async function insertAppointment(userId, form) {
 // Editing never touches week_of or user_id — it can only ever change how an
 // appointment looks within the week it was already logged for, never move
 // it to a different week.
-async function updateAppointment(id, form) {
+// Editing normally never touches week_of — a typo fix shouldn't move pace
+// counts. The one deliberate exception is rescheduling: if the appointment
+// currently needs to be rescheduled, saving new details for it is genuinely
+// new scheduling work, so it counts toward whichever batch it lands in now,
+// and its stale follow-up state (status, outcome, etc.) is cleared since
+// none of that applies to the newly-set time.
+async function updateAppointment(id, form, isReschedule) {
   const meta = dateSetMeta(form.dateSetOption);
-  const { data, error } = await supabase.from('appointments').update({
+  const payload = {
     date_set_option: form.dateSetOption,
     category: meta.category,
     appointment_date: form.appointmentDate,
@@ -326,7 +332,20 @@ async function updateAppointment(id, form) {
     client_name: form.client.trim(),
     notes: form.notes.trim() || null,
     presentation_type: form.presentationType || null,
-  }).eq('id', id).select().single();
+  };
+  if (isReschedule) {
+    payload.week_of = weekStartOf(todayStr());
+    payload.status = null;
+    payload.outcome = null;
+    payload.follow_up_scheduled = null;
+    payload.result = null;
+    payload.target_premium = null;
+    payload.follow_up_completed_at = null;
+    payload.follow_up_appointment_date = null;
+    payload.follow_up_appointment_time = null;
+    payload.follow_up_appointment_timezone = null;
+  }
+  const { data, error } = await supabase.from('appointments').update(payload).eq('id', id).select().single();
   if (error) return { ok: false, error: error.message };
   return { ok: true, record: rowToRecord(data) };
 }
@@ -828,6 +847,11 @@ function AppointmentForm({ defaultPresenter, weekMonday, editing, onCancel, onSu
   return (
     <div className="tr-card tr-form" onKeyDown={handleKeyDown}>
       <h3 className="tr-h3">{editing ? 'Edit appointment' : 'Log a new appointment'}</h3>
+      {editing?.status === 'needs_reschedule' && (
+        <div className="tr-badge tr-badge-weekday" style={{ marginBottom: 14 }}>
+          This one needs to be rescheduled — saving will count it toward this week's batch as a new entry, and clear its old follow-up status.
+        </div>
+      )}
       {calendlyContacts.length > 0 && (
         <div className="tr-field tr-field-wide" style={{ marginBottom: 14 }}>
           <span>If a manager is presenting, open their Calendly to schedule</span>
@@ -1128,7 +1152,8 @@ function MyAppointmentsBody({ user }) {
     setSaving(true);
     setError('');
     if (editingAppt) {
-      const res = await updateAppointment(editingAppt.id, form);
+      const isReschedule = editingAppt.status === 'needs_reschedule';
+      const res = await updateAppointment(editingAppt.id, form, isReschedule);
       setSaving(false);
       if (!res.ok) { setError(res.error || 'Could not save. Try again.'); return; }
       setAppointments(prev => prev.map(a => a.id === editingAppt.id ? res.record : a));
