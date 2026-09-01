@@ -149,6 +149,9 @@ function rowToRecord(row) {
     followUpCompletedAt: row.follow_up_completed_at,
     status: row.status || '',
     presentationType: row.presentation_type || '',
+    presentationTypeSecondary: row.presentation_type_secondary || '',
+    officiallyRecruited: row.officially_recruited || false,
+    officiallySold: row.officially_sold || false,
     targetPremium: row.target_premium,
     appointmentTimezone: row.appointment_timezone || '',
     appointmentAt: row.appointment_at || null,
@@ -160,6 +163,22 @@ function rowToRecord(row) {
     effectiveDate: row.effective_date || '',
     requirementsCompleted: row.requirements_completed || false,
   };
+}
+// An appointment can now be logged as, and confirmed as, both a recruit
+// AND a sale at once — these check both the primary and secondary type
+// fields so "both" is never missed anywhere it's checked.
+function isRecruitType(a) {
+  return a.presentationType === 'recruit' || a.presentationTypeSecondary === 'recruit';
+}
+function isSaleType(a) {
+  return a.presentationType === 'sale' || a.presentationTypeSecondary === 'sale';
+}
+function typeLabel(a) {
+  const r = isRecruitType(a), s = isSaleType(a);
+  if (r && s) return 'Recruit & Sale';
+  if (r) return 'Recruit';
+  if (s) return 'Sale';
+  return '';
 }
 function isPastAppointment(a) {
   if (a.appointmentAt) return new Date(a.appointmentAt).getTime() < Date.now();
@@ -178,7 +197,7 @@ function isPolicyIssued(a) {
 // plus their assigned advisors', a super_admin gets everyone's.
 async function fetchSoldPolicies() {
   const { data, error } = await supabase
-    .from('appointments').select('*').eq('result', 'sale')
+    .from('appointments').select('*').eq('officially_sold', true)
     .order('appointment_date', { ascending: false });
   if (error) { console.error(error); return []; }
   return data.map(rowToRecord);
@@ -278,10 +297,11 @@ async function saveFollowUp(id, data, followUpTimezone) {
   const { error } = await supabase.from('appointments').update({
     outcome: data.outcome || null,
     follow_up_scheduled: data.followUpScheduled,
-    result: data.result || null,
+    officially_recruited: !!data.officiallyRecruited,
+    officially_sold: !!data.officiallySold,
     interested_tax: data.interestedTax,
     interested_insurance: data.interestedInsurance,
-    target_premium: data.result === 'sale' && data.targetPremium ? Number(data.targetPremium) : null,
+    target_premium: data.officiallySold && data.targetPremium ? Number(data.targetPremium) : null,
     follow_up_completed_at: new Date().toISOString(),
     status: status || null,
     follow_up_appointment_date: scheduled ? (data.followUpDate || null) : null,
@@ -309,6 +329,7 @@ async function insertFollowUpAppointment(userId, original, followUpDate, followU
     client_name: original.client,
     notes: `Follow-up to appointment on ${fmtDisplayDate(original.appointmentDate)}`,
     presentation_type: original.presentationType || null,
+    presentation_type_secondary: original.presentationTypeSecondary || null,
     is_follow_up: true,
   }).select().single();
   if (error) return { ok: false, error: error.message };
@@ -342,13 +363,11 @@ async function insertAppointment(userId, form) {
     client_name: form.client.trim(),
     notes: form.notes.trim() || null,
     presentation_type: form.presentationType || null,
+    presentation_type_secondary: form.presentationTypeSecondary || null,
   }).select().single();
   if (error) return { ok: false, error: error.message };
   return { ok: true, record: rowToRecord(data) };
 }
-// Editing never touches week_of or user_id — it can only ever change how an
-// appointment looks within the week it was already logged for, never move
-// it to a different week.
 // Editing normally never touches week_of — a typo fix shouldn't move pace
 // counts. The one deliberate exception is rescheduling: if the appointment
 // currently needs to be rescheduled, saving new details for it is genuinely
@@ -368,13 +387,15 @@ async function updateAppointment(id, form, isReschedule) {
     client_name: form.client.trim(),
     notes: form.notes.trim() || null,
     presentation_type: form.presentationType || null,
+    presentation_type_secondary: form.presentationTypeSecondary || null,
   };
   if (isReschedule) {
     payload.week_of = weekStartOf(todayStr());
     payload.status = null;
     payload.outcome = null;
     payload.follow_up_scheduled = null;
-    payload.result = null;
+    payload.officially_recruited = false;
+    payload.officially_sold = false;
     payload.target_premium = null;
     payload.follow_up_completed_at = null;
     payload.follow_up_appointment_date = null;
@@ -511,7 +532,7 @@ function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty }) {
             </thead>
             <tbody>
               {list.map(a => {
-                const typeClass = a.presentationType === 'recruit' ? 'tr-type-recruit' : a.presentationType === 'sale' ? 'tr-type-sale' : '';
+                const typeClass = isRecruitType(a) && isSaleType(a) ? 'tr-type-both' : isRecruitType(a) ? 'tr-type-recruit' : isSaleType(a) ? 'tr-type-sale' : '';
                 return (
                   <tr key={a.id}>
                     <td className={typeClass}>{a.dateSetLabel}</td>
@@ -753,11 +774,6 @@ const OUTCOME_OPTIONS = [
   { value: 'rescheduled', label: 'Rescheduled' },
   { value: 'not_interested', label: 'Not interested' },
 ];
-const RESULT_OPTIONS = [
-  { value: 'recruit', label: 'Recruit' },
-  { value: 'sale', label: 'Sale' },
-  { value: 'neither', label: 'Neither' },
-];
 const YES_NO_OPTIONS = [{ value: 'yes', label: 'Yes' }, { value: 'no', label: 'No' }];
 function boolToYesNo(v) { return v === true ? 'yes' : v === false ? 'no' : ''; }
 function yesNoToBool(v) { return v === 'yes' ? true : v === 'no' ? false : null; }
@@ -767,7 +783,8 @@ function FollowUpModal({ appointment, onClose, onSave, saving }) {
   const [followUpScheduled, setFollowUpScheduled] = useState(boolToYesNo(appointment.followUpScheduled));
   const [followUpDate, setFollowUpDate] = useState(appointment.followUpAppointmentDate || '');
   const [followUpTime, setFollowUpTime] = useState(appointment.followUpAppointmentTime || '');
-  const [result, setResult] = useState(appointment.result || '');
+  const [officiallyRecruited, setOfficiallyRecruited] = useState(boolToYesNo(appointment.officiallyRecruited));
+  const [officiallySold, setOfficiallySold] = useState(boolToYesNo(appointment.officiallySold));
   const [targetPremium, setTargetPremium] = useState(appointment.targetPremium != null ? String(appointment.targetPremium) : '');
   const [interestedTax, setInterestedTax] = useState(boolToYesNo(appointment.interestedTax));
   const [interestedInsurance, setInterestedInsurance] = useState(boolToYesNo(appointment.interestedInsurance));
@@ -784,7 +801,8 @@ function FollowUpModal({ appointment, onClose, onSave, saving }) {
       followUpScheduled: yesNoToBool(followUpScheduled),
       followUpDate: followUpScheduled === 'yes' ? followUpDate : null,
       followUpTime: followUpScheduled === 'yes' ? followUpTime : null,
-      result,
+      officiallyRecruited: yesNoToBool(officiallyRecruited),
+      officiallySold: yesNoToBool(officiallySold),
       targetPremium,
       interestedTax: yesNoToBool(interestedTax),
       interestedInsurance: yesNoToBool(interestedInsurance),
@@ -813,8 +831,9 @@ function FollowUpModal({ appointment, onClose, onSave, saving }) {
             <p className="tr-empty" style={{ margin: 0 }}>This'll be added to your appointments log automatically when you save.</p>
           </div>
         )}
-        <div className="tr-field"><span>Officially recruited, or sold?</span><PillChoice options={RESULT_OPTIONS} value={result} onChange={setResult} /></div>
-        {result === 'sale' && (
+        <div className="tr-field"><span>Officially recruited?</span><PillChoice options={YES_NO_OPTIONS} value={officiallyRecruited} onChange={setOfficiallyRecruited} /></div>
+        <div className="tr-field"><span>Sold a policy?</span><PillChoice options={YES_NO_OPTIONS} value={officiallySold} onChange={setOfficiallySold} /></div>
+        {officiallySold === 'yes' && (
           <label className="tr-field">
             <span>Target premium</span>
             <input type="number" min="0" step="1" inputMode="decimal" value={targetPremium} onChange={e => setTargetPremium(e.target.value)} placeholder="e.g. 1200" />
@@ -841,11 +860,11 @@ function TypeFilter({ value, onChange }) {
     </div>
   );
 }
-function TypeChoice({ value, onChange }) {
+function TypeChoice({ recruit, sale, onToggleRecruit, onToggleSale }) {
   return (
     <div className="tr-pillrow">
-      <button type="button" className={`tr-pill-btn tr-pill-recruit ${value === 'recruit' ? 'tr-pill-btn-active-recruit' : ''}`} onClick={() => onChange('recruit')}>Recruit</button>
-      <button type="button" className={`tr-pill-btn tr-pill-sale ${value === 'sale' ? 'tr-pill-btn-active-sale' : ''}`} onClick={() => onChange('sale')}>Sale</button>
+      <button type="button" className={`tr-pill-btn tr-pill-recruit ${recruit ? 'tr-pill-btn-active-recruit' : ''}`} onClick={onToggleRecruit}>Recruit</button>
+      <button type="button" className={`tr-pill-btn tr-pill-sale ${sale ? 'tr-pill-btn-active-sale' : ''}`} onClick={onToggleSale}>Sale</button>
     </div>
   );
 }
@@ -859,7 +878,8 @@ function AppointmentForm({ defaultPresenter, weekMonday, editing, onCancel, onSu
   const [trainee, setTrainee] = useState(editing?.trainee || '');
   const [client, setClient] = useState(editing?.client || '');
   const [notes, setNotes] = useState(editing?.notes || '');
-  const [presentationType, setPresentationType] = useState(editing?.presentationType || '');
+  const [typeRecruit, setTypeRecruit] = useState(editing ? isRecruitType(editing) : false);
+  const [typeSale, setTypeSale] = useState(editing ? isSaleType(editing) : false);
   const [err, setErr] = useState('');
   const [calendlyContacts, setCalendlyContacts] = useState([]);
   const timezoneOptions = timezoneOptionsWithDetected();
@@ -869,12 +889,16 @@ function AppointmentForm({ defaultPresenter, weekMonday, editing, onCancel, onSu
   const meta = dateSetMeta(dateSetOption);
 
   function submit() {
-    if (!appointmentDate || !appointmentTime || !presenter.trim() || !client.trim() || !presentationType) {
-      setErr('Fill in the appointment date/time, presenter, client/recruit, and whether it\'s a recruit or sale.');
+    if (!appointmentDate || !appointmentTime || !presenter.trim() || !client.trim() || (!typeRecruit && !typeSale)) {
+      setErr('Fill in the appointment date/time, presenter, client/recruit, and whether it\'s a recruit and/or sale.');
       return;
     }
     setErr('');
-    onSubmit({ dateSetOption, appointmentDate, appointmentTime, timezone, presenter, trainee, client, notes, presentationType });
+    let presentationType = null, presentationTypeSecondary = null;
+    if (typeRecruit && typeSale) { presentationType = 'recruit'; presentationTypeSecondary = 'sale'; }
+    else if (typeRecruit) { presentationType = 'recruit'; }
+    else if (typeSale) { presentationType = 'sale'; }
+    onSubmit({ dateSetOption, appointmentDate, appointmentTime, timezone, presenter, trainee, client, notes, presentationType, presentationTypeSecondary });
   }
   function handleKeyDown(e) {
     if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') { e.preventDefault(); submit(); }
@@ -901,8 +925,8 @@ function AppointmentForm({ defaultPresenter, weekMonday, editing, onCancel, onSu
         </div>
       )}
       <div className="tr-field tr-field-wide" style={{ marginBottom: 14 }}>
-        <span>Recruit or sale presentation?</span>
-        <TypeChoice value={presentationType} onChange={setPresentationType} />
+        <span>Recruit and/or sale presentation? (pick both if it's both)</span>
+        <TypeChoice recruit={typeRecruit} sale={typeSale} onToggleRecruit={() => setTypeRecruit(v => !v)} onToggleSale={() => setTypeSale(v => !v)} />
       </div>
       <div className="tr-form-grid">
         <label className="tr-field">
@@ -1192,7 +1216,7 @@ function CalendarDay({ cell, appts, googleEvents, ownerName, onOpen }) {
       <div className="tr-cal-daynum">{cell.dayNum}</div>
       <div className="tr-cal-appts">
         {visible.map((item, i) => item.kind === 'appt' ? (
-          <div key={item.data.id} className={`tr-cal-appt ${item.data.presentationType === 'recruit' ? 'tr-cal-appt-recruit' : item.data.presentationType === 'sale' ? 'tr-cal-appt-sale' : ''}`}>
+          <div key={item.data.id} className={`tr-cal-appt ${isRecruitType(item.data) && isSaleType(item.data) ? 'tr-cal-appt-both' : isRecruitType(item.data) ? 'tr-cal-appt-recruit' : isSaleType(item.data) ? 'tr-cal-appt-sale' : ''}`}>
             {fmtTime(item.data.appointmentTime)} {item.data.client}
           </div>
         ) : (
@@ -1291,7 +1315,7 @@ function CalendarBody({ user }) {
               <div key={a.id} className="tr-note-item">
                 <div className="tr-note-meta">
                   {fmtApptDateTime(a)}
-                  {a.presentationType ? ` · ${a.presentationType === 'recruit' ? 'Recruit' : 'Sale'}` : ''}
+                  {typeLabel(a) ? ` · ${typeLabel(a)}` : ''}
                   {a.isFollowUp ? ' · Follow-up' : ''}
                 </div>
                 <div><strong>{a.client}</strong> — {a.presenter}{a.trainee ? ` (training ${a.trainee})` : ''}</div>
@@ -1372,7 +1396,10 @@ function MyAppointmentsBody({ user }) {
   const [statusView, setStatusView] = useState(null);
 
   function byType(list) {
-    return typeFilter === 'all' ? list : list.filter(a => a.presentationType === typeFilter);
+    if (typeFilter === 'all') return list;
+    if (typeFilter === 'recruit') return list.filter(isRecruitType);
+    if (typeFilter === 'sale') return list.filter(isSaleType);
+    return list;
   }
 
   const refresh = useCallback(async () => {
@@ -1601,7 +1628,10 @@ function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, membe
   const [typeFilter, setTypeFilter] = useState('all');
 
   function byType(list) {
-    return typeFilter === 'all' ? list : list.filter(a => a.presentationType === typeFilter);
+    if (typeFilter === 'all') return list;
+    if (typeFilter === 'recruit') return list.filter(isRecruitType);
+    if (typeFilter === 'sale') return list.filter(isSaleType);
+    return list;
   }
 
   const refresh = useCallback(async () => {
@@ -1738,8 +1768,8 @@ function TrackProductionBody({ user }) {
               <tbody>
                 {members.map(m => {
                   const list = weekAppts.filter(a => a.userId === m.id);
-                  const sold = list.filter(a => a.result === 'sale');
-                  const recruited = list.filter(a => a.result === 'recruit');
+                  const sold = list.filter(a => a.officiallySold);
+                  const recruited = list.filter(a => a.officiallyRecruited);
                   const totalPremium = sold.reduce((s, a) => s + (Number(a.targetPremium) || 0), 0);
                   return (
                     <tr key={m.id}>
@@ -2188,6 +2218,7 @@ const CSS = `
 /* recruit/sale type coding */
 .tr-type-recruit { box-shadow: inset 3px 0 0 0 var(--type-recruit); }
 .tr-type-sale { box-shadow: inset 3px 0 0 0 var(--type-sale); }
+.tr-type-both { border-left: 4px solid transparent; border-image: linear-gradient(180deg, var(--type-recruit) 50%, var(--type-sale) 50%) 1; }
 .tr-pill-recruit.tr-pill-btn-active-recruit { background: var(--type-recruit); border-color: var(--type-recruit-dark); color: #fff; }
 .tr-pill-sale.tr-pill-btn-active-sale { background: var(--type-sale); border-color: var(--type-sale-dark); color: #fff; }
 .tr-typefilter-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
@@ -2212,6 +2243,7 @@ const CSS = `
 .tr-cal-appt { font-size: 10.5px; line-height: 1.3; padding: 1px 4px; border-radius: 3px; background: var(--paper-dim); color: var(--slate); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
 .tr-cal-appt-recruit { border-left: 2px solid var(--type-recruit); }
 .tr-cal-appt-sale { border-left: 2px solid var(--type-sale); }
+.tr-cal-appt-both { border-left: 3px solid transparent; border-image: linear-gradient(180deg, var(--type-recruit) 50%, var(--type-sale) 50%) 1; }
 .tr-cal-more { font-size: 10px; color: var(--slate-light); padding-left: 4px; }
 
 /* google calendar */
