@@ -1295,10 +1295,8 @@ function CalendarBody({ user }) {
       </div>
       {loading ? <Spinner label="Loading calendar…" /> : (
         <div className="tr-card tr-cal-card">
-          <div className="tr-cal-grid tr-cal-grid-head">
-            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => <div key={d} className="tr-cal-headcell">{d}</div>)}
-          </div>
           <div className="tr-cal-grid">
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => <div key={d} className="tr-cal-headcell">{d}</div>)}
             {cells.map(cell => (
               <CalendarDay
                 key={cell.date} cell={cell} appts={apptsForDay(cell.date)} googleEvents={googleForDay(cell.date)}
@@ -2231,16 +2229,15 @@ const CSS = `
 /* calendar */
 .tr-cal-card { padding: 0; overflow: hidden; }
 .tr-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
-.tr-cal-grid-head { border-bottom: 1px solid var(--line); }
-.tr-cal-headcell { padding: 10px 6px; text-align: center; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--slate-light); }
-.tr-cal-day { min-height: 92px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 6px; cursor: default; display: flex; flex-direction: column; gap: 3px; }
+.tr-cal-headcell { padding: 10px 6px; text-align: center; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--slate-light); border-bottom: 1px solid var(--line); }
+.tr-cal-day { min-width: 0; min-height: 92px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 6px; cursor: default; display: flex; flex-direction: column; gap: 3px; }
 .tr-cal-day:nth-child(7n) { border-right: none; }
 .tr-cal-day-out { background: var(--paper); }
 .tr-cal-day-out .tr-cal-daynum { color: var(--slate-light); }
 .tr-cal-day-today { background: rgba(201,162,75,0.08); }
 .tr-cal-daynum { font-size: 12.5px; font-weight: 600; color: var(--ink); }
-.tr-cal-appts { display: flex; flex-direction: column; gap: 2px; }
-.tr-cal-appt { font-size: 10.5px; line-height: 1.3; padding: 1px 4px; border-radius: 3px; background: var(--paper-dim); color: var(--slate); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.tr-cal-appts { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tr-cal-appt { font-size: 10.5px; line-height: 1.3; padding: 1px 4px; border-radius: 3px; background: var(--paper-dim); color: var(--slate); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; min-width: 0; }
 .tr-cal-appt-recruit { border-left: 2px solid var(--type-recruit); }
 .tr-cal-appt-sale { border-left: 2px solid var(--type-sale); }
 .tr-cal-appt-both { border-left: 3px solid transparent; border-image: linear-gradient(180deg, var(--type-recruit) 50%, var(--type-sale) 50%) 1; }
