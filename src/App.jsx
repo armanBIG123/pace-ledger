@@ -366,7 +366,6 @@ async function insertAppointment(userId, form) {
     notes: form.notes.trim() || null,
     presentation_type: form.presentationType || null,
     presentation_type_secondary: form.presentationTypeSecondary || null,
-    zoom_url: form.zoomUrl || null,
   }).select().single();
   if (error) return { ok: false, error: error.message };
   return { ok: true, record: rowToRecord(data) };
@@ -391,7 +390,6 @@ async function updateAppointment(id, form, isReschedule) {
     notes: form.notes.trim() || null,
     presentation_type: form.presentationType || null,
     presentation_type_secondary: form.presentationTypeSecondary || null,
-    zoom_url: form.zoomUrl || null,
   };
   if (isReschedule) {
     payload.week_of = weekStartOf(todayStr());
@@ -738,18 +736,14 @@ function openPicker(e) {
     try { e.target.showPicker(); } catch { /* unsupported in this browser, ignore */ }
   }
 }
-async function fetchZoomContacts() {
+async function fetchCalendlyContacts() {
   const { data, error } = await supabase
-    .from('profiles').select('id, display_name, role, zoom_url')
-    .not('zoom_url', 'is', null)
+    .from('profiles').select('id, display_name, role, calendly_url')
+    .in('role', ['manager', 'super_admin'])
+    .not('calendly_url', 'is', null)
     .order('display_name');
   if (error) { console.error(error); return []; }
   return data;
-}
-async function fetchMyZoomUrl(userId) {
-  const { data, error } = await supabase.from('profiles').select('zoom_url').eq('id', userId).single();
-  if (error) return '';
-  return data?.zoom_url || '';
 }
 
 // ---------------------------------------------------------------------
@@ -889,18 +883,11 @@ function AppointmentForm({ user, weekMonday, editing, onCancel, onSubmit, saving
   const [notes, setNotes] = useState(editing?.notes || '');
   const [typeRecruit, setTypeRecruit] = useState(editing ? isRecruitType(editing) : false);
   const [typeSale, setTypeSale] = useState(editing ? isSaleType(editing) : false);
-  const [zoomUrl, setZoomUrl] = useState(editing?.zoomUrl || '');
   const [err, setErr] = useState('');
-  const [zoomContacts, setZoomContacts] = useState([]);
+  const [calendlyContacts, setCalendlyContacts] = useState([]);
   const timezoneOptions = timezoneOptionsWithDetected();
 
-  useEffect(() => {
-    fetchZoomContacts().then(setZoomContacts);
-    // Pre-fill with the logged-in person's own Zoom link when logging a
-    // brand-new appointment (not when editing — an existing appointment's
-    // link should stay whatever it was already set to).
-    if (!editing) fetchMyZoomUrl(user.id).then(url => { if (url) setZoomUrl(url); });
-  }, [user.id, editing]);
+  useEffect(() => { fetchCalendlyContacts().then(setCalendlyContacts); }, []);
 
   const meta = dateSetMeta(dateSetOption);
 
@@ -914,7 +901,7 @@ function AppointmentForm({ user, weekMonday, editing, onCancel, onSubmit, saving
     if (typeRecruit && typeSale) { presentationType = 'recruit'; presentationTypeSecondary = 'sale'; }
     else if (typeRecruit) { presentationType = 'recruit'; }
     else if (typeSale) { presentationType = 'sale'; }
-    onSubmit({ dateSetOption, appointmentDate, appointmentTime, timezone, presenter, trainee, client, notes, presentationType, presentationTypeSecondary, zoomUrl: zoomUrl.trim() });
+    onSubmit({ dateSetOption, appointmentDate, appointmentTime, timezone, presenter, trainee, client, notes, presentationType, presentationTypeSecondary });
   }
   function handleKeyDown(e) {
     if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') { e.preventDefault(); submit(); }
@@ -928,18 +915,14 @@ function AppointmentForm({ user, weekMonday, editing, onCancel, onSubmit, saving
           This one needs to be rescheduled — saving will count it toward this week's batch as a new entry, and clear its old follow-up status.
         </div>
       )}
-      <label className="tr-field tr-field-wide" style={{ marginBottom: 14 }}>
-        <span>Zoom link for this appointment</span>
-        <input value={zoomUrl} onChange={e => setZoomUrl(e.target.value)} placeholder="https://zoom.us/j/..." />
-      </label>
-      {zoomContacts.length > 0 && (
+      {calendlyContacts.length > 0 && (
         <div className="tr-field tr-field-wide" style={{ marginBottom: 14 }}>
-          <span>Or use someone else's Zoom link (e.g. if a manager is presenting)</span>
+          <span>If a manager is presenting, open their Calendly to schedule</span>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
-            {zoomContacts.map(c => (
-              <button key={c.id} type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setZoomUrl(c.zoom_url)}>
-                Use {c.display_name}'s Zoom
-              </button>
+            {calendlyContacts.map(c => (
+              <a key={c.id} href={c.calendly_url} target="_blank" rel="noopener noreferrer" className="tr-btn tr-btn-ghost tr-btn-sm">
+                {c.display_name}'s Calendly
+              </a>
             ))}
           </div>
         </div>
@@ -1436,7 +1419,7 @@ function CalendarBody({ user }) {
   );
 }
 
-function ZoomLinkEditor({ user, zoomConnected }) {
+function CalendlyLinkEditor({ user }) {
   const [link, setLink] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1444,13 +1427,13 @@ function ZoomLinkEditor({ user, zoomConnected }) {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    supabase.from('profiles').select('zoom_url').eq('id', user.id).single()
-      .then(({ data }) => { setLink(data?.zoom_url || ''); setLoaded(true); });
+    supabase.from('profiles').select('calendly_url').eq('id', user.id).single()
+      .then(({ data }) => { setLink(data?.calendly_url || ''); setLoaded(true); });
   }, [user.id]);
 
   async function save() {
     setSaving(true); setSaved(false); setError('');
-    const { error: err } = await supabase.from('profiles').update({ zoom_url: link.trim() || null }).eq('id', user.id);
+    const { error: err } = await supabase.from('profiles').update({ calendly_url: link.trim() || null }).eq('id', user.id);
     setSaving(false);
     if (err) { setError(err.message); return; }
     setSaved(true);
@@ -1461,16 +1444,14 @@ function ZoomLinkEditor({ user, zoomConnected }) {
 
   return (
     <div className="tr-card">
-      <h3 className="tr-h3">Your Zoom link (fallback)</h3>
+      <h3 className="tr-h3">Your Calendly link</h3>
       <p className="tr-empty" style={{ marginTop: -4, marginBottom: 12 }}>
-        {zoomConnected
-          ? "Not used while Zoom is connected above — a fresh, unique meeting link is created automatically for each new appointment instead."
-          : "Used as a static default when you log an appointment, since Zoom isn't connected above. Others can also pull it in if you're presenting for them."}
+        Advisors will see this and can click it when they log an appointment where you're the presenter.
       </p>
       <div className="tr-form-grid">
         <label className="tr-field tr-field-wide">
-          <span>Zoom URL</span>
-          <input value={link} onChange={e => setLink(e.target.value)} placeholder="https://zoom.us/j/your-meeting-id" />
+          <span>Calendly URL</span>
+          <input value={link} onChange={e => setLink(e.target.value)} placeholder="https://calendly.com/your-name/30min" />
         </label>
       </div>
       {error && <div className="tr-error">{error}</div>}
@@ -1664,7 +1645,7 @@ function MyAppointmentsBody({ user }) {
         {statusView === null ? (
           <>
             <ZoomConnect status={zoomStatus} connecting={zoomConnecting} onConnect={handleZoomConnect} onDisconnect={handleZoomDisconnect} />
-            <ZoomLinkEditor user={user} zoomConnected={zoomStatus.connected} />
+            {(user.role === 'manager' || user.role === 'super_admin') && <CalendlyLinkEditor user={user} />}
             <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
             <PaceStrip groups={groups.map(g => ({ option: g.option, count: g.list.length, list: g.list }))} />
             {upcomingFollowUps.length > 0 && (
