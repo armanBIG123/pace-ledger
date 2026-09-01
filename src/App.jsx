@@ -160,6 +160,7 @@ function rowToRecord(row) {
     followUpAppointmentTime: (row.follow_up_appointment_time || '').slice(0, 5),
     followUpAppointmentTimezone: row.follow_up_appointment_timezone || '',
     followUpAppointmentAt: row.follow_up_appointment_at || null,
+    zoomUrl: row.zoom_url || '',
     effectiveDate: row.effective_date || '',
     requirementsCompleted: row.requirements_completed || false,
   };
@@ -330,6 +331,7 @@ async function insertFollowUpAppointment(userId, original, followUpDate, followU
     notes: `Follow-up to appointment on ${fmtDisplayDate(original.appointmentDate)}`,
     presentation_type: original.presentationType || null,
     presentation_type_secondary: original.presentationTypeSecondary || null,
+    zoom_url: original.zoomUrl || null,
     is_follow_up: true,
   }).select().single();
   if (error) return { ok: false, error: error.message };
@@ -364,6 +366,7 @@ async function insertAppointment(userId, form) {
     notes: form.notes.trim() || null,
     presentation_type: form.presentationType || null,
     presentation_type_secondary: form.presentationTypeSecondary || null,
+    zoom_url: form.zoomUrl || null,
   }).select().single();
   if (error) return { ok: false, error: error.message };
   return { ok: true, record: rowToRecord(data) };
@@ -388,6 +391,7 @@ async function updateAppointment(id, form, isReschedule) {
     notes: form.notes.trim() || null,
     presentation_type: form.presentationType || null,
     presentation_type_secondary: form.presentationTypeSecondary || null,
+    zoom_url: form.zoomUrl || null,
   };
   if (isReschedule) {
     payload.week_of = weekStartOf(todayStr());
@@ -542,6 +546,7 @@ function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty }) {
                     <td>
                       {a.client}
                       {a.status ? <span style={{ marginLeft: 6 }}><StatusChip status={a.status} /></span> : null}
+                      {a.zoomUrl ? <div><a href={a.zoomUrl} target="_blank" rel="noopener noreferrer" className="tr-note" style={{ textDecoration: 'underline' }}>Join Zoom</a></div> : null}
                       {a.followUpAppointmentDate ? <div className="tr-note" style={{ marginTop: 2 }}>Follow-up: {fmtFollowUpDateTime(a)}</div> : null}
                       {a.notes ? <span className="tr-note"> — {a.notes}</span> : null}
                     </td>
@@ -733,14 +738,18 @@ function openPicker(e) {
     try { e.target.showPicker(); } catch { /* unsupported in this browser, ignore */ }
   }
 }
-async function fetchCalendlyContacts() {
+async function fetchZoomContacts() {
   const { data, error } = await supabase
-    .from('profiles').select('id, display_name, role, calendly_url')
-    .in('role', ['manager', 'super_admin'])
-    .not('calendly_url', 'is', null)
+    .from('profiles').select('id, display_name, role, zoom_url')
+    .not('zoom_url', 'is', null)
     .order('display_name');
   if (error) { console.error(error); return []; }
   return data;
+}
+async function fetchMyZoomUrl(userId) {
+  const { data, error } = await supabase.from('profiles').select('zoom_url').eq('id', userId).single();
+  if (error) return '';
+  return data?.zoom_url || '';
 }
 
 // ---------------------------------------------------------------------
@@ -869,22 +878,29 @@ function TypeChoice({ recruit, sale, onToggleRecruit, onToggleSale }) {
   );
 }
 
-function AppointmentForm({ defaultPresenter, weekMonday, editing, onCancel, onSubmit, saving }) {
+function AppointmentForm({ user, weekMonday, editing, onCancel, onSubmit, saving }) {
   const [dateSetOption, setDateSetOption] = useState(editing?.dateSetOption || defaultDateSetOption());
   const [appointmentDate, setAppointmentDate] = useState(editing?.appointmentDate || '');
   const [appointmentTime, setAppointmentTime] = useState(editing?.appointmentTime || '');
   const [timezone, setTimezone] = useState(editing?.appointmentTimezone || detectTimezone());
-  const [presenter, setPresenter] = useState(editing?.presenter || defaultPresenter || '');
+  const [presenter, setPresenter] = useState(editing?.presenter || user.displayName || '');
   const [trainee, setTrainee] = useState(editing?.trainee || '');
   const [client, setClient] = useState(editing?.client || '');
   const [notes, setNotes] = useState(editing?.notes || '');
   const [typeRecruit, setTypeRecruit] = useState(editing ? isRecruitType(editing) : false);
   const [typeSale, setTypeSale] = useState(editing ? isSaleType(editing) : false);
+  const [zoomUrl, setZoomUrl] = useState(editing?.zoomUrl || '');
   const [err, setErr] = useState('');
-  const [calendlyContacts, setCalendlyContacts] = useState([]);
+  const [zoomContacts, setZoomContacts] = useState([]);
   const timezoneOptions = timezoneOptionsWithDetected();
 
-  useEffect(() => { fetchCalendlyContacts().then(setCalendlyContacts); }, []);
+  useEffect(() => {
+    fetchZoomContacts().then(setZoomContacts);
+    // Pre-fill with the logged-in person's own Zoom link when logging a
+    // brand-new appointment (not when editing — an existing appointment's
+    // link should stay whatever it was already set to).
+    if (!editing) fetchMyZoomUrl(user.id).then(url => { if (url) setZoomUrl(url); });
+  }, [user.id, editing]);
 
   const meta = dateSetMeta(dateSetOption);
 
@@ -898,7 +914,7 @@ function AppointmentForm({ defaultPresenter, weekMonday, editing, onCancel, onSu
     if (typeRecruit && typeSale) { presentationType = 'recruit'; presentationTypeSecondary = 'sale'; }
     else if (typeRecruit) { presentationType = 'recruit'; }
     else if (typeSale) { presentationType = 'sale'; }
-    onSubmit({ dateSetOption, appointmentDate, appointmentTime, timezone, presenter, trainee, client, notes, presentationType, presentationTypeSecondary });
+    onSubmit({ dateSetOption, appointmentDate, appointmentTime, timezone, presenter, trainee, client, notes, presentationType, presentationTypeSecondary, zoomUrl: zoomUrl.trim() });
   }
   function handleKeyDown(e) {
     if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') { e.preventDefault(); submit(); }
@@ -912,14 +928,18 @@ function AppointmentForm({ defaultPresenter, weekMonday, editing, onCancel, onSu
           This one needs to be rescheduled — saving will count it toward this week's batch as a new entry, and clear its old follow-up status.
         </div>
       )}
-      {calendlyContacts.length > 0 && (
+      <label className="tr-field tr-field-wide" style={{ marginBottom: 14 }}>
+        <span>Zoom link for this appointment</span>
+        <input value={zoomUrl} onChange={e => setZoomUrl(e.target.value)} placeholder="https://zoom.us/j/..." />
+      </label>
+      {zoomContacts.length > 0 && (
         <div className="tr-field tr-field-wide" style={{ marginBottom: 14 }}>
-          <span>If a manager is presenting, open their Calendly to schedule</span>
+          <span>Or use someone else's Zoom link (e.g. if a manager is presenting)</span>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
-            {calendlyContacts.map(c => (
-              <a key={c.id} href={c.calendly_url} target="_blank" rel="noopener noreferrer" className="tr-btn tr-btn-ghost tr-btn-sm">
-                {c.display_name}'s Calendly
-              </a>
+            {zoomContacts.map(c => (
+              <button key={c.id} type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setZoomUrl(c.zoom_url)}>
+                Use {c.display_name}'s Zoom
+              </button>
             ))}
           </div>
         </div>
@@ -1176,6 +1196,87 @@ async function fetchGoogleEvents(startDate, endDate) {
     return { connected: false, events: [] };
   }
 }
+
+// TODO: replace with your real Zoom OAuth client ID once you've created it
+// in the Zoom App Marketplace — see ZOOM-INTEGRATION-SETUP.md.
+const ZOOM_CLIENT_ID = 'uTaIzgPhRMuVSfpHOCwKw';
+
+function zoomOAuthUrl(accessToken) {
+  const redirectUri = `${supabase.supabaseUrl}/functions/v1/zoom-oauth-callback`;
+  const params = new URLSearchParams({
+    response_type: 'code',
+    client_id: ZOOM_CLIENT_ID,
+    redirect_uri: redirectUri,
+    state: accessToken,
+  });
+  return `https://zoom.us/oauth/authorize?${params.toString()}`;
+}
+async function connectZoom() {
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) return;
+  window.location.href = zoomOAuthUrl(data.session.access_token);
+}
+async function fetchZoomConnectionStatus() {
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (!sessionData.session) return { connected: false };
+  const { data, error } = await supabase
+    .from('zoom_connections').select('zoom_email, connected_at').eq('user_id', sessionData.session.user.id).maybeSingle();
+  if (error || !data) return { connected: false };
+  return { connected: true, zoomEmail: data.zoom_email };
+}
+async function disconnectZoom() {
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) return false;
+  const { error } = await supabase.from('zoom_connections').delete().eq('user_id', data.session.user.id);
+  return !error;
+}
+// Calls the server-side function to actually create a real, unique Zoom
+// meeting for this specific appointment via Zoom's API.
+async function createZoomMeeting({ topic, startTime, durationMinutes, timezone }) {
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (!sessionData.session) return { connected: false };
+  try {
+    const res = await fetch(`${supabase.supabaseUrl}/functions/v1/zoom-create-meeting`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${sessionData.session.access_token}`,
+        apikey: supabase.supabaseKey,
+      },
+      body: JSON.stringify({ topic, startTime, durationMinutes, timezone }),
+    });
+    if (!res.ok) return { connected: false };
+    return await res.json();
+  } catch {
+    return { connected: false };
+  }
+}
+async function updateAppointmentZoomUrl(id, zoomUrl) {
+  const { error } = await supabase.from('appointments').update({ zoom_url: zoomUrl }).eq('id', id);
+  return !error;
+}
+function ZoomConnect({ status, connecting, onConnect, onDisconnect }) {
+  return (
+    <div className="tr-card tr-google-card">
+      <div>
+        <strong>Zoom (auto-create meetings)</strong>
+        <div className="tr-note">
+          {status.connected
+            ? `Connected as ${status.zoomEmail || 'your Zoom account'} — a unique Zoom meeting is created automatically for every new appointment you log.`
+            : "Connect to automatically create a real Zoom meeting (with its own unique link) whenever you log a new appointment."}
+        </div>
+      </div>
+      {status.connected ? (
+        <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onDisconnect}>Disconnect</button>
+      ) : (
+        <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={onConnect} disabled={connecting}>
+          {connecting ? 'Redirecting…' : 'Connect Zoom'}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function GoogleCalendarConnect({ status, connecting, onConnect, onDisconnect }) {
   return (
     <div className="tr-card tr-google-card">
@@ -1317,6 +1418,7 @@ function CalendarBody({ user }) {
                   {a.isFollowUp ? ' · Follow-up' : ''}
                 </div>
                 <div><strong>{a.client}</strong> — {a.presenter}{a.trainee ? ` (training ${a.trainee})` : ''}</div>
+                {a.zoomUrl && <div><a href={a.zoomUrl} target="_blank" rel="noopener noreferrer" className="tr-note" style={{ textDecoration: 'underline' }}>Join Zoom</a></div>}
                 {ownerName(a.userId) && <div className="tr-note">Logged by {ownerName(a.userId)}</div>}
                 {a.notes && <div className="tr-note">{a.notes}</div>}
               </div>
@@ -1334,7 +1436,7 @@ function CalendarBody({ user }) {
   );
 }
 
-function CalendlyLinkEditor({ user }) {
+function ZoomLinkEditor({ user, zoomConnected }) {
   const [link, setLink] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1342,13 +1444,13 @@ function CalendlyLinkEditor({ user }) {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    supabase.from('profiles').select('calendly_url').eq('id', user.id).single()
-      .then(({ data }) => { setLink(data?.calendly_url || ''); setLoaded(true); });
+    supabase.from('profiles').select('zoom_url').eq('id', user.id).single()
+      .then(({ data }) => { setLink(data?.zoom_url || ''); setLoaded(true); });
   }, [user.id]);
 
   async function save() {
     setSaving(true); setSaved(false); setError('');
-    const { error: err } = await supabase.from('profiles').update({ calendly_url: link.trim() || null }).eq('id', user.id);
+    const { error: err } = await supabase.from('profiles').update({ zoom_url: link.trim() || null }).eq('id', user.id);
     setSaving(false);
     if (err) { setError(err.message); return; }
     setSaved(true);
@@ -1359,14 +1461,16 @@ function CalendlyLinkEditor({ user }) {
 
   return (
     <div className="tr-card">
-      <h3 className="tr-h3">Your Calendly link</h3>
+      <h3 className="tr-h3">Your Zoom link (fallback)</h3>
       <p className="tr-empty" style={{ marginTop: -4, marginBottom: 12 }}>
-        Advisors will see this and can click it when they log an appointment where you're the presenter.
+        {zoomConnected
+          ? "Not used while Zoom is connected above — a fresh, unique meeting link is created automatically for each new appointment instead."
+          : "Used as a static default when you log an appointment, since Zoom isn't connected above. Others can also pull it in if you're presenting for them."}
       </p>
       <div className="tr-form-grid">
         <label className="tr-field tr-field-wide">
-          <span>Calendly URL</span>
-          <input value={link} onChange={e => setLink(e.target.value)} placeholder="https://calendly.com/your-name/30min" />
+          <span>Zoom URL</span>
+          <input value={link} onChange={e => setLink(e.target.value)} placeholder="https://zoom.us/j/your-meeting-id" />
         </label>
       </div>
       {error && <div className="tr-error">{error}</div>}
@@ -1389,6 +1493,8 @@ function MyAppointmentsBody({ user }) {
   const [followUpTarget, setFollowUpTarget] = useState(null);
   const [followUpSaving, setFollowUpSaving] = useState(false);
   const [typeFilter, setTypeFilter] = useState('all'); // 'all' | 'recruit' | 'sale'
+  const [zoomStatus, setZoomStatus] = useState({ connected: false });
+  const [zoomConnecting, setZoomConnecting] = useState(false);
   // null = the normal "This week" view; otherwise one of STATUS_OPTIONS.value
   // (including '' for "No status") — a real sub-page, not a nested widget.
   const [statusView, setStatusView] = useState(null);
@@ -1402,9 +1508,20 @@ function MyAppointmentsBody({ user }) {
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    setAppointments(await fetchMyAppointments(user.id));
+    const [apptList, zStatus] = await Promise.all([fetchMyAppointments(user.id), fetchZoomConnectionStatus()]);
+    setAppointments(apptList);
+    setZoomStatus(zStatus);
     setLoading(false);
   }, [user.id]);
+
+  async function handleZoomConnect() {
+    setZoomConnecting(true);
+    await connectZoom();
+  }
+  async function handleZoomDisconnect() {
+    const ok = await disconnectZoom();
+    if (ok) setZoomStatus({ connected: false });
+  }
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -1446,9 +1563,26 @@ function MyAppointmentsBody({ user }) {
       closeForm();
     } else {
       const res = await insertAppointment(user.id, { ...form, weekOf: weekMonday });
+      if (!res.ok) { setSaving(false); setError(res.error || 'Could not save. Try again.'); return; }
+      let record = res.record;
+      // If Zoom is connected, replace whatever manual link was typed with a
+      // real, unique meeting created via Zoom's API for this appointment.
+      if (zoomStatus.connected) {
+        const zoomRes = await createZoomMeeting({
+          topic: `Meeting with ${form.client}`,
+          startTime: `${form.appointmentDate}T${form.appointmentTime}:00`,
+          durationMinutes: 30,
+          timezone: form.timezone,
+        });
+        if (zoomRes.connected && zoomRes.joinUrl) {
+          const ok = await updateAppointmentZoomUrl(record.id, zoomRes.joinUrl);
+          if (ok) record = { ...record, zoomUrl: zoomRes.joinUrl };
+        } else if (zoomRes.error === 'reconnect_required') {
+          setZoomStatus({ connected: false });
+        }
+      }
       setSaving(false);
-      if (!res.ok) { setError(res.error || 'Could not save. Try again.'); return; }
-      setAppointments(prev => [...prev, res.record]);
+      setAppointments(prev => [...prev, record]);
       closeForm();
     }
   }
@@ -1529,7 +1663,8 @@ function MyAppointmentsBody({ user }) {
         </div>
         {statusView === null ? (
           <>
-            {(user.role === 'manager' || user.role === 'super_admin') && <CalendlyLinkEditor user={user} />}
+            <ZoomConnect status={zoomStatus} connecting={zoomConnecting} onConnect={handleZoomConnect} onDisconnect={handleZoomDisconnect} />
+            <ZoomLinkEditor user={user} zoomConnected={zoomStatus.connected} />
             <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
             <PaceStrip groups={groups.map(g => ({ option: g.option, count: g.list.length, list: g.list }))} />
             {upcomingFollowUps.length > 0 && (
@@ -1546,7 +1681,7 @@ function MyAppointmentsBody({ user }) {
             </div>
             {error && <div className="tr-error">{error}</div>}
             {showForm && (
-              <AppointmentForm defaultPresenter={user.displayName} weekMonday={weekMonday} editing={editingAppt} onCancel={closeForm} onSubmit={handleFormSubmit} saving={saving} />
+              <AppointmentForm user={user} weekMonday={weekMonday} editing={editingAppt} onCancel={closeForm} onSubmit={handleFormSubmit} saving={saving} />
             )}
             {loading ? <Spinner label="Loading appointments…" /> : groups.map(g => (
               <ApptGroup
@@ -1962,7 +2097,7 @@ export default function App() {
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState('');
   const [recoveryMode, setRecoveryMode] = useState(false);
-  const [googleBanner, setGoogleBanner] = useState(null);
+  const [connectionBanner, setConnectionBanner] = useState(null);
   // Tracks which user we've already loaded a profile for, so a background
   // token refresh (e.g. from switching browser tabs and back) doesn't
   // re-trigger the loading screen and unmount everything below it.
@@ -1977,17 +2112,24 @@ export default function App() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  // Google redirects back here (via the Edge Function) after someone
-  // connects or cancels — surface a clear message either way, then clean
-  // the URL so refreshing doesn't re-show it.
+  // Google or Zoom redirects back here (via their respective Edge
+  // Functions) after someone connects or cancels — surface a clear
+  // message either way, then clean the URL so refreshing doesn't re-show it.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const google = params.get('google');
+    const zoom = params.get('zoom');
     if (google === 'connected') {
-      setGoogleBanner({ type: 'success', message: 'Google Calendar connected.' });
+      setConnectionBanner({ type: 'success', message: 'Google Calendar connected.' });
       window.history.replaceState({}, '', window.location.pathname);
     } else if (google === 'error') {
-      setGoogleBanner({ type: 'error', message: `Could not connect Google Calendar (${params.get('reason') || 'unknown error'}). Please try again.` });
+      setConnectionBanner({ type: 'error', message: `Could not connect Google Calendar (${params.get('reason') || 'unknown error'}). Please try again.` });
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (zoom === 'connected') {
+      setConnectionBanner({ type: 'success', message: 'Zoom connected.' });
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (zoom === 'error') {
+      setConnectionBanner({ type: 'error', message: `Could not connect Zoom (${params.get('reason') || 'unknown error'}). Please try again.` });
       window.history.replaceState({}, '', window.location.pathname);
     }
   }, []);
@@ -2031,12 +2173,12 @@ export default function App() {
   const user = { id: session.user.id, displayName: profile.display_name, role: profile.role };
   return (
     <>
-      <GoogleBanner banner={googleBanner} onDismiss={() => setGoogleBanner(null)} />
+      <ConnectionBanner banner={connectionBanner} onDismiss={() => setConnectionBanner(null)} />
       {user.role === 'super_admin' ? <AdminView user={user} /> : user.role === 'manager' ? <ManagerView user={user} /> : <AdvisorView user={user} />}
     </>
   );
 }
-function GoogleBanner({ banner, onDismiss }) {
+function ConnectionBanner({ banner, onDismiss }) {
   useEffect(() => {
     if (!banner) return;
     const t = setTimeout(onDismiss, 6000);
