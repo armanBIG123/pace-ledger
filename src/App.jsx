@@ -1090,19 +1090,114 @@ function OpenRequirementsBody({ view, user }) {
 // ---------------------------------------------------------------------
 // calendar — a live month view of every appointment's actual date/time
 // ---------------------------------------------------------------------
-function CalendarDay({ cell, appts, ownerName, onOpen }) {
+
+// TODO: replace with your real Google OAuth client ID once you've created
+// it in Google Cloud Console — see GOOGLE-CALENDAR-SETUP.md.
+const GOOGLE_CLIENT_ID = '106061643707-avmoqp1oe5idqdioocen9vnpsqd9i82l.apps.googleusercontent.com';
+
+function googleOAuthUrl(accessToken) {
+  const redirectUri = `${supabase.supabaseUrl}/functions/v1/google-oauth-callback`;
+  const params = new URLSearchParams({
+    client_id: GOOGLE_CLIENT_ID,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: 'https://www.googleapis.com/auth/calendar.readonly',
+    access_type: 'offline',
+    prompt: 'consent',
+    state: accessToken,
+  });
+  return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+}
+async function connectGoogleCalendar() {
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) return;
+  window.location.href = googleOAuthUrl(data.session.access_token);
+}
+async function fetchGoogleConnectionStatus() {
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (!sessionData.session) return { connected: false };
+  // Only ever select the two display-safe columns — never the tokens,
+  // even though the security rules would technically allow it for your
+  // own row.
+  const { data, error } = await supabase
+    .from('google_calendar_connections')
+    .select('google_email, connected_at')
+    .eq('user_id', sessionData.session.user.id)
+    .maybeSingle();
+  if (error || !data) return { connected: false };
+  return { connected: true, googleEmail: data.google_email };
+}
+async function disconnectGoogleCalendar() {
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) return false;
+  const { error } = await supabase.from('google_calendar_connections').delete().eq('user_id', data.session.user.id);
+  return !error;
+}
+async function fetchGoogleEvents(startDate, endDate) {
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (!sessionData.session) return { connected: false, events: [] };
+  try {
+    const res = await fetch(`${supabase.supabaseUrl}/functions/v1/google-calendar-events`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${sessionData.session.access_token}`,
+        apikey: supabase.supabaseKey,
+      },
+      body: JSON.stringify({ startDate, endDate }),
+    });
+    if (!res.ok) return { connected: false, events: [] };
+    return await res.json();
+  } catch {
+    return { connected: false, events: [] };
+  }
+}
+function GoogleCalendarConnect({ status, connecting, onConnect, onDisconnect }) {
+  return (
+    <div className="tr-card tr-google-card">
+      <div>
+        <strong>Google Calendar</strong>
+        <div className="tr-note">
+          {status.connected ? `Connected as ${status.googleEmail || 'your Google account'}` : 'Connect to see your Google events here too.'}
+        </div>
+      </div>
+      {status.connected ? (
+        <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onDisconnect}>Disconnect</button>
+      ) : (
+        <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={onConnect} disabled={connecting}>
+          {connecting ? 'Redirecting…' : 'Connect Google Calendar'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function googleEventTimeKey(e) {
+  if (e.allDay) return '00:00';
+  const d = new Date(e.start);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+function CalendarDay({ cell, appts, googleEvents, ownerName, onOpen }) {
   const isToday = cell.date === todayStr();
-  const visible = appts.slice(0, 3);
-  const extra = appts.length - visible.length;
+  const items = [
+    ...appts.map(a => ({ kind: 'appt', data: a, timeKey: a.appointmentTime || '00:00' })),
+    ...googleEvents.map(e => ({ kind: 'google', data: e, timeKey: googleEventTimeKey(e) })),
+  ].sort((a, b) => a.timeKey.localeCompare(b.timeKey));
+  const visible = items.slice(0, 3);
+  const extra = items.length - visible.length;
   return (
     <div
       className={`tr-cal-day ${cell.inMonth ? '' : 'tr-cal-day-out'} ${isToday ? 'tr-cal-day-today' : ''}`}
-      onClick={() => appts.length > 0 && onOpen(cell.date, appts)}>
+      onClick={() => items.length > 0 && onOpen(cell.date, appts, googleEvents)}>
       <div className="tr-cal-daynum">{cell.dayNum}</div>
       <div className="tr-cal-appts">
-        {visible.map(a => (
-          <div key={a.id} className={`tr-cal-appt ${a.presentationType === 'recruit' ? 'tr-cal-appt-recruit' : a.presentationType === 'sale' ? 'tr-cal-appt-sale' : ''}`}>
-            {fmtTime(a.appointmentTime)} {a.client}
+        {visible.map((item, i) => item.kind === 'appt' ? (
+          <div key={item.data.id} className={`tr-cal-appt ${item.data.presentationType === 'recruit' ? 'tr-cal-appt-recruit' : item.data.presentationType === 'sale' ? 'tr-cal-appt-sale' : ''}`}>
+            {fmtTime(item.data.appointmentTime)} {item.data.client}
+          </div>
+        ) : (
+          <div key={item.data.id} className="tr-cal-appt tr-cal-appt-google">
+            {item.data.allDay ? item.data.title : `${fmtTime(item.timeKey)} ${item.data.title}`}
           </div>
         ))}
         {extra > 0 && <div className="tr-cal-more">+{extra} more</div>}
@@ -1116,6 +1211,9 @@ function CalendarBody({ user }) {
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [dayModal, setDayModal] = useState(null);
+  const [googleStatus, setGoogleStatus] = useState({ connected: false });
+  const [googleEvents, setGoogleEvents] = useState([]);
+  const [googleConnecting, setGoogleConnecting] = useState(false);
 
   const cells = buildMonthGrid(monthStartStr);
   const rangeStart = cells[0].date;
@@ -1123,17 +1221,35 @@ function CalendarBody({ user }) {
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const tasks = [fetchAppointmentsInRange(rangeStart, rangeEnd)];
+    const tasks = [fetchAppointmentsInRange(rangeStart, rangeEnd), fetchGoogleConnectionStatus()];
     if (user.role !== 'advisor') tasks.push(fetchTeamMembers(user));
-    const [apptList, memberList] = await Promise.all(tasks);
+    const [apptList, status, memberList] = await Promise.all(tasks);
     setAppts(apptList);
+    setGoogleStatus(status);
     if (memberList) setMembers(memberList);
+    if (status.connected) {
+      const g = await fetchGoogleEvents(rangeStart, rangeEnd);
+      setGoogleEvents(g.events || []);
+      if (g.connected === false) setGoogleStatus({ connected: false }); // token was revoked server-side
+    } else {
+      setGoogleEvents([]);
+    }
     setLoading(false);
   }, [rangeStart, rangeEnd, user.id, user.role]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  async function handleConnect() {
+    setGoogleConnecting(true);
+    await connectGoogleCalendar();
+  }
+  async function handleDisconnect() {
+    const ok = await disconnectGoogleCalendar();
+    if (ok) { setGoogleStatus({ connected: false }); setGoogleEvents([]); }
+  }
+
   function apptsForDay(dateStr) { return appts.filter(a => a.appointmentDate === dateStr); }
+  function googleForDay(dateStr) { return googleEvents.filter(e => (e.start || '').slice(0, 10) === dateStr); }
   function ownerName(userId) {
     if (user.role === 'advisor') return '';
     if (userId === user.id) return user.displayName;
@@ -1145,6 +1261,7 @@ function CalendarBody({ user }) {
 
   return (
     <>
+      <GoogleCalendarConnect status={googleStatus} connecting={googleConnecting} onConnect={handleConnect} onDisconnect={handleDisconnect} />
       <div className="tr-weeknav">
         <button className="tr-icon-btn" onClick={() => setMonthStartStr(shiftMonth(monthStartStr, -1))} title="Previous month"><ChevronLeft size={18} /></button>
         <div className="tr-weeknav-label"><CalendarDays size={16} /><span>{monthLabel}</span></div>
@@ -1159,7 +1276,9 @@ function CalendarBody({ user }) {
           </div>
           <div className="tr-cal-grid">
             {cells.map(cell => (
-              <CalendarDay key={cell.date} cell={cell} appts={apptsForDay(cell.date)} ownerName={ownerName} onOpen={(date, dayAppts) => setDayModal({ date, appts: dayAppts })} />
+              <CalendarDay
+                key={cell.date} cell={cell} appts={apptsForDay(cell.date)} googleEvents={googleForDay(cell.date)}
+                ownerName={ownerName} onOpen={(date, dayAppts, dayGoogle) => setDayModal({ date, appts: dayAppts, googleEvents: dayGoogle })} />
             ))}
           </div>
         </div>
@@ -1178,6 +1297,12 @@ function CalendarBody({ user }) {
                 <div><strong>{a.client}</strong> — {a.presenter}{a.trainee ? ` (training ${a.trainee})` : ''}</div>
                 {ownerName(a.userId) && <div className="tr-note">Logged by {ownerName(a.userId)}</div>}
                 {a.notes && <div className="tr-note">{a.notes}</div>}
+              </div>
+            ))}
+            {dayModal.googleEvents.map(e => (
+              <div key={e.id} className="tr-note-item tr-note-item-google">
+                <div className="tr-note-meta">{e.allDay ? 'All day' : fmtTime(googleEventTimeKey(e))} · Google Calendar</div>
+                <div><strong>{e.title}</strong></div>
               </div>
             ))}
           </div>
@@ -1809,6 +1934,7 @@ export default function App() {
   const [profileLoading, setProfileLoading] = useState(false);
   const [profileError, setProfileError] = useState('');
   const [recoveryMode, setRecoveryMode] = useState(false);
+  const [googleBanner, setGoogleBanner] = useState(null);
   // Tracks which user we've already loaded a profile for, so a background
   // token refresh (e.g. from switching browser tabs and back) doesn't
   // re-trigger the loading screen and unmount everything below it.
@@ -1821,6 +1947,21 @@ export default function App() {
       if (event === 'PASSWORD_RECOVERY') setRecoveryMode(true);
     });
     return () => sub.subscription.unsubscribe();
+  }, []);
+
+  // Google redirects back here (via the Edge Function) after someone
+  // connects or cancels — surface a clear message either way, then clean
+  // the URL so refreshing doesn't re-show it.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const google = params.get('google');
+    if (google === 'connected') {
+      setGoogleBanner({ type: 'success', message: 'Google Calendar connected.' });
+      window.history.replaceState({}, '', window.location.pathname);
+    } else if (google === 'error') {
+      setGoogleBanner({ type: 'error', message: `Could not connect Google Calendar (${params.get('reason') || 'unknown error'}). Please try again.` });
+      window.history.replaceState({}, '', window.location.pathname);
+    }
   }, []);
 
   useEffect(() => {
@@ -1860,9 +2001,26 @@ export default function App() {
   if (profileLoading || !profile) return <Shell><Spinner label="Loading your account…" /></Shell>;
 
   const user = { id: session.user.id, displayName: profile.display_name, role: profile.role };
-  if (user.role === 'super_admin') return <AdminView user={user} />;
-  if (user.role === 'manager') return <ManagerView user={user} />;
-  return <AdvisorView user={user} />;
+  return (
+    <>
+      <GoogleBanner banner={googleBanner} onDismiss={() => setGoogleBanner(null)} />
+      {user.role === 'super_admin' ? <AdminView user={user} /> : user.role === 'manager' ? <ManagerView user={user} /> : <AdvisorView user={user} />}
+    </>
+  );
+}
+function GoogleBanner({ banner, onDismiss }) {
+  useEffect(() => {
+    if (!banner) return;
+    const t = setTimeout(onDismiss, 6000);
+    return () => clearTimeout(t);
+  }, [banner, onDismiss]);
+  if (!banner) return null;
+  return (
+    <div className={`tr-toast tr-toast-${banner.type}`}>
+      {banner.message}
+      <button type="button" className="tr-toast-close" onClick={onDismiss} aria-label="Dismiss">×</button>
+    </div>
+  );
 }
 
 // ---------------------------------------------------------------------
@@ -2055,6 +2213,17 @@ const CSS = `
 .tr-cal-appt-recruit { border-left: 2px solid var(--type-recruit); }
 .tr-cal-appt-sale { border-left: 2px solid var(--type-sale); }
 .tr-cal-more { font-size: 10px; color: var(--slate-light); padding-left: 4px; }
+
+/* google calendar */
+.tr-google-card { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+.tr-cal-appt-google { border-left: 2px solid var(--slate-light); font-style: italic; }
+.tr-note-item-google { border-left: 3px solid var(--slate-light); }
+
+/* toast banner */
+.tr-toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 200; padding: 12px 40px 12px 16px; border-radius: 8px; font-size: 13.5px; font-weight: 500; box-shadow: 0 4px 20px rgba(19,35,48,0.25); max-width: 90vw; }
+.tr-toast-success { background: #2E6E51; color: #fff; }
+.tr-toast-error { background: var(--rust); color: #fff; }
+.tr-toast-close { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: inherit; font-size: 18px; line-height: 1; cursor: pointer; opacity: 0.85; padding: 4px; }
 .tr-cal-day:hover { background: var(--paper-dim); }
 
 /* needs-attention sidebar */
