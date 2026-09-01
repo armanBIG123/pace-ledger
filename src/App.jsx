@@ -745,6 +745,12 @@ async function fetchCalendlyContacts() {
   if (error) { console.error(error); return []; }
   return data;
 }
+async function fetchZoomConnectedManagers() {
+  const { data, error } = await supabase
+    .from('zoom_connected_managers').select('id, display_name').order('display_name');
+  if (error) { console.error(error); return []; }
+  return data;
+}
 
 // ---------------------------------------------------------------------
 // follow-up — quick, tap-to-answer questions for past appointments
@@ -883,11 +889,16 @@ function AppointmentForm({ user, weekMonday, editing, onCancel, onSubmit, saving
   const [notes, setNotes] = useState(editing?.notes || '');
   const [typeRecruit, setTypeRecruit] = useState(editing ? isRecruitType(editing) : false);
   const [typeSale, setTypeSale] = useState(editing ? isSaleType(editing) : false);
+  const [zoomHostId, setZoomHostId] = useState('');
   const [err, setErr] = useState('');
   const [calendlyContacts, setCalendlyContacts] = useState([]);
+  const [zoomManagers, setZoomManagers] = useState([]);
   const timezoneOptions = timezoneOptionsWithDetected();
 
-  useEffect(() => { fetchCalendlyContacts().then(setCalendlyContacts); }, []);
+  useEffect(() => {
+    fetchCalendlyContacts().then(setCalendlyContacts);
+    fetchZoomConnectedManagers().then(setZoomManagers);
+  }, []);
 
   const meta = dateSetMeta(dateSetOption);
 
@@ -901,7 +912,7 @@ function AppointmentForm({ user, weekMonday, editing, onCancel, onSubmit, saving
     if (typeRecruit && typeSale) { presentationType = 'recruit'; presentationTypeSecondary = 'sale'; }
     else if (typeRecruit) { presentationType = 'recruit'; }
     else if (typeSale) { presentationType = 'sale'; }
-    onSubmit({ dateSetOption, appointmentDate, appointmentTime, timezone, presenter, trainee, client, notes, presentationType, presentationTypeSecondary });
+    onSubmit({ dateSetOption, appointmentDate, appointmentTime, timezone, presenter, trainee, client, notes, presentationType, presentationTypeSecondary, zoomHostId: zoomHostId || null });
   }
   function handleKeyDown(e) {
     if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') { e.preventDefault(); submit(); }
@@ -926,6 +937,15 @@ function AppointmentForm({ user, weekMonday, editing, onCancel, onSubmit, saving
             ))}
           </div>
         </div>
+      )}
+      {!editing && zoomManagers.length > 0 && (
+        <label className="tr-field tr-field-wide" style={{ marginBottom: 14 }}>
+          <span>Which manager is presenting? (uses their connected Zoom to create the meeting)</span>
+          <select value={zoomHostId} onChange={e => setZoomHostId(e.target.value)}>
+            <option value="">Me — use my own connected Zoom</option>
+            {zoomManagers.map(m => <option key={m.id} value={m.id}>{m.display_name}</option>)}
+          </select>
+        </label>
       )}
       <div className="tr-field tr-field-wide" style={{ marginBottom: 14 }}>
         <span>Recruit and/or sale presentation? (pick both if it's both)</span>
@@ -1215,7 +1235,7 @@ async function disconnectZoom() {
 }
 // Calls the server-side function to actually create a real, unique Zoom
 // meeting for this specific appointment via Zoom's API.
-async function createZoomMeeting({ topic, startTime, durationMinutes, timezone }) {
+async function createZoomMeeting({ topic, startTime, durationMinutes, timezone, hostUserId }) {
   const { data: sessionData } = await supabase.auth.getSession();
   if (!sessionData.session) return { connected: false };
   try {
@@ -1226,7 +1246,7 @@ async function createZoomMeeting({ topic, startTime, durationMinutes, timezone }
         Authorization: `Bearer ${sessionData.session.access_token}`,
         apikey: supabase.supabaseKey,
       },
-      body: JSON.stringify({ topic, startTime, durationMinutes, timezone }),
+      body: JSON.stringify({ topic, startTime, durationMinutes, timezone, hostUserId: hostUserId || null }),
     });
     if (!res.ok) return { connected: false };
     return await res.json();
@@ -1546,19 +1566,22 @@ function MyAppointmentsBody({ user }) {
       const res = await insertAppointment(user.id, { ...form, weekOf: weekMonday });
       if (!res.ok) { setSaving(false); setError(res.error || 'Could not save. Try again.'); return; }
       let record = res.record;
-      // If Zoom is connected, replace whatever manual link was typed with a
-      // real, unique meeting created via Zoom's API for this appointment.
-      if (zoomStatus.connected) {
+      // Create a real meeting if either the current user has Zoom connected,
+      // or they picked a specific presenting manager's Zoom to use instead.
+      if (zoomStatus.connected || form.zoomHostId) {
         const zoomRes = await createZoomMeeting({
           topic: `Meeting with ${form.client}`,
           startTime: `${form.appointmentDate}T${form.appointmentTime}:00`,
           durationMinutes: 30,
           timezone: form.timezone,
+          hostUserId: form.zoomHostId,
         });
         if (zoomRes.connected && zoomRes.joinUrl) {
           const ok = await updateAppointmentZoomUrl(record.id, zoomRes.joinUrl);
           if (ok) record = { ...record, zoomUrl: zoomRes.joinUrl };
-        } else if (zoomRes.error === 'reconnect_required') {
+        } else if (zoomRes.error === 'reconnect_required' && !form.zoomHostId) {
+          // Only clear my own connection status — a failure on a presenting
+          // manager's account isn't something I need to reconnect.
           setZoomStatus({ connected: false });
         }
       }
