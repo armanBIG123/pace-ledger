@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PaceLedger — Documentation</title>
+<style>
+  body { font-family: -apple-system, 'IBM Plex Sans', system-ui, sans-serif; max-width: 720px; margin: 0 auto; padding: 48px 24px 80px; color: #33414D; line-height: 1.6; background: #FBFAF6; }
+  h1 { font-family: Georgia, serif; color: #14202B; font-size: 28px; margin-bottom: 16px; }
+  h1 em { font-style: italic; }
+  h2 { font-family: Georgia, serif; color: #14202B; font-size: 19px; margin-top: 32px; }
+  a { color: #A9843A; }
+  code { background: #EFEBDF; padding: 2px 6px; border-radius: 4px; font-size: 13px; }
+  ol, ul { padding-left: 20px; }
+</style>
+</head>
+<body>
+
+<h1>Pace<em>Ledger</em> — Documentation</h1>
+
+<p>PaceLedger is an internal appointment and sales-pace tracking tool used
+by advisors, managers, and administrators within our organization. This
+page describes how its Zoom integration works.</p>
+
+<h2>What the Zoom integration does</h2>
+<p>When someone logs a new appointment in PaceLedger, if they've connected
+their Zoom account, PaceLedger automatically creates a real, unique Zoom
+meeting for that specific appointment via Zoom's API — matching the
+appointment's date, time, and time zone — and attaches the resulting join
+link directly to it. No manual scheduling or link-copying is required.</p>
+
+<p>Advisors can also choose to have the meeting created under a presenting
+manager's connected Zoom account instead of their own, for appointments
+where a manager is doing the presenting.</p>
+
+<h2>Connecting your account</h2>
+<ol>
+  <li>Open PaceLedger and go to <strong>My Appointments</strong>.</li>
+  <li>Click <strong>Connect Zoom</strong> and sign in with your Zoom account.</li>
+  <li>Approve the requested permission. You're returned to PaceLedger, connected.</li>
+</ol>
+
+<h2>Disconnecting</h2>
+<p>Click <strong>Disconnect</strong> next to your Zoom connection status at
+any time. This immediately removes your stored access token from our
+database. You can also revoke access directly from your Zoom account's
+"Connected Apps" settings, which PaceLedger detects and responds to
+automatically.</p>
+
+<h2>Permissions used</h2>
+<p>PaceLedger requests exactly one Zoom scope: <code>meeting:write:meeting</code>,
+used solely to create meetings on the connecting person's behalf when they
+log an appointment. No other Zoom data is read, stored, or accessed.</p>
+
+<h2>Questions</h2>
+<p>See our <a href="/support.html">support page</a> or
+<a href="/privacy-policy.html">privacy policy</a> for more.</p>
+
+</body>
+</html>
