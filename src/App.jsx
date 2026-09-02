@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   LogIn, LogOut, Plus, Trash2, ChevronLeft, ChevronRight, Users,
-  CalendarDays, ShieldCheck, UserPlus, Loader2, Pencil, ClipboardCheck, TrendingUp, UserCog, DollarSign
+  CalendarDays, ShieldCheck, UserPlus, Loader2, Pencil, ClipboardCheck, TrendingUp, UserCog, DollarSign,
+  Download, Search, X
 } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
 
@@ -264,6 +265,23 @@ function fmtCurrency(n) {
   if (n === null || n === undefined || isNaN(n)) return '$0';
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
 }
+// Client-side CSV export — no backend involved, just builds a file in the
+// browser and triggers a normal download.
+function downloadCSV(filename, rows) {
+  const csv = rows.map(row => row.map(cell => {
+    const s = String(cell ?? '');
+    return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  }).join(',')).join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 // Days/months/years since a timestamp, e.g. "1y 2m 5d"
 function tenureSince(createdAt) {
   if (!createdAt) return '—';
@@ -457,6 +475,65 @@ function Spinner({ label }) {
     </div>
   );
 }
+// Skeleton loading shapes — matches the shape of what's about to appear so
+// the app feels like it's already loading the right thing, rather than a
+// generic spinner with no relationship to the content.
+function SkelBlock({ w, h, style }) {
+  return <div className="tr-skel" style={{ width: w, height: h, ...style }} />;
+}
+function SkeletonRows({ count = 4 }) {
+  return (
+    <div className="tr-card">
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="tr-skel-row">
+          <SkelBlock w="70px" h="14px" />
+          <div style={{ flex: 1 }}>
+            <SkelBlock w="55%" h="13px" style={{ marginBottom: 6 }} />
+            <SkelBlock w="35%" h="11px" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+function SkeletonTable({ rows = 5, cols = 5 }) {
+  return (
+    <div className="tr-card">
+      {Array.from({ length: rows }).map((_, r) => (
+        <div key={r} className="tr-skel-row">
+          {Array.from({ length: cols }).map((_, c) => (
+            <SkelBlock key={c} w={c === 0 ? '110px' : '60px'} h="12px" />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+function SkeletonCards({ count = 2 }) {
+  return (
+    <>
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="tr-card">
+          <SkelBlock w="40%" h="15px" style={{ marginBottom: 10 }} />
+          <SkelBlock w="70%" h="12px" style={{ marginBottom: 8 }} />
+          <SkelBlock w="55%" h="12px" />
+        </div>
+      ))}
+    </>
+  );
+}
+function SkeletonCalendar() {
+  return (
+    <div className="tr-card tr-cal-card">
+      <div className="tr-cal-grid">
+        {Array.from({ length: 7 }).map((_, i) => <div key={i} className="tr-cal-headcell"><SkelBlock w="24px" h="10px" style={{ margin: '0 auto' }} /></div>)}
+        {Array.from({ length: 35 }).map((_, i) => (
+          <div key={i} className="tr-cal-day"><SkelBlock w="16px" h="12px" /></div>
+        ))}
+      </div>
+    </div>
+  );
+}
 function Header({ user }) {
   return (
     <header className="tr-header">
@@ -476,6 +553,24 @@ function WeekNav({ weekMonday, onShift, onToday }) {
       <div className="tr-weeknav-label"><CalendarDays size={16} /><span>Week of {weekLabel(weekMonday)}</span></div>
       <button className="tr-icon-btn" onClick={() => onShift(1)} title="Next week"><ChevronRight size={18} /></button>
       <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onToday}>This week</button>
+    </div>
+  );
+}
+function DashboardStrip({ todayCount, needsFollowUpCount, soldThisWeekCount, onJumpToToday, onJumpToFollowUp }) {
+  return (
+    <div className="tr-dash-strip">
+      <button type="button" className="tr-dash-stat" onClick={onJumpToToday}>
+        <span className="tr-dash-num">{todayCount}</span>
+        <span className="tr-dash-label">today</span>
+      </button>
+      <button type="button" className="tr-dash-stat" onClick={onJumpToFollowUp}>
+        <span className="tr-dash-num">{needsFollowUpCount}</span>
+        <span className="tr-dash-label">need follow-up</span>
+      </button>
+      <div className="tr-dash-stat tr-dash-stat-static">
+        <span className="tr-dash-num">{soldThisWeekCount}</span>
+        <span className="tr-dash-label">sold this week</span>
+      </div>
     </div>
   );
 }
@@ -544,7 +639,7 @@ function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty }) {
                     <td>
                       {a.client}
                       {a.status ? <span style={{ marginLeft: 6 }}><StatusChip status={a.status} /></span> : null}
-                      {a.zoomUrl ? <div><a href={a.zoomUrl} target="_blank" rel="noopener noreferrer" className="tr-note" style={{ textDecoration: 'underline' }}>Join Zoom</a></div> : null}
+                      {a.zoomUrl ? <div><a href={a.zoomUrl} target="_blank" rel="noopener noreferrer" className="tr-note tr-link">Join Zoom</a></div> : null}
                       {a.followUpAppointmentDate ? <div className="tr-note" style={{ marginTop: 2 }}>Follow-up: {fmtFollowUpDateTime(a)}</div> : null}
                       {a.notes ? <span className="tr-note"> — {a.notes}</span> : null}
                     </td>
@@ -821,7 +916,7 @@ function FollowUpModal({ appointment, onClose, onSave, saving }) {
   return (
     <Modal onClose={onClose}>
       <h3 className="tr-h3">Follow-up — {appointment.client}</h3>
-      <p className="tr-empty" style={{ marginTop: -4, marginBottom: 18 }}>
+      <p className="tr-subtitle">
         {fmtApptDateTime(appointment)}
       </p>
       <div className="tr-followup-list">
@@ -922,12 +1017,12 @@ function AppointmentForm({ user, weekMonday, editing, onCancel, onSubmit, saving
     <div className="tr-card tr-form" onKeyDown={handleKeyDown}>
       <h3 className="tr-h3">{editing ? 'Edit appointment' : 'Log a new appointment'}</h3>
       {editing?.status === 'needs_reschedule' && (
-        <div className="tr-badge tr-badge-weekday" style={{ marginBottom: 14 }}>
+        <div className="tr-badge tr-badge-weekday tr-form-section">
           This one needs to be rescheduled — saving will count it toward this week's batch as a new entry, and clear its old follow-up status.
         </div>
       )}
       {calendlyContacts.length > 0 && (
-        <div className="tr-field tr-field-wide" style={{ marginBottom: 14 }}>
+        <div className="tr-field tr-field-wide tr-form-section">
           <span>If a manager is presenting, open their Calendly to schedule</span>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
             {calendlyContacts.map(c => (
@@ -939,7 +1034,7 @@ function AppointmentForm({ user, weekMonday, editing, onCancel, onSubmit, saving
         </div>
       )}
       {!editing && zoomManagers.length > 0 && (
-        <label className="tr-field tr-field-wide" style={{ marginBottom: 14 }}>
+        <label className="tr-field tr-field-wide tr-form-section">
           <span>Which manager is presenting? (uses their connected Zoom to create the meeting)</span>
           <select value={zoomHostId} onChange={e => setZoomHostId(e.target.value)}>
             <option value="">Me — use my own connected Zoom</option>
@@ -947,7 +1042,7 @@ function AppointmentForm({ user, weekMonday, editing, onCancel, onSubmit, saving
           </select>
         </label>
       )}
-      <div className="tr-field tr-field-wide" style={{ marginBottom: 14 }}>
+      <div className="tr-field tr-field-wide tr-form-section">
         <span>Recruit and/or sale presentation? (pick both if it's both)</span>
         <TypeChoice recruit={typeRecruit} sale={typeSale} onToggleRecruit={() => setTypeRecruit(v => !v)} onToggleSale={() => setTypeSale(v => !v)} />
       </div>
@@ -1077,7 +1172,7 @@ function PolicyCard({ policy, canEdit, currentUser, onSaved }) {
       </div>
       <div className="tr-policy-notes">
         <h4 className="tr-h4">Notes</h4>
-        {notesLoading ? <Spinner label="Loading notes…" /> : notes.length === 0 ? (
+        {notesLoading ? <SkelBlock w="100%" h="40px" /> : notes.length === 0 ? (
           <p className="tr-empty">No notes yet.</p>
         ) : (
           <div className="tr-notes-list">
@@ -1118,12 +1213,12 @@ function OpenRequirementsBody({ view, user }) {
         <h2 className="tr-h2">{view === 'issued' ? 'Issued Premium' : 'Sold Premium'}</h2>
         <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
       </div>
-      <p className="tr-empty" style={{ marginTop: -8 }}>
+      <p className="tr-subtitle">
         {view === 'issued'
           ? 'Policies whose effective date has arrived and all requirements are complete.'
           : 'Sold policies still waiting on their effective date and/or open requirements.'}
       </p>
-      {loading ? <Spinner label="Loading…" /> : filtered.length === 0 ? (
+      {loading ? <SkeletonCards count={2} /> : filtered.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">Nothing here yet.</p></div>
       ) : (
         filtered.map(p => (
@@ -1342,6 +1437,9 @@ function CalendarBody({ user }) {
   const [googleStatus, setGoogleStatus] = useState({ connected: false });
   const [googleEvents, setGoogleEvents] = useState([]);
   const [googleConnecting, setGoogleConnecting] = useState(false);
+  // 'all' | 'mine' | a specific person's userId — only meaningful for
+  // managers/admins, who see more than just their own appointments here.
+  const [personFilter, setPersonFilter] = useState('all');
 
   const cells = buildMonthGrid(monthStartStr);
   const rangeStart = cells[0].date;
@@ -1376,8 +1474,16 @@ function CalendarBody({ user }) {
     if (ok) { setGoogleStatus({ connected: false }); setGoogleEvents([]); }
   }
 
-  function apptsForDay(dateStr) { return appts.filter(a => a.appointmentDate === dateStr); }
-  function googleForDay(dateStr) { return googleEvents.filter(e => (e.start || '').slice(0, 10) === dateStr); }
+  function apptsForDay(dateStr) {
+    let list = appts.filter(a => a.appointmentDate === dateStr);
+    if (personFilter === 'mine') list = list.filter(a => a.userId === user.id);
+    else if (personFilter !== 'all') list = list.filter(a => a.userId === personFilter);
+    return list;
+  }
+  function googleForDay(dateStr) {
+    if (personFilter !== 'all' && personFilter !== 'mine') return []; // Google events are always mine, not theirs
+    return googleEvents.filter(e => (e.start || '').slice(0, 10) === dateStr);
+  }
   function ownerName(userId) {
     if (user.role === 'advisor') return '';
     if (userId === user.id) return user.displayName;
@@ -1396,8 +1502,17 @@ function CalendarBody({ user }) {
         <button className="tr-icon-btn" onClick={() => setMonthStartStr(shiftMonth(monthStartStr, 1))} title="Next month"><ChevronRight size={18} /></button>
         <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setMonthStartStr(monthStartOf(todayStr()))}>This month</button>
         <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+        {user.role !== 'advisor' && (
+          <select className="tr-cal-personfilter" value={personFilter} onChange={e => setPersonFilter(e.target.value)}>
+            <option value="all">Everyone</option>
+            <option value="mine">Just me</option>
+            {members.filter(m => m.id !== user.id).map(m => (
+              <option key={m.id} value={m.id}>{m.display_name}</option>
+            ))}
+          </select>
+        )}
       </div>
-      {loading ? <Spinner label="Loading calendar…" /> : (
+      {loading ? <SkeletonCalendar /> : (
         <div className="tr-card tr-cal-card">
           <div className="tr-cal-grid">
             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => <div key={d} className="tr-cal-headcell">{d}</div>)}
@@ -1421,7 +1536,7 @@ function CalendarBody({ user }) {
                   {a.isFollowUp ? ' · Follow-up' : ''}
                 </div>
                 <div><strong>{a.client}</strong> — {a.presenter}{a.trainee ? ` (training ${a.trainee})` : ''}</div>
-                {a.zoomUrl && <div><a href={a.zoomUrl} target="_blank" rel="noopener noreferrer" className="tr-note" style={{ textDecoration: 'underline' }}>Join Zoom</a></div>}
+                {a.zoomUrl && <div><a href={a.zoomUrl} target="_blank" rel="noopener noreferrer" className="tr-note tr-link">Join Zoom</a></div>}
                 {ownerName(a.userId) && <div className="tr-note">Logged by {ownerName(a.userId)}</div>}
                 {a.notes && <div className="tr-note">{a.notes}</div>}
               </div>
@@ -1465,7 +1580,7 @@ function CalendlyLinkEditor({ user }) {
   return (
     <div className="tr-card">
       <h3 className="tr-h3">Your Calendly link</h3>
-      <p className="tr-empty" style={{ marginTop: -4, marginBottom: 12 }}>
+      <p className="tr-subtitle">
         Advisors will see this and can click it when they log an appointment where you're the presenter.
       </p>
       <div className="tr-form-grid">
@@ -1499,6 +1614,15 @@ function MyAppointmentsBody({ user }) {
   // null = the normal "This week" view; otherwise one of STATUS_OPTIONS.value
   // (including '' for "No status") — a real sub-page, not a nested widget.
   const [statusView, setStatusView] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const searchResults = searchQuery.trim()
+    ? appointments
+        .filter(a => a.client.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+        .sort((a, b) => (b.appointmentDate + b.appointmentTime).localeCompare(a.appointmentDate + a.appointmentTime))
+    : [];
+  const todayCount = appointments.filter(a => a.appointmentDate === todayStr()).length;
+  const needsFollowUpCount = appointments.filter(a => a.status === 'needs_follow_up').length;
 
   function byType(list) {
     if (typeFilter === 'all') return list;
@@ -1529,6 +1653,7 @@ function MyAppointmentsBody({ user }) {
   const weekAppts = appointments
     .filter(a => a.weekOf === weekMonday && !a.isFollowUp)
     .sort((a, b) => (a.appointmentDate + a.appointmentTime).localeCompare(b.appointmentDate + b.appointmentTime));
+  const soldThisWeekCount = weekAppts.filter(a => a.officiallySold).length;
   const groups = DATE_SET_OPTIONS.map(opt => ({
     option: opt,
     list: weekAppts.filter(a => a.dateSetOption === opt.value),
@@ -1660,13 +1785,36 @@ function MyAppointmentsBody({ user }) {
       </nav>
 
       <div className="tr-appts-main">
+        <div className="tr-search-row">
+          <Search size={15} className="tr-search-icon" />
+          <input
+            className="tr-search-input" type="text" placeholder="Search by client or recruit name…"
+            value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+          {searchQuery && (
+            <button type="button" className="tr-icon-btn" onClick={() => setSearchQuery('')} title="Clear search"><X size={15} /></button>
+          )}
+        </div>
         <div className="tr-typefilter-row">
           <span className="tr-typefilter-label">Show:</span>
           <TypeFilter value={typeFilter} onChange={setTypeFilter} />
           <span className="tr-typefilter-note">Only filters what's listed below — your weekly pace count always includes everything.</span>
         </div>
-        {statusView === null ? (
+        {searchQuery.trim() ? (
           <>
+            <h2 className="tr-h2">Search results for "{searchQuery.trim()}"</h2>
+            <p className="tr-subtitle">Across every appointment you've ever logged, regardless of week.</p>
+            {searchResults.length === 0 ? (
+              <div className="tr-card"><p className="tr-empty">No matches.</p></div>
+            ) : (
+              <ApptGroup list={byType(searchResults)} onDelete={handleDelete} onFollowUp={setFollowUpTarget} onEdit={openEdit} empty="" />
+            )}
+          </>
+        ) : statusView === null ? (
+          <>
+            <DashboardStrip
+              todayCount={todayCount} needsFollowUpCount={needsFollowUpCount} soldThisWeekCount={soldThisWeekCount}
+              onJumpToToday={() => setWeekMonday(weekStartOf(todayStr()))}
+              onJumpToFollowUp={() => setStatusView('needs_follow_up')} />
             <ZoomConnect status={zoomStatus} connecting={zoomConnecting} onConnect={handleZoomConnect} onDisconnect={handleZoomDisconnect} />
             {(user.role === 'manager' || user.role === 'super_admin') && <CalendlyLinkEditor user={user} />}
             <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
@@ -1687,7 +1835,7 @@ function MyAppointmentsBody({ user }) {
             {showForm && (
               <AppointmentForm user={user} weekMonday={weekMonday} editing={editingAppt} onCancel={closeForm} onSubmit={handleFormSubmit} saving={saving} />
             )}
-            {loading ? <Spinner label="Loading appointments…" /> : groups.map(g => (
+            {loading ? <SkeletonRows count={5} /> : groups.map(g => (
               <ApptGroup
                 key={g.option.value}
                 title={`${g.option.batchLabel} (${g.list.length}/${g.option.target})`}
@@ -1703,8 +1851,8 @@ function MyAppointmentsBody({ user }) {
         ) : (
           <>
             <h2 className="tr-h2">{STATUS_OPTIONS.find(o => o.value === statusView)?.label}</h2>
-            <p className="tr-empty" style={{ marginTop: -8 }}>Every past appointment currently in this state.</p>
-            {loading ? <Spinner label="Loading…" /> : byType(statusFiltered).length === 0 ? (
+            <p className="tr-subtitle">Every past appointment currently in this state.</p>
+            {loading ? <SkeletonRows count={4} /> : byType(statusFiltered).length === 0 ? (
               <div className="tr-card"><p className="tr-empty">Nothing here.</p></div>
             ) : (
               <ApptGroup list={byType(statusFiltered)} onDelete={handleDelete} onFollowUp={setFollowUpTarget} onEdit={openEdit} empty="" />
@@ -1796,7 +1944,7 @@ function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, membe
         <TypeFilter value={typeFilter} onChange={setTypeFilter} />
         <span className="tr-typefilter-note">Only affects the expanded appointment lists below — pace counts always include everything.</span>
       </div>
-      {loading ? <Spinner label="Loading…" /> : members.length === 0 ? (
+      {loading ? <SkeletonTable rows={5} cols={6} /> : members.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">{emptyMessage}</p></div>
       ) : (
         <div className="tr-card tr-summary-card">
@@ -1887,15 +2035,30 @@ function TrackProductionBody({ user }) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  function handleExport() {
+    const rows = [['Team member', 'Role', 'Sold premium', 'Sales count', 'Recruits']];
+    members.forEach(m => {
+      const list = weekAppts.filter(a => a.userId === m.id);
+      const sold = list.filter(a => a.officiallySold);
+      const recruited = list.filter(a => a.officiallyRecruited);
+      const totalPremium = sold.reduce((s, a) => s + (Number(a.targetPremium) || 0), 0);
+      rows.push([m.display_name, m.role, totalPremium, sold.length, recruited.map(a => a.client).join('; ')]);
+    });
+    downloadCSV(`track-production-week-of-${weekMonday}.csv`, rows);
+  }
+
   return (
     <>
       <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
       <div className="tr-row-head">
         <h2 className="tr-h2"><TrendingUp size={18} /> Track production</h2>
-        <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={handleExport} disabled={loading || members.length === 0}><Download size={14} /> Export CSV</button>
+          <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+        </div>
       </div>
-      <p className="tr-empty" style={{ marginTop: -8 }}>Based on what's been marked Sold or Recruited in each person's follow-up for this week.</p>
-      {loading ? <Spinner label="Loading production…" /> : members.length === 0 ? (
+      <p className="tr-subtitle">Based on what's been marked Sold or Recruited in each person's follow-up for this week.</p>
+      {loading ? <SkeletonTable rows={5} cols={4} /> : members.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">No team members yet.</p></div>
       ) : (
         <div className="tr-card tr-summary-card">
@@ -2019,7 +2182,7 @@ function ManageUsersView({ currentUserId }) {
   return (
     <div className="tr-card tr-summary-card">
       {error && <div className="tr-error" style={{ margin: 16 }}>{error}</div>}
-      {loading ? <Spinner label="Loading team…" /> : (
+      {loading ? <SkeletonTable rows={6} cols={5} /> : (
         <div className="tr-table-wrap">
           <table className="tr-table tr-table-summary">
             <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Reports To</th><th></th></tr></thead>
@@ -2259,7 +2422,7 @@ const CSS = `
 
 /* open requirements: policy cards */
 .tr-policy-card { display: flex; flex-direction: column; gap: 14px; }
-.tr-policy-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.tr-policy-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
 .tr-policy-premium { font-size: 17px; font-weight: 600; color: var(--brass-dark); }
 .tr-policy-fields { display: flex; flex-wrap: wrap; gap: 20px; padding: 12px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .tr-policy-notes { display: flex; flex-direction: column; gap: 10px; }
@@ -2275,8 +2438,10 @@ const CSS = `
 .tr-appt-group + .tr-appt-group { margin-top: 0; }
 
 /* week nav */
-.tr-weeknav { display: flex; align-items: center; gap: 10px; }
+.tr-weeknav { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .tr-weeknav-label { display: flex; align-items: center; gap: 8px; font-weight: 500; color: var(--ink); margin-right: auto; font-size: 15px; }
+.tr-cal-personfilter { font-family: inherit; font-size: 13px; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); cursor: pointer; }
+.tr-cal-personfilter:focus { border-color: var(--brass); }
 
 /* buttons */
 .tr-btn { display: inline-flex; align-items: center; gap: 6px; font-family: inherit; font-size: 14px; font-weight: 500; padding: 9px 16px; border-radius: 7px; border: 1px solid transparent; cursor: pointer; transition: background .15s, border-color .15s, transform .1s; }
@@ -2338,6 +2503,9 @@ const CSS = `
 .tr-table tbody tr:last-child td { border-bottom: none; }
 .tr-note { color: var(--slate-light); }
 .tr-empty { font-size: 13.5px; color: var(--slate-light); margin: 4px 0 0; }
+.tr-subtitle { font-size: 13.5px; color: var(--slate-light); margin: -8px 0 16px; }
+.tr-link { color: inherit; text-decoration: underline; }
+.tr-form-section { margin-bottom: 14px; }
 
 .tr-summary-card { padding: 0; overflow: hidden; }
 .tr-table-summary th, .tr-table-summary td { padding: 12px 16px; }
@@ -2366,6 +2534,17 @@ const CSS = `
 .tr-pill-recruit.tr-pill-btn-active-recruit { background: var(--type-recruit); border-color: var(--type-recruit-dark); color: #fff; }
 .tr-pill-sale.tr-pill-btn-active-sale { background: var(--type-sale); border-color: var(--type-sale-dark); color: #fff; }
 .tr-typefilter-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.tr-search-row { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
+.tr-search-icon { color: var(--slate-light); flex-shrink: 0; }
+.tr-search-input { flex: 1; border: none; background: none; font-family: inherit; font-size: 14px; color: var(--ink); outline: none; }
+.tr-search-input::placeholder { color: var(--slate-light); }
+.tr-dash-strip { display: flex; gap: 12px; margin-bottom: 14px; }
+.tr-dash-stat { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; cursor: pointer; transition: border-color .15s, background .15s; font-family: inherit; text-align: left; }
+.tr-dash-stat:hover { border-color: var(--brass); background: var(--paper-dim); }
+.tr-dash-stat-static { cursor: default; }
+.tr-dash-stat-static:hover { border-color: var(--line); background: var(--paper); }
+.tr-dash-num { font-size: 22px; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.tr-dash-label { font-size: 12px; color: var(--slate-light); }
 .tr-typefilter-label { font-size: 13px; font-weight: 500; color: var(--slate); }
 .tr-typefilter-note { font-size: 12px; color: var(--slate-light); }
 
@@ -2428,6 +2607,12 @@ const CSS = `
 
 /* spinner */
 .tr-spinner { display: flex; align-items: center; gap: 8px; color: var(--slate-light); font-size: 13.5px; padding: 24px; justify-content: center; }
+
+/* skeleton loading */
+.tr-skel { border-radius: 4px; background: linear-gradient(90deg, var(--paper-dim) 25%, var(--line) 37%, var(--paper-dim) 63%); background-size: 400% 100%; animation: tr-skel-shimmer 1.4s ease infinite; }
+@keyframes tr-skel-shimmer { 0% { background-position: 100% 50%; } 100% { background-position: 0 50%; } }
+.tr-skel-row { display: flex; align-items: center; gap: 14px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.tr-skel-row:last-child { border-bottom: none; }
 @media (prefers-reduced-motion: no-preference) { .tr-spin { animation: tr-rotate 0.9s linear infinite; } }
 @keyframes tr-rotate { to { transform: rotate(360deg); } }
 
@@ -2450,5 +2635,12 @@ const CSS = `
   .tr-cal-headcell { font-size: 9px; padding: 6px 1px; }
   .tr-cal-daynum { font-size: 11px; }
   .tr-cal-appt { font-size: 8.5px; padding: 0 2px; }
+  .tr-dash-strip { gap: 8px; }
+  .tr-dash-stat { padding: 10px 10px; }
+  .tr-dash-num { font-size: 18px; }
+  .tr-dash-label { font-size: 10.5px; }
+  .tr-policy-fields { gap: 12px; }
+  .tr-skel-row { gap: 8px; overflow-x: hidden; }
+  .tr-skel-row .tr-skel { flex-shrink: 1; min-width: 30px; }
 }
 `;
