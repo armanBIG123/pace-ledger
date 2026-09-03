@@ -8,6 +8,7 @@ import { supabase } from './supabaseClient.js';
 
 const WEEKEND_TARGET = 8;
 const WEEKDAY_TARGET = 5;
+const WEEKLY_TOTAL_TARGET = WEEKEND_TARGET + WEEKDAY_TARGET * 5; // 33
 
 // ---------------------------------------------------------------------
 // date helpers
@@ -600,6 +601,40 @@ function PaceStrip({ groups }) {
     </div>
   );
 }
+// A quick "was I better or worse than usual" view — computed entirely from
+// already-loaded appointment data, no extra fetch needed.
+function PaceTrend({ appointments, currentWeekMonday, numWeeks = 6 }) {
+  const weeks = [];
+  for (let i = numWeeks - 1; i >= 0; i--) {
+    const weekOf = shiftWeekStr(currentWeekMonday, -i);
+    const count = appointments.filter(a => a.weekOf === weekOf && !a.isFollowUp).length;
+    weeks.push({ weekOf, count });
+  }
+  const maxVal = Math.max(WEEKLY_TOTAL_TARGET, ...weeks.map(w => w.count), 1);
+  return (
+    <div className="tr-card tr-trend">
+      <div className="tr-trend-head">
+        <span className="tr-trend-title">Last {numWeeks} weeks</span>
+        <span className="tr-trend-target-line">Target: {WEEKLY_TOTAL_TARGET}/week</span>
+      </div>
+      <div className="tr-trend-bars">
+        {weeks.map((w, i) => {
+          const pct = Math.max(4, Math.min(100, (w.count / maxVal) * 100));
+          const isCurrent = i === weeks.length - 1;
+          const onPace = w.count >= WEEKLY_TOTAL_TARGET;
+          return (
+            <div key={w.weekOf} className="tr-trend-col" title={`Week of ${fmtDisplayDate(w.weekOf)}: ${w.count}/${WEEKLY_TOTAL_TARGET}`}>
+              <div className="tr-trend-bar-track">
+                <div className={`tr-trend-bar ${onPace ? 'tr-trend-bar-good' : ''} ${isCurrent ? 'tr-trend-bar-current' : ''}`} style={{ height: `${pct}%` }} />
+              </div>
+              <span className="tr-trend-num">{w.count}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 const STATUS_OPTIONS = [
   { value: '', label: 'No status', color: 'none' },
   { value: 'completed', label: 'Completed', color: 'green' },
@@ -616,6 +651,16 @@ function StatusChip({ status }) {
   const opt = STATUS_OPTIONS.find(o => o.value === status);
   if (!opt || !opt.value) return null;
   return <span className={`tr-status tr-status-${opt.color}`}>{opt.label}</span>;
+}
+// Icon + text, never color alone — a colored border stripe elsewhere is a
+// nice-to-have accent, but this badge is what actually conveys recruit vs
+// sale to anyone who can't distinguish the two colors.
+function TypeBadge({ appt }) {
+  const r = isRecruitType(appt), s = isSaleType(appt);
+  if (!r && !s) return null;
+  if (r && s) return <span className="tr-type-badge tr-type-badge-both"><UserPlus size={11} /><DollarSign size={11} /> Recruit &amp; Sale</span>;
+  if (r) return <span className="tr-type-badge tr-type-badge-recruit"><UserPlus size={11} /> Recruit</span>;
+  return <span className="tr-type-badge tr-type-badge-sale"><DollarSign size={11} /> Sale</span>;
 }
 function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty }) {
   return (
@@ -638,6 +683,7 @@ function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty }) {
                     <td>{a.trainee || '—'}</td>
                     <td>
                       {a.client}
+                      <TypeBadge appt={a} />
                       {a.status ? <span style={{ marginLeft: 6 }}><StatusChip status={a.status} /></span> : null}
                       {a.zoomUrl ? <div><a href={a.zoomUrl} target="_blank" rel="noopener noreferrer" className="tr-note tr-link">Join Zoom</a></div> : null}
                       {a.followUpAppointmentDate ? <div className="tr-note" style={{ marginTop: 2 }}>Follow-up: {fmtFollowUpDateTime(a)}</div> : null}
@@ -988,6 +1034,10 @@ function AppointmentForm({ user, weekMonday, editing, onCancel, onSubmit, saving
   const [err, setErr] = useState('');
   const [calendlyContacts, setCalendlyContacts] = useState([]);
   const [zoomManagers, setZoomManagers] = useState([]);
+  // Quick log: only the fields that actually vary trip-to-trip start
+  // visible. Everything else uses a sensible default silently, editable
+  // by expanding. Editing an existing appointment always shows everything.
+  const [showMore, setShowMore] = useState(!!editing);
   const timezoneOptions = timezoneOptionsWithDetected();
 
   useEffect(() => {
@@ -1021,7 +1071,7 @@ function AppointmentForm({ user, weekMonday, editing, onCancel, onSubmit, saving
           This one needs to be rescheduled — saving will count it toward this week's batch as a new entry, and clear its old follow-up status.
         </div>
       )}
-      {calendlyContacts.length > 0 && (
+      {showMore && calendlyContacts.length > 0 && (
         <div className="tr-field tr-field-wide tr-form-section">
           <span>If a manager is presenting, open their Calendly to schedule</span>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
@@ -1033,7 +1083,7 @@ function AppointmentForm({ user, weekMonday, editing, onCancel, onSubmit, saving
           </div>
         </div>
       )}
-      {!editing && zoomManagers.length > 0 && (
+      {showMore && !editing && zoomManagers.length > 0 && (
         <label className="tr-field tr-field-wide tr-form-section">
           <span>Which manager is presenting? (uses their connected Zoom to create the meeting)</span>
           <select value={zoomHostId} onChange={e => setZoomHostId(e.target.value)}>
@@ -1048,18 +1098,6 @@ function AppointmentForm({ user, weekMonday, editing, onCancel, onSubmit, saving
       </div>
       <div className="tr-form-grid">
         <label className="tr-field">
-          <span>Date set</span>
-          <select value={dateSetOption} onChange={e => setDateSetOption(e.target.value)}>
-            {DATE_SET_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-        </label>
-        <div className="tr-field">
-          <span>Counts toward</span>
-          <div className={`tr-badge tr-badge-${meta.category}`}>
-            {meta.batchLabel} ({meta.target}) · week of {parseDate(weekMonday).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-          </div>
-        </div>
-        <label className="tr-field">
           <span>Appointment date</span>
           <input type="date" value={appointmentDate} onChange={e => setAppointmentDate(e.target.value)} onClick={openPicker} />
         </label>
@@ -1068,28 +1106,49 @@ function AppointmentForm({ user, weekMonday, editing, onCancel, onSubmit, saving
           <input type="time" value={appointmentTime} onChange={e => setAppointmentTime(e.target.value)} onClick={openPicker} />
         </label>
         <label className="tr-field">
-          <span>Time zone</span>
-          <select value={timezone} onChange={e => setTimezone(e.target.value)}>
-            {timezoneOptions.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
-          </select>
-        </label>
-        <label className="tr-field">
           <span>Presenter</span>
           <input value={presenter} onChange={e => setPresenter(e.target.value)} placeholder="Who is presenting" />
         </label>
         <label className="tr-field">
-          <span>Trainee (optional)</span>
-          <input value={trainee} onChange={e => setTrainee(e.target.value)} placeholder="Who is being trained" />
-        </label>
-        <label className="tr-field tr-field-wide">
           <span>Client / recruit</span>
           <input value={client} onChange={e => setClient(e.target.value)} placeholder="Who is being presented to" />
         </label>
-        <label className="tr-field tr-field-wide">
-          <span>Notes (optional)</span>
-          <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Anything else worth noting" />
-        </label>
+        {showMore && (
+          <>
+            <label className="tr-field">
+              <span>Date set</span>
+              <select value={dateSetOption} onChange={e => setDateSetOption(e.target.value)}>
+                {DATE_SET_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </label>
+            <div className="tr-field">
+              <span>Counts toward</span>
+              <div className={`tr-badge tr-badge-${meta.category}`}>
+                {meta.batchLabel} ({meta.target}) · week of {parseDate(weekMonday).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              </div>
+            </div>
+            <label className="tr-field">
+              <span>Time zone</span>
+              <select value={timezone} onChange={e => setTimezone(e.target.value)}>
+                {timezoneOptions.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+              </select>
+            </label>
+            <label className="tr-field">
+              <span>Trainee (optional)</span>
+              <input value={trainee} onChange={e => setTrainee(e.target.value)} placeholder="Who is being trained" />
+            </label>
+            <label className="tr-field tr-field-wide">
+              <span>Notes (optional)</span>
+              <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Anything else worth noting" />
+            </label>
+          </>
+        )}
       </div>
+      {!editing && (
+        <button type="button" className="tr-more-toggle" onClick={() => setShowMore(v => !v)}>
+          {showMore ? '▲ Fewer details' : '▾ More details (date set, time zone, trainee, notes)'}
+        </button>
+      )}
       {err && <div className="tr-error">{err}</div>}
       <div className="tr-form-actions">
         <button type="button" className="tr-btn tr-btn-ghost" onClick={onCancel}>Cancel</button>
@@ -1716,6 +1775,9 @@ function MyAppointmentsBody({ user }) {
     }
   }
   async function handleDelete(id) {
+    const target = appointments.find(a => a.id === id);
+    const label = target ? `the appointment with ${target.client}` : 'this appointment';
+    if (!window.confirm(`Delete ${label}? This can't be undone.`)) return;
     const prev = appointments;
     setAppointments(appointments.filter(a => a.id !== id));
     const ok = await deleteAppointmentRow(id);
@@ -1819,6 +1881,7 @@ function MyAppointmentsBody({ user }) {
             {(user.role === 'manager' || user.role === 'super_admin') && <CalendlyLinkEditor user={user} />}
             <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
             <PaceStrip groups={groups.map(g => ({ option: g.option, count: g.list.length, list: g.list }))} />
+            <PaceTrend appointments={appointments} currentWeekMonday={weekMonday} />
             {upcomingFollowUps.length > 0 && (
               <ApptGroup
                 title={`Upcoming follow-ups (${upcomingFollowUps.length})`}
@@ -1932,6 +1995,16 @@ function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, membe
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  // Same classification already used per-row below, just tallied up front
+  // so managers get the answer without reading every row themselves.
+  const memberStatuses = members.map(m => {
+    const list = weekAppts.filter(a => a.userId === m.id && !a.isFollowUp);
+    const counts = DATE_SET_OPTIONS.map(opt => list.filter(a => a.dateSetOption === opt.value).length);
+    return getStatus(counts, weekMonday);
+  });
+  const metCount = memberStatuses.filter(s => s === 'met').length;
+  const missedCount = memberStatuses.filter(s => s === 'missed').length;
+
   return (
     <>
       <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
@@ -1947,7 +2020,13 @@ function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, membe
       {loading ? <SkeletonTable rows={5} cols={6} /> : members.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">{emptyMessage}</p></div>
       ) : (
-        <div className="tr-card tr-summary-card">
+        <>
+          <div className="tr-health-line">
+            <strong className="tr-health-good">{metCount} of {members.length} on pace</strong>
+            {missedCount > 0 && <span className="tr-health-bad"> · {missedCount} behind</span>}
+            {' '}this week.
+          </div>
+          <div className="tr-card tr-summary-card">
           <div className="tr-table-wrap">
             <table className="tr-table tr-table-summary">
               <thead>
@@ -1994,6 +2073,7 @@ function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, membe
             </table>
           </div>
         </div>
+        </>
       )}
     </>
   );
@@ -2133,7 +2213,15 @@ async function changeUserManager(id, newManagerId) {
   const { error } = await supabase.from('profiles').update({ manager_id: newManagerId || null }).eq('id', id);
   return !error ? null : error.message;
 }
-function ManageUsersView({ currentUserId }) {
+async function logAuditEvent(actorId, actorName, action, targetName, details) {
+  await supabase.from('audit_log').insert({ actor_id: actorId, actor_name: actorName, action, target_name: targetName, details });
+}
+async function fetchAuditLog() {
+  const { data, error } = await supabase.from('audit_log').select('*').order('created_at', { ascending: false }).limit(50);
+  if (error) { console.error(error); return []; }
+  return data;
+}
+function ManageUsersView({ currentUserId, currentUserName }) {
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState(null);
@@ -2151,21 +2239,26 @@ function ManageUsersView({ currentUserId }) {
   const adminOptions = users.filter(u => u.role === 'super_admin');
 
   async function handleChange(id, newRole) {
+    const target = users.find(u => u.id === id);
     setSavingId(id);
     setError('');
     const err = await changeUserRole(id, newRole);
     setSavingId(null);
     if (err) { setError(err); return; }
     setUsers(prev => prev.map(u => u.id === id ? { ...u, role: newRole } : u));
+    logAuditEvent(currentUserId, currentUserName, 'Changed role', target?.display_name, `${target?.role || '?'} → ${newRole}`);
   }
 
   async function handleManagerChange(id, newManagerId) {
+    const target = users.find(u => u.id === id);
+    const newManagerName = newManagerId ? users.find(u => u.id === newManagerId)?.display_name : 'nobody';
     setSavingId(id);
     setError('');
     const err = await changeUserManager(id, newManagerId);
     setSavingId(null);
     if (err) { setError(err); return; }
     setUsers(prev => prev.map(u => u.id === id ? { ...u, manager_id: newManagerId || null } : u));
+    logAuditEvent(currentUserId, currentUserName, 'Changed reports-to', target?.display_name, `now reports to ${newManagerName || 'nobody'}`);
   }
 
   async function handleDelete(id, name) {
@@ -2177,9 +2270,11 @@ function ManageUsersView({ currentUserId }) {
     setSavingId(null);
     if (err) { setError(err); return; }
     setUsers(prev => prev.filter(u => u.id !== id));
+    logAuditEvent(currentUserId, currentUserName, 'Removed user', name, null);
   }
 
   return (
+    <>
     <div className="tr-card tr-summary-card">
       {error && <div className="tr-error" style={{ margin: 16 }}>{error}</div>}
       {loading ? <SkeletonTable rows={6} cols={5} /> : (
@@ -2228,6 +2323,41 @@ function ManageUsersView({ currentUserId }) {
         </div>
       )}
     </div>
+    <AuditLogView />
+    </>
+  );
+}
+function AuditLogView() {
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    fetchAuditLog().then(rows => { setEntries(rows); setLoading(false); });
+  }, [open]);
+
+  return (
+    <div className="tr-card" style={{ marginTop: 16 }}>
+      <button type="button" className="tr-more-toggle" style={{ padding: 0 }} onClick={() => setOpen(v => !v)}>
+        {open ? '▲ Hide activity log' : '▾ Show activity log'}
+      </button>
+      {open && (
+        loading ? <SkeletonRows count={4} /> : entries.length === 0 ? (
+          <p className="tr-empty">No activity recorded yet.</p>
+        ) : (
+          <div className="tr-audit-list">
+            {entries.map(e => (
+              <div key={e.id} className="tr-audit-row">
+                <span className="tr-audit-time">{new Date(e.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
+                <span><strong>{e.actor_name}</strong> {e.action.toLowerCase()}{e.target_name ? ` — ${e.target_name}` : ''}{e.details ? <span className="tr-note"> ({e.details})</span> : ''}</span>
+              </div>
+            ))}
+          </div>
+        )
+      )}
+    </div>
   );
 }
 function AdminView({ user }) {
@@ -2249,7 +2379,7 @@ function AdminView({ user }) {
         {tab === 'pace' && <TeamPaceBody user={user} />}
         {tab === 'directs' && <DirectManagersBody user={user} />}
         {tab === 'production' && <TrackProductionBody user={user} />}
-        {tab === 'users' && <ManageUsersView currentUserId={user.id} />}
+        {tab === 'users' && <ManageUsersView currentUserId={user.id} currentUserName={user.displayName} />}
       </main>
     </Shell>
   );
@@ -2506,6 +2636,26 @@ const CSS = `
 .tr-subtitle { font-size: 13.5px; color: var(--slate-light); margin: -8px 0 16px; }
 .tr-link { color: inherit; text-decoration: underline; }
 .tr-form-section { margin-bottom: 14px; }
+.tr-more-toggle { display: block; background: none; border: none; color: var(--brass-dark); font-family: inherit; font-size: 13px; font-weight: 500; cursor: pointer; padding: 4px 0 12px; }
+.tr-more-toggle:hover { text-decoration: underline; }
+.tr-trend-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
+.tr-trend-title { font-size: 13px; font-weight: 600; color: var(--ink); }
+.tr-trend-target-line { font-size: 11.5px; color: var(--slate-light); }
+.tr-trend-bars { display: flex; align-items: flex-end; gap: 8px; height: 70px; }
+.tr-trend-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; }
+.tr-trend-bar-track { flex: 1; width: 100%; display: flex; align-items: flex-end; }
+.tr-trend-bar { width: 100%; background: var(--paper-dim); border-radius: 3px 3px 0 0; transition: height .3s ease; }
+.tr-trend-bar-good { background: rgba(63,143,108,0.55); }
+.tr-trend-bar-current { background: var(--brass); }
+.tr-trend-bar-current.tr-trend-bar-good { background: #3F8F6C; }
+.tr-trend-num { font-size: 10.5px; color: var(--slate-light); font-variant-numeric: tabular-nums; }
+.tr-health-line { font-size: 13.5px; color: var(--slate); margin-bottom: 10px; }
+.tr-health-good { color: #2E6E51; }
+.tr-health-bad { color: var(--rust); font-weight: 600; }
+.tr-audit-list { margin-top: 12px; display: flex; flex-direction: column; gap: 2px; }
+.tr-audit-row { display: flex; gap: 10px; font-size: 13px; padding: 7px 0; border-bottom: 1px solid var(--line); }
+.tr-audit-row:last-child { border-bottom: none; }
+.tr-audit-time { color: var(--slate-light); font-size: 11.5px; white-space: nowrap; min-width: 110px; }
 
 .tr-summary-card { padding: 0; overflow: hidden; }
 .tr-table-summary th, .tr-table-summary td { padding: 12px 16px; }
@@ -2528,6 +2678,10 @@ const CSS = `
 .tr-status-none { background: transparent; color: var(--slate-light); border: 1px dashed var(--line); }
 
 /* recruit/sale type coding */
+.tr-type-badge { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 500; padding: 3px 7px 3px 6px; border-radius: 999px; white-space: nowrap; margin-left: 6px; vertical-align: middle; }
+.tr-type-badge-recruit { background: rgba(53,116,184,0.12); color: var(--type-recruit-dark); }
+.tr-type-badge-sale { background: rgba(217,119,46,0.12); color: var(--type-sale-dark); }
+.tr-type-badge-both { background: linear-gradient(90deg, rgba(53,116,184,0.12), rgba(217,119,46,0.12)); color: var(--ink); }
 .tr-type-recruit { box-shadow: inset 3px 0 0 0 var(--type-recruit); }
 .tr-type-sale { box-shadow: inset 3px 0 0 0 var(--type-sale); }
 .tr-type-both { border-left: 4px solid transparent; border-image: linear-gradient(180deg, var(--type-recruit) 50%, var(--type-sale) 50%) 1; }
