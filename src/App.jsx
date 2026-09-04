@@ -232,17 +232,39 @@ async function fetchTrainingsInRange(startDate, endDate) {
   if (error) { console.error(error); return []; }
   return data;
 }
-async function createTraining({ title, date, time, timezone, zoomUrl, notes, userId, userName }) {
-  const { data, error } = await supabase.from('trainings').insert({
-    title, training_date: date, training_time: time, timezone,
+async function createTraining({ title, date, time, timezone, zoomUrl, notes, userId, userName, recurring, repeatUntil }) {
+  const base = {
+    title, training_time: time, timezone,
     zoom_url: zoomUrl || null, notes: notes || null,
     created_by: userId, created_by_name: userName,
-  }).select().single();
+  };
+  if (!recurring || !repeatUntil) {
+    const { data, error } = await supabase.from('trainings').insert({ ...base, training_date: date }).select().single();
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, records: [data] };
+  }
+  // One row per week from the start date through repeatUntil (inclusive) —
+  // simpler and more robust than computing recurrence at read time, and
+  // lets each occurrence be individually edited/deleted later if needed.
+  const groupId = crypto.randomUUID();
+  const rows = [];
+  let cursor = date;
+  while (cursor <= repeatUntil) {
+    rows.push({ ...base, training_date: cursor, recurring_group_id: groupId });
+    cursor = fmtDate(addDays(parseDate(cursor), 7));
+  }
+  const { data, error } = await supabase.from('trainings').insert(rows).select();
   if (error) return { ok: false, error: error.message };
-  return { ok: true, record: data };
+  return { ok: true, records: data };
 }
 async function deleteTraining(id) {
   const { error } = await supabase.from('trainings').delete().eq('id', id);
+  return !error;
+}
+// Deletes this occurrence and every future one in the same weekly series,
+// leaving past occurrences intact as history.
+async function deleteTrainingSeries(groupId, fromDate) {
+  const { error } = await supabase.from('trainings').delete().eq('recurring_group_id', groupId).gte('training_date', fromDate);
   return !error;
 }
 function monthStartOf(dateStr) {
@@ -1492,19 +1514,25 @@ function TrainingPostCard({ user, onPosted }) {
   const [timezone, setTimezone] = useState(detectTimezone());
   const [zoomUrl, setZoomUrl] = useState('');
   const [notes, setNotes] = useState('');
+  const [recurring, setRecurring] = useState(false);
+  const [repeatUntil, setRepeatUntil] = useState('');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
   const timezoneOptions = timezoneOptionsWithDetected();
 
   async function submit() {
     if (!title.trim() || !date || !time) { setErr('Fill in the title, date, and time.'); return; }
+    if (recurring && (!repeatUntil || repeatUntil < date)) { setErr('Pick a "repeat until" date on or after the first training date.'); return; }
     setSaving(true); setErr('');
-    const res = await createTraining({ title: title.trim(), date, time, timezone, zoomUrl: zoomUrl.trim(), notes: notes.trim(), userId: user.id, userName: user.displayName });
+    const res = await createTraining({
+      title: title.trim(), date, time, timezone, zoomUrl: zoomUrl.trim(), notes: notes.trim(),
+      userId: user.id, userName: user.displayName, recurring, repeatUntil: recurring ? repeatUntil : null,
+    });
     setSaving(false);
     if (!res.ok) { setErr(res.error || 'Could not post. Try again.'); return; }
-    setTitle(''); setDate(''); setTime(''); setZoomUrl(''); setNotes('');
+    setTitle(''); setDate(''); setTime(''); setZoomUrl(''); setNotes(''); setRecurring(false); setRepeatUntil('');
     setShowForm(false);
-    onPosted(res.record);
+    res.records.forEach(onPosted);
   }
 
   return (
@@ -1542,6 +1570,16 @@ function TrainingPostCard({ user, onPosted }) {
               <span>Notes (optional)</span>
               <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Anything else worth noting" />
             </label>
+            <label className="tr-field tr-field-wide tr-checkbox-field">
+              <input type="checkbox" checked={recurring} onChange={e => setRecurring(e.target.checked)} />
+              <span>Repeat weekly (same day of week and time)</span>
+            </label>
+            {recurring && (
+              <label className="tr-field">
+                <span>Repeat until</span>
+                <input type="date" value={repeatUntil} onChange={e => setRepeatUntil(e.target.value)} min={date || undefined} onClick={openPicker} />
+              </label>
+            )}
           </div>
           {err && <div className="tr-error">{err}</div>}
           <div className="tr-form-actions">
@@ -1552,7 +1590,7 @@ function TrainingPostCard({ user, onPosted }) {
     </div>
   );
 }
-function CalendarDay({ cell, appts, googleEvents, trainings, ownerName, onOpen }) {
+function CalendarDay({ cell, appts, googleEvents, trainings, highlightTrainings, ownerName, onOpen }) {
   const isToday = cell.date === todayStr();
   const items = [
     ...appts.map(a => ({ kind: 'appt', data: a, timeKey: a.appointmentTime || '00:00' })),
@@ -1561,9 +1599,10 @@ function CalendarDay({ cell, appts, googleEvents, trainings, ownerName, onOpen }
   ].sort((a, b) => a.timeKey.localeCompare(b.timeKey));
   const visible = items.slice(0, 3);
   const extra = items.length - visible.length;
+  const isHighlighted = highlightTrainings && trainings.length > 0;
   return (
     <div
-      className={`tr-cal-day ${cell.inMonth ? '' : 'tr-cal-day-out'} ${isToday ? 'tr-cal-day-today' : ''}`}
+      className={`tr-cal-day ${cell.inMonth ? '' : 'tr-cal-day-out'} ${isToday ? 'tr-cal-day-today' : ''} ${isHighlighted ? 'tr-cal-day-training-highlight' : ''}`}
       onClick={() => items.length > 0 && onOpen(cell.date, appts, googleEvents, trainings)}>
       <div className="tr-cal-daynum">{cell.dayNum}</div>
       <div className="tr-cal-appts">
@@ -1595,6 +1634,7 @@ function CalendarBody({ user }) {
   const [googleEvents, setGoogleEvents] = useState([]);
   const [googleConnecting, setGoogleConnecting] = useState(false);
   const [trainings, setTrainings] = useState([]);
+  const [highlightTrainings, setHighlightTrainings] = useState(false);
   // 'all' | 'mine' | a specific person's userId — only meaningful for
   // managers/admins, who see more than just their own appointments here.
   const [personFilter, setPersonFilter] = useState('all');
@@ -1632,10 +1672,20 @@ function CalendarBody({ user }) {
     const ok = await disconnectGoogleCalendar();
     if (ok) { setGoogleStatus({ connected: false }); setGoogleEvents([]); }
   }
-  async function handleDeleteTraining(id) {
+  async function handleDeleteTraining(training) {
+    if (training.recurring_group_id) {
+      const deleteAll = window.confirm(
+        "This is part of a weekly series.\n\nOK = delete this and all future occurrences\nCancel = just this one date"
+      );
+      if (deleteAll) {
+        const ok = await deleteTrainingSeries(training.recurring_group_id, training.training_date);
+        if (ok) setTrainings(prev => prev.filter(t => !(t.recurring_group_id === training.recurring_group_id && t.training_date >= training.training_date)));
+        return;
+      }
+    }
     if (!window.confirm('Remove this training for everyone? This can\'t be undone.')) return;
-    const ok = await deleteTraining(id);
-    if (ok) setTrainings(prev => prev.filter(t => t.id !== id));
+    const ok = await deleteTraining(training.id);
+    if (ok) setTrainings(prev => prev.filter(t => t.id !== training.id));
   }
 
   function apptsForDay(dateStr) {
@@ -1668,6 +1718,11 @@ function CalendarBody({ user }) {
         <button className="tr-icon-btn" onClick={() => setMonthStartStr(shiftMonth(monthStartStr, 1))} title="Next month"><ChevronRight size={18} /></button>
         <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setMonthStartStr(monthStartOf(todayStr()))}>This month</button>
         <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+        <button
+          type="button" className={`tr-btn tr-btn-sm ${highlightTrainings ? 'tr-btn-brass' : 'tr-btn-ghost'}`}
+          onClick={() => setHighlightTrainings(v => !v)} title="Highlight days with trainings">
+          <GraduationCap size={14} /> Trainings
+        </button>
         {user.role !== 'advisor' && (
           <select className="tr-cal-personfilter" value={personFilter} onChange={e => setPersonFilter(e.target.value)}>
             <option value="all">Everyone</option>
@@ -1685,6 +1740,7 @@ function CalendarBody({ user }) {
             {cells.map(cell => (
               <CalendarDay
                 key={cell.date} cell={cell} appts={apptsForDay(cell.date)} googleEvents={googleForDay(cell.date)} trainings={trainingsForDay(cell.date)}
+                highlightTrainings={highlightTrainings}
                 ownerName={ownerName} onOpen={(date, dayAppts, dayGoogle, dayTrainings) => setDayModal({ date, appts: dayAppts, googleEvents: dayGoogle, trainings: dayTrainings })} />
             ))}
           </div>
@@ -1696,13 +1752,13 @@ function CalendarBody({ user }) {
           <div className="tr-notes-list" style={{ maxHeight: '60vh' }}>
             {dayModal.trainings.map(t => (
               <div key={t.id} className="tr-note-item tr-note-item-training">
-                <div className="tr-note-meta"><GraduationCap size={12} /> {fmtTime((t.training_time || '').slice(0, 5))} · Training</div>
+                <div className="tr-note-meta"><GraduationCap size={12} /> {fmtTime((t.training_time || '').slice(0, 5))} · Training{t.recurring_group_id ? ' · Weekly' : ''}</div>
                 <div><strong>{t.title}</strong></div>
                 {t.zoom_url && <div><a href={t.zoom_url} target="_blank" rel="noopener noreferrer" className="tr-note tr-link">Join Zoom</a></div>}
                 {t.notes && <div className="tr-note">{t.notes}</div>}
                 <div className="tr-note">Posted by {t.created_by_name}</div>
                 {user.role === 'super_admin' && (
-                  <button type="button" className="tr-icon-btn" style={{ marginTop: 4 }} onClick={() => handleDeleteTraining(t.id)} title="Remove training"><Trash2 size={13} /></button>
+                  <button type="button" className="tr-icon-btn" style={{ marginTop: 4 }} onClick={() => handleDeleteTraining(t)} title="Remove training"><Trash2 size={13} /></button>
                 )}
               </div>
             ))}
@@ -2729,6 +2785,8 @@ const CSS = `
 .tr-badge-weekend { color: var(--brass-dark); border-color: rgba(201,162,75,0.5); background: rgba(201,162,75,0.08); }
 .tr-badge-weekday { color: #2E6E51; border-color: rgba(63,143,108,0.4); background: rgba(63,143,108,0.08); }
 .tr-form-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+.tr-checkbox-field { display: flex !important; flex-direction: row !important; align-items: center; gap: 8px; }
+.tr-checkbox-field input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--brass); cursor: pointer; }
 .tr-error { margin-top: 10px; font-size: 13px; color: var(--rust); background: rgba(184,80,61,0.08); border: 1px solid rgba(184,80,61,0.3); padding: 8px 10px; border-radius: 6px; }
 .tr-link-btn { align-self: flex-start; background: none; border: none; padding: 0; margin-top: -4px; font-family: inherit; font-size: 12.5px; font-weight: 500; color: var(--brass-dark); cursor: pointer; text-decoration: underline; }
 .tr-link-btn:hover { color: var(--ink); }
@@ -2848,6 +2906,7 @@ const CSS = `
 
 /* trainings — org-wide announcements, deliberately distinct from personal appointment colors */
 .tr-training-post { border-color: var(--brass); }
+.tr-cal-day-training-highlight { background: rgba(201,162,75,0.16); box-shadow: inset 0 0 0 2px var(--brass); }
 .tr-cal-appt-training { border-left: 2px solid var(--brass); background: rgba(201,162,75,0.12); color: var(--brass-dark); font-weight: 600; display: flex; align-items: center; gap: 3px; }
 .tr-note-item-training { border-left: 3px solid var(--brass); }
 
