@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   LogIn, LogOut, Plus, Trash2, ChevronLeft, ChevronRight, Users,
   CalendarDays, ShieldCheck, UserPlus, Loader2, Pencil, ClipboardCheck, TrendingUp, UserCog, DollarSign,
-  Download, Search, X
+  Download, Search, X, GraduationCap
 } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
 
@@ -219,6 +219,31 @@ async function fetchAppointmentsInRange(startDate, endDate) {
     .order('appointment_time', { ascending: true });
   if (error) { console.error(error); return []; }
   return data.map(rowToRecord);
+}
+// Trainings are org-wide — RLS returns every training to every signed-in
+// person, regardless of role or reporting structure, unlike appointments.
+async function fetchTrainingsInRange(startDate, endDate) {
+  const { data, error } = await supabase
+    .from('trainings').select('*')
+    .gte('training_date', startDate)
+    .lte('training_date', endDate)
+    .order('training_date', { ascending: true })
+    .order('training_time', { ascending: true });
+  if (error) { console.error(error); return []; }
+  return data;
+}
+async function createTraining({ title, date, time, timezone, zoomUrl, notes, userId, userName }) {
+  const { data, error } = await supabase.from('trainings').insert({
+    title, training_date: date, training_time: time, timezone,
+    zoom_url: zoomUrl || null, notes: notes || null,
+    created_by: userId, created_by_name: userName,
+  }).select().single();
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, record: data };
+}
+async function deleteTraining(id) {
+  const { error } = await supabase.from('trainings').delete().eq('id', id);
+  return !error;
 }
 function monthStartOf(dateStr) {
   const d = parseDate(dateStr);
@@ -1459,23 +1484,96 @@ function googleEventTimeKey(e) {
   const d = new Date(e.start);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
-function CalendarDay({ cell, appts, googleEvents, ownerName, onOpen }) {
+function TrainingPostCard({ user, onPosted }) {
+  const [showForm, setShowForm] = useState(false);
+  const [title, setTitle] = useState('');
+  const [date, setDate] = useState('');
+  const [time, setTime] = useState('');
+  const [timezone, setTimezone] = useState(detectTimezone());
+  const [zoomUrl, setZoomUrl] = useState('');
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+  const timezoneOptions = timezoneOptionsWithDetected();
+
+  async function submit() {
+    if (!title.trim() || !date || !time) { setErr('Fill in the title, date, and time.'); return; }
+    setSaving(true); setErr('');
+    const res = await createTraining({ title: title.trim(), date, time, timezone, zoomUrl: zoomUrl.trim(), notes: notes.trim(), userId: user.id, userName: user.displayName });
+    setSaving(false);
+    if (!res.ok) { setErr(res.error || 'Could not post. Try again.'); return; }
+    setTitle(''); setDate(''); setTime(''); setZoomUrl(''); setNotes('');
+    setShowForm(false);
+    onPosted(res.record);
+  }
+
+  return (
+    <div className="tr-card tr-training-post">
+      <div className="tr-row-head" style={{ marginBottom: showForm ? 14 : 0 }}>
+        <h3 className="tr-h3" style={{ margin: 0 }}><GraduationCap size={16} /> Post a training</h3>
+        <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setShowForm(v => !v)}>{showForm ? 'Cancel' : '+ New training'}</button>
+      </div>
+      {showForm && (
+        <>
+          <div className="tr-form-grid">
+            <label className="tr-field tr-field-wide">
+              <span>Title</span>
+              <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. New Product Training" />
+            </label>
+            <label className="tr-field">
+              <span>Date</span>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)} onClick={openPicker} />
+            </label>
+            <label className="tr-field">
+              <span>Time</span>
+              <input type="time" value={time} onChange={e => setTime(e.target.value)} onClick={openPicker} />
+            </label>
+            <label className="tr-field">
+              <span>Time zone</span>
+              <select value={timezone} onChange={e => setTimezone(e.target.value)}>
+                {timezoneOptions.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+              </select>
+            </label>
+            <label className="tr-field">
+              <span>Zoom link (optional)</span>
+              <input value={zoomUrl} onChange={e => setZoomUrl(e.target.value)} placeholder="https://zoom.us/j/..." />
+            </label>
+            <label className="tr-field tr-field-wide">
+              <span>Notes (optional)</span>
+              <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Anything else worth noting" />
+            </label>
+          </div>
+          {err && <div className="tr-error">{err}</div>}
+          <div className="tr-form-actions">
+            <button type="button" className="tr-btn tr-btn-brass" onClick={submit} disabled={saving}>{saving ? 'Posting…' : 'Post training'}</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+function CalendarDay({ cell, appts, googleEvents, trainings, ownerName, onOpen }) {
   const isToday = cell.date === todayStr();
   const items = [
     ...appts.map(a => ({ kind: 'appt', data: a, timeKey: a.appointmentTime || '00:00' })),
     ...googleEvents.map(e => ({ kind: 'google', data: e, timeKey: googleEventTimeKey(e) })),
+    ...trainings.map(t => ({ kind: 'training', data: t, timeKey: (t.training_time || '00:00').slice(0, 5) })),
   ].sort((a, b) => a.timeKey.localeCompare(b.timeKey));
   const visible = items.slice(0, 3);
   const extra = items.length - visible.length;
   return (
     <div
       className={`tr-cal-day ${cell.inMonth ? '' : 'tr-cal-day-out'} ${isToday ? 'tr-cal-day-today' : ''}`}
-      onClick={() => items.length > 0 && onOpen(cell.date, appts, googleEvents)}>
+      onClick={() => items.length > 0 && onOpen(cell.date, appts, googleEvents, trainings)}>
       <div className="tr-cal-daynum">{cell.dayNum}</div>
       <div className="tr-cal-appts">
         {visible.map((item, i) => item.kind === 'appt' ? (
           <div key={item.data.id} className={`tr-cal-appt ${isRecruitType(item.data) && isSaleType(item.data) ? 'tr-cal-appt-both' : isRecruitType(item.data) ? 'tr-cal-appt-recruit' : isSaleType(item.data) ? 'tr-cal-appt-sale' : ''}`}>
             {fmtTime(item.data.appointmentTime)} {item.data.client}
+          </div>
+        ) : item.kind === 'training' ? (
+          <div key={item.data.id} className="tr-cal-appt tr-cal-appt-training">
+            <GraduationCap size={9} /> {fmtTime(item.timeKey)} {item.data.title}
           </div>
         ) : (
           <div key={item.data.id} className="tr-cal-appt tr-cal-appt-google">
@@ -1496,6 +1594,7 @@ function CalendarBody({ user }) {
   const [googleStatus, setGoogleStatus] = useState({ connected: false });
   const [googleEvents, setGoogleEvents] = useState([]);
   const [googleConnecting, setGoogleConnecting] = useState(false);
+  const [trainings, setTrainings] = useState([]);
   // 'all' | 'mine' | a specific person's userId — only meaningful for
   // managers/admins, who see more than just their own appointments here.
   const [personFilter, setPersonFilter] = useState('all');
@@ -1506,11 +1605,12 @@ function CalendarBody({ user }) {
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const tasks = [fetchAppointmentsInRange(rangeStart, rangeEnd), fetchGoogleConnectionStatus()];
+    const tasks = [fetchAppointmentsInRange(rangeStart, rangeEnd), fetchGoogleConnectionStatus(), fetchTrainingsInRange(rangeStart, rangeEnd)];
     if (user.role !== 'advisor') tasks.push(fetchTeamMembers(user));
-    const [apptList, status, memberList] = await Promise.all(tasks);
+    const [apptList, status, trainingList, memberList] = await Promise.all(tasks);
     setAppts(apptList);
     setGoogleStatus(status);
+    setTrainings(trainingList);
     if (memberList) setMembers(memberList);
     if (status.connected) {
       const g = await fetchGoogleEvents(rangeStart, rangeEnd);
@@ -1532,6 +1632,11 @@ function CalendarBody({ user }) {
     const ok = await disconnectGoogleCalendar();
     if (ok) { setGoogleStatus({ connected: false }); setGoogleEvents([]); }
   }
+  async function handleDeleteTraining(id) {
+    if (!window.confirm('Remove this training for everyone? This can\'t be undone.')) return;
+    const ok = await deleteTraining(id);
+    if (ok) setTrainings(prev => prev.filter(t => t.id !== id));
+  }
 
   function apptsForDay(dateStr) {
     let list = appts.filter(a => a.appointmentDate === dateStr);
@@ -1543,6 +1648,7 @@ function CalendarBody({ user }) {
     if (personFilter !== 'all' && personFilter !== 'mine') return []; // Google events are always mine, not theirs
     return googleEvents.filter(e => (e.start || '').slice(0, 10) === dateStr);
   }
+  function trainingsForDay(dateStr) { return trainings.filter(t => t.training_date === dateStr); }
   function ownerName(userId) {
     if (user.role === 'advisor') return '';
     if (userId === user.id) return user.displayName;
@@ -1555,6 +1661,7 @@ function CalendarBody({ user }) {
   return (
     <>
       <GoogleCalendarConnect status={googleStatus} connecting={googleConnecting} onConnect={handleConnect} onDisconnect={handleDisconnect} />
+      {user.role === 'super_admin' && <TrainingPostCard user={user} onPosted={t => setTrainings(prev => [...prev, t])} />}
       <div className="tr-weeknav">
         <button className="tr-icon-btn" onClick={() => setMonthStartStr(shiftMonth(monthStartStr, -1))} title="Previous month"><ChevronLeft size={18} /></button>
         <div className="tr-weeknav-label"><CalendarDays size={16} /><span>{monthLabel}</span></div>
@@ -1577,8 +1684,8 @@ function CalendarBody({ user }) {
             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => <div key={d} className="tr-cal-headcell">{d}</div>)}
             {cells.map(cell => (
               <CalendarDay
-                key={cell.date} cell={cell} appts={apptsForDay(cell.date)} googleEvents={googleForDay(cell.date)}
-                ownerName={ownerName} onOpen={(date, dayAppts, dayGoogle) => setDayModal({ date, appts: dayAppts, googleEvents: dayGoogle })} />
+                key={cell.date} cell={cell} appts={apptsForDay(cell.date)} googleEvents={googleForDay(cell.date)} trainings={trainingsForDay(cell.date)}
+                ownerName={ownerName} onOpen={(date, dayAppts, dayGoogle, dayTrainings) => setDayModal({ date, appts: dayAppts, googleEvents: dayGoogle, trainings: dayTrainings })} />
             ))}
           </div>
         </div>
@@ -1587,6 +1694,18 @@ function CalendarBody({ user }) {
         <Modal onClose={() => setDayModal(null)}>
           <h3 className="tr-h3">{fmtDisplayDate(dayModal.date)}</h3>
           <div className="tr-notes-list" style={{ maxHeight: '60vh' }}>
+            {dayModal.trainings.map(t => (
+              <div key={t.id} className="tr-note-item tr-note-item-training">
+                <div className="tr-note-meta"><GraduationCap size={12} /> {fmtTime((t.training_time || '').slice(0, 5))} · Training</div>
+                <div><strong>{t.title}</strong></div>
+                {t.zoom_url && <div><a href={t.zoom_url} target="_blank" rel="noopener noreferrer" className="tr-note tr-link">Join Zoom</a></div>}
+                {t.notes && <div className="tr-note">{t.notes}</div>}
+                <div className="tr-note">Posted by {t.created_by_name}</div>
+                {user.role === 'super_admin' && (
+                  <button type="button" className="tr-icon-btn" style={{ marginTop: 4 }} onClick={() => handleDeleteTraining(t.id)} title="Remove training"><Trash2 size={13} /></button>
+                )}
+              </div>
+            ))}
             {dayModal.appts.map(a => (
               <div key={a.id} className="tr-note-item">
                 <div className="tr-note-meta">
@@ -2726,6 +2845,11 @@ const CSS = `
 .tr-google-card { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
 .tr-cal-appt-google { border-left: 2px solid var(--slate-light); font-style: italic; }
 .tr-note-item-google { border-left: 3px solid var(--slate-light); }
+
+/* trainings — org-wide announcements, deliberately distinct from personal appointment colors */
+.tr-training-post { border-color: var(--brass); }
+.tr-cal-appt-training { border-left: 2px solid var(--brass); background: rgba(201,162,75,0.12); color: var(--brass-dark); font-weight: 600; display: flex; align-items: center; gap: 3px; }
+.tr-note-item-training { border-left: 3px solid var(--brass); }
 
 /* toast banner */
 .tr-toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 200; padding: 12px 40px 12px 16px; border-radius: 8px; font-size: 13.5px; font-weight: 500; box-shadow: 0 4px 20px rgba(19,35,48,0.25); max-width: 90vw; }
