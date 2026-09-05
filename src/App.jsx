@@ -1927,17 +1927,20 @@ function ProspectForm({ onCancel, onSubmit, saving }) {
     </div>
   );
 }
-function ProspectCard({ prospect, onDelete }) {
+function ProspectCard({ prospect, rank, onDelete }) {
   const total = prospectTotalChecked(prospect);
   const leaning = prospectLeaningKey(prospect);
   const checkedChars = ALL_CHARACTERISTICS.filter(c => prospect[c.key]);
   return (
     <div className="tr-card tr-prospect-card">
       <div className="tr-policy-head">
-        <div>
-          <strong>{prospect.firstName} {prospect.lastName}</strong>
-          <div className="tr-note">
-            {prospect.age ? `${prospect.age} years old · ` : ''}Relationship: {prospect.relationshipStrength}/10
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+          {rank && <span className="tr-prospect-rank">#{rank}</span>}
+          <div>
+            <strong>{prospect.firstName} {prospect.lastName}</strong>
+            <div className="tr-note">
+              {prospect.age ? `${prospect.age} years old · ` : ''}Relationship: {prospect.relationshipStrength}/10
+            </div>
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2004,7 +2007,7 @@ function CalendlyLinkEditor({ user }) {
 function SystemsBody({ user }) {
   const [prospects, setProspects] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showForm, setShowForm] = useState(false);
+  const [systemsView, setSystemsView] = useState('list'); // 'prospect' | 'list'
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [leaningFilter, setLeaningFilter] = useState('all'); // 'all' | 'sale' | 'recruit' | 'both'
@@ -2023,7 +2026,7 @@ function SystemsBody({ user }) {
     setSaving(false);
     if (!res.ok) { setError(res.error || 'Could not save. Try again.'); return; }
     setProspects(prev => [res.record, ...prev]);
-    setShowForm(false);
+    setSystemsView('list');
   }
   async function handleDelete(id) {
     if (!window.confirm("Delete this prospect? This can't be undone.")) return;
@@ -2033,6 +2036,7 @@ function SystemsBody({ user }) {
     if (!ok) setProspects(prev);
   }
 
+  // Best-to-worst — most of the 9 characteristics checked comes first.
   const sorted = prospects
     .filter(p => leaningFilter === 'all' || prospectLeaningKey(p) === leaningFilter)
     .sort((a, b) => prospectTotalChecked(b) - prospectTotalChecked(a));
@@ -2040,38 +2044,51 @@ function SystemsBody({ user }) {
   return (
     <div className="tr-appts-shell">
       <nav className="tr-appts-sidebar">
-        <div className="tr-sidebar-item tr-sidebar-item-week tr-sidebar-item-active" style={{ cursor: 'default' }}>
+        <button
+          type="button" className={`tr-sidebar-item tr-sidebar-item-week ${systemsView === 'prospect' ? 'tr-sidebar-item-active' : ''}`}
+          onClick={() => setSystemsView('prospect')}>
+          <span>Prospect</span>
+        </button>
+        <button
+          type="button" className={`tr-sidebar-item tr-sidebar-item-week ${systemsView === 'list' ? 'tr-sidebar-item-active' : ''}`}
+          onClick={() => setSystemsView('list')}>
           <span>List</span>
           <span className="tr-mono">{prospects.length}</span>
-        </div>
+        </button>
       </nav>
       <div className="tr-appts-main">
-        <div className="tr-row-head">
-          <h2 className="tr-h2">Prospecting ability</h2>
-          <button className="tr-btn tr-btn-brass" onClick={() => setShowForm(v => !v)}>
-            <Plus size={16} /> {showForm ? 'Close' : 'New prospect'}
-          </button>
-        </div>
         {error && <div className="tr-error">{error}</div>}
-        {showForm && <ProspectForm onCancel={() => setShowForm(false)} onSubmit={handleSubmit} saving={saving} />}
-        <div className="tr-typefilter-row">
-          <span className="tr-typefilter-label">Show:</span>
-          <div className="tr-pillrow">
-            {[['all', 'All'], ['sale', 'Sale potential'], ['recruit', 'Recruit potential'], ['both', 'Both']].map(([v, label]) => (
-              <button
-                key={v} type="button"
-                className={`tr-btn tr-btn-sm ${leaningFilter === v ? 'tr-btn-brass' : 'tr-btn-ghost'}`}
-                onClick={() => setLeaningFilter(v)}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <span className="tr-typefilter-note">Sorted by how many of the 9 characteristics are checked.</span>
-        </div>
-        {loading ? <SkeletonCards count={3} /> : sorted.length === 0 ? (
-          <div className="tr-card"><p className="tr-empty">No prospects logged yet.</p></div>
+        {systemsView === 'prospect' ? (
+          <>
+            <h2 className="tr-h2">New prospect</h2>
+            <ProspectForm onCancel={() => setSystemsView('list')} onSubmit={handleSubmit} saving={saving} />
+          </>
         ) : (
-          sorted.map(p => <ProspectCard key={p.id} prospect={p} onDelete={handleDelete} />)
+          <>
+            <div className="tr-row-head">
+              <h2 className="tr-h2">Prospecting ability</h2>
+              <button className="tr-btn tr-btn-brass" onClick={() => setSystemsView('prospect')}><Plus size={16} /> New prospect</button>
+            </div>
+            <div className="tr-typefilter-row">
+              <span className="tr-typefilter-label">Show:</span>
+              <div className="tr-pillrow">
+                {[['all', 'All'], ['sale', 'Sale potential'], ['recruit', 'Recruit potential'], ['both', 'Both']].map(([v, label]) => (
+                  <button
+                    key={v} type="button"
+                    className={`tr-btn tr-btn-sm ${leaningFilter === v ? 'tr-btn-brass' : 'tr-btn-ghost'}`}
+                    onClick={() => setLeaningFilter(v)}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <span className="tr-typefilter-note">Ranked best to worst by how many of the 9 characteristics are checked.</span>
+            </div>
+            {loading ? <SkeletonCards count={3} /> : sorted.length === 0 ? (
+              <div className="tr-card"><p className="tr-empty">No prospects logged yet.</p></div>
+            ) : (
+              sorted.map((p, i) => <ProspectCard key={p.id} prospect={p} rank={i + 1} onDelete={handleDelete} />)
+            )}
+          </>
         )}
       </div>
     </div>
@@ -3116,6 +3133,7 @@ const CSS = `
 .tr-prospect-card { display: flex; flex-direction: column; gap: 4px; }
 .tr-prospect-char-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .tr-prospect-char-pill { font-size: 11px; padding: 3px 9px; border-radius: 999px; background: var(--paper-dim); color: var(--slate); }
+.tr-prospect-rank { flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: var(--brass); color: var(--ink); font-weight: 700; font-size: 13px; }
 .tr-type-recruit { box-shadow: inset 3px 0 0 0 var(--type-recruit); }
 .tr-type-sale { box-shadow: inset 3px 0 0 0 var(--type-sale); }
 .tr-type-both { border-left: 4px solid transparent; border-image: linear-gradient(180deg, var(--type-recruit) 50%, var(--type-sale) 50%) 1; }
