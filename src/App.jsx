@@ -440,6 +440,7 @@ function rowToProspect(row) {
     firstName: row.first_name, lastName: row.last_name,
     age: row.age, relationshipStrength: row.relationship_strength,
     notes: row.notes || '', createdAt: row.created_at,
+    markedSold: row.marked_sold || false, markedRecruited: row.marked_recruited || false,
   };
   ALL_CHARACTERISTICS.forEach(c => { rec[c.key] = !!row[c.dbCol]; });
   return rec;
@@ -462,6 +463,13 @@ async function insertProspect(userId, form) {
   const { data, error } = await supabase.from('prospects').insert(payload).select().single();
   if (error) return { ok: false, error: error.message };
   return { ok: true, record: rowToProspect(data) };
+}
+async function updateProspectOutcome(id, { markedSold, markedRecruited }) {
+  const payload = {};
+  if (markedSold !== undefined) payload.marked_sold = markedSold;
+  if (markedRecruited !== undefined) payload.marked_recruited = markedRecruited;
+  const { error } = await supabase.from('prospects').update(payload).eq('id', id);
+  return !error;
 }
 async function deleteProspect(id) {
   const { error } = await supabase.from('prospects').delete().eq('id', id);
@@ -1927,7 +1935,7 @@ function ProspectForm({ onCancel, onSubmit, saving }) {
     </div>
   );
 }
-function ProspectCard({ prospect, rank, onDelete }) {
+function ProspectCard({ prospect, rank, onDelete, onToggleOutcome }) {
   const total = prospectTotalChecked(prospect);
   const leaning = prospectLeaningKey(prospect);
   const checkedChars = ALL_CHARACTERISTICS.filter(c => prospect[c.key]);
@@ -1957,6 +1965,18 @@ function ProspectCard({ prospect, rank, onDelete }) {
         </div>
       )}
       {prospect.notes && <p className="tr-note" style={{ marginTop: 8 }}>{prospect.notes}</p>}
+      <div className="tr-prospect-outcome-row">
+        <button
+          type="button" className={`tr-btn tr-btn-sm ${prospect.markedRecruited ? 'tr-btn-brass' : 'tr-btn-ghost'}`}
+          onClick={() => onToggleOutcome(prospect, 'markedRecruited')}>
+          {prospect.markedRecruited ? '✓ Recruited' : 'Mark recruited'}
+        </button>
+        <button
+          type="button" className={`tr-btn tr-btn-sm ${prospect.markedSold ? 'tr-btn-brass' : 'tr-btn-ghost'}`}
+          onClick={() => onToggleOutcome(prospect, 'markedSold')}>
+          {prospect.markedSold ? '✓ Sold' : 'Mark sold'}
+        </button>
+      </div>
     </div>
   );
 }
@@ -2007,7 +2027,7 @@ function CalendlyLinkEditor({ user }) {
 function SystemsBody({ user }) {
   const [prospects, setProspects] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [systemsView, setSystemsView] = useState('list'); // 'prospect' | 'list'
+  const [systemsView, setSystemsView] = useState('list'); // 'prospect' | 'list' | 'recruit' | 'sold'
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [leaningFilter, setLeaningFilter] = useState('all'); // 'all' | 'sale' | 'recruit' | 'both'
@@ -2035,11 +2055,25 @@ function SystemsBody({ user }) {
     const ok = await deleteProspect(id);
     if (!ok) setProspects(prev);
   }
+  async function handleToggleOutcome(prospect, field) {
+    const nextValue = !prospect[field];
+    const prev = prospects;
+    setProspects(prospects.map(p => p.id === prospect.id ? { ...p, [field]: nextValue } : p));
+    const ok = await updateProspectOutcome(prospect.id, { [field]: nextValue });
+    if (!ok) setProspects(prev);
+  }
 
   // Best-to-worst — most of the 9 characteristics checked comes first.
-  const sorted = prospects
+  const byChecked = (a, b) => prospectTotalChecked(b) - prospectTotalChecked(a);
+  const listSorted = prospects
     .filter(p => leaningFilter === 'all' || prospectLeaningKey(p) === leaningFilter)
-    .sort((a, b) => prospectTotalChecked(b) - prospectTotalChecked(a));
+    .sort(byChecked);
+  const recruitedProspects = prospects.filter(p => p.markedRecruited).sort(byChecked);
+  const soldProspects = prospects.filter(p => p.markedSold).sort(byChecked);
+
+  const activeList = systemsView === 'recruit' ? recruitedProspects : systemsView === 'sold' ? soldProspects : listSorted;
+  const activeTitle = systemsView === 'recruit' ? 'Recruited' : systemsView === 'sold' ? 'Sold' : 'Prospecting ability';
+  const activeEmpty = systemsView === 'recruit' ? 'No prospects marked recruited yet.' : systemsView === 'sold' ? 'No prospects marked sold yet.' : 'No prospects logged yet.';
 
   return (
     <div className="tr-appts-shell">
@@ -2055,6 +2089,18 @@ function SystemsBody({ user }) {
           <span>List</span>
           <span className="tr-mono">{prospects.length}</span>
         </button>
+        <button
+          type="button" className={`tr-sidebar-item tr-sidebar-item-recruit ${systemsView === 'recruit' ? 'tr-sidebar-item-active' : ''}`}
+          onClick={() => setSystemsView('recruit')}>
+          <span>Recruit</span>
+          <span className="tr-mono">{recruitedProspects.length}</span>
+        </button>
+        <button
+          type="button" className={`tr-sidebar-item tr-sidebar-item-sale ${systemsView === 'sold' ? 'tr-sidebar-item-active' : ''}`}
+          onClick={() => setSystemsView('sold')}>
+          <span>Sold</span>
+          <span className="tr-mono">{soldProspects.length}</span>
+        </button>
       </nav>
       <div className="tr-appts-main">
         {error && <div className="tr-error">{error}</div>}
@@ -2066,27 +2112,31 @@ function SystemsBody({ user }) {
         ) : (
           <>
             <div className="tr-row-head">
-              <h2 className="tr-h2">Prospecting ability</h2>
+              <h2 className="tr-h2">{activeTitle}</h2>
               <button className="tr-btn tr-btn-brass" onClick={() => setSystemsView('prospect')}><Plus size={16} /> New prospect</button>
             </div>
-            <div className="tr-typefilter-row">
-              <span className="tr-typefilter-label">Show:</span>
-              <div className="tr-pillrow">
-                {[['all', 'All'], ['sale', 'Sale potential'], ['recruit', 'Recruit potential'], ['both', 'Both']].map(([v, label]) => (
-                  <button
-                    key={v} type="button"
-                    className={`tr-btn tr-btn-sm ${leaningFilter === v ? 'tr-btn-brass' : 'tr-btn-ghost'}`}
-                    onClick={() => setLeaningFilter(v)}>
-                    {label}
-                  </button>
-                ))}
+            {systemsView === 'list' && (
+              <div className="tr-typefilter-row">
+                <span className="tr-typefilter-label">Show:</span>
+                <div className="tr-pillrow">
+                  {[['all', 'All'], ['sale', 'Sale potential'], ['recruit', 'Recruit potential'], ['both', 'Both']].map(([v, label]) => (
+                    <button
+                      key={v} type="button"
+                      className={`tr-btn tr-btn-sm ${leaningFilter === v ? 'tr-btn-brass' : 'tr-btn-ghost'}`}
+                      onClick={() => setLeaningFilter(v)}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <span className="tr-typefilter-note">Ranked best to worst by how many of the 9 characteristics are checked.</span>
               </div>
-              <span className="tr-typefilter-note">Ranked best to worst by how many of the 9 characteristics are checked.</span>
-            </div>
-            {loading ? <SkeletonCards count={3} /> : sorted.length === 0 ? (
-              <div className="tr-card"><p className="tr-empty">No prospects logged yet.</p></div>
+            )}
+            {loading ? <SkeletonCards count={3} /> : activeList.length === 0 ? (
+              <div className="tr-card"><p className="tr-empty">{activeEmpty}</p></div>
             ) : (
-              sorted.map((p, i) => <ProspectCard key={p.id} prospect={p} rank={i + 1} onDelete={handleDelete} />)
+              activeList.map((p, i) => (
+                <ProspectCard key={p.id} prospect={p} rank={i + 1} onDelete={handleDelete} onToggleOutcome={handleToggleOutcome} />
+              ))
             )}
           </>
         )}
@@ -3134,6 +3184,7 @@ const CSS = `
 .tr-prospect-char-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .tr-prospect-char-pill { font-size: 11px; padding: 3px 9px; border-radius: 999px; background: var(--paper-dim); color: var(--slate); }
 .tr-prospect-rank { flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: var(--brass); color: var(--ink); font-weight: 700; font-size: 13px; }
+.tr-prospect-outcome-row { display: flex; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .tr-type-recruit { box-shadow: inset 3px 0 0 0 var(--type-recruit); }
 .tr-type-sale { box-shadow: inset 3px 0 0 0 var(--type-sale); }
 .tr-type-both { border-left: 4px solid transparent; border-image: linear-gradient(180deg, var(--type-recruit) 50%, var(--type-sale) 50%) 1; }
@@ -3204,6 +3255,8 @@ const CSS = `
 .tr-sidebar-item-none { border-left-color: var(--slate-light); }
 .tr-sidebar-item-green { border-left-color: var(--green); }
 .tr-sidebar-item-amber { border-left-color: var(--amber); }
+.tr-sidebar-item-recruit { border-left-color: var(--type-recruit); }
+.tr-sidebar-item-sale { border-left-color: var(--type-sale); }
 .tr-sidebar-item-rust { border-left-color: var(--rust); }
 .tr-sidebar-item-violet { border-left-color: var(--violet); }
 .tr-sidebar-divider { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--slate-light); padding: 14px 12px 2px; }
