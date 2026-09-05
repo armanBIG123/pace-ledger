@@ -1154,10 +1154,6 @@ function AppointmentForm({ user, weekMonday, editing, onCancel, onSubmit, saving
   const [err, setErr] = useState('');
   const [calendlyContacts, setCalendlyContacts] = useState([]);
   const [zoomManagers, setZoomManagers] = useState([]);
-  // Quick log: only the fields that actually vary trip-to-trip start
-  // visible. Everything else uses a sensible default silently, editable
-  // by expanding. Editing an existing appointment always shows everything.
-  const [showMore, setShowMore] = useState(!!editing);
   const timezoneOptions = timezoneOptionsWithDetected();
 
   useEffect(() => {
@@ -1191,7 +1187,7 @@ function AppointmentForm({ user, weekMonday, editing, onCancel, onSubmit, saving
           This one needs to be rescheduled — saving will count it toward this week's batch as a new entry, and clear its old follow-up status.
         </div>
       )}
-      {showMore && calendlyContacts.length > 0 && (
+      {calendlyContacts.length > 0 && (
         <div className="tr-field tr-field-wide tr-form-section">
           <span>If a manager is presenting, open their Calendly to schedule</span>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
@@ -1203,7 +1199,7 @@ function AppointmentForm({ user, weekMonday, editing, onCancel, onSubmit, saving
           </div>
         </div>
       )}
-      {showMore && !editing && zoomManagers.length > 0 && (
+      {!editing && zoomManagers.length > 0 && (
         <label className="tr-field tr-field-wide tr-form-section">
           <span>Which manager is presenting? (uses their connected Zoom to create the meeting)</span>
           <select value={zoomHostId} onChange={e => setZoomHostId(e.target.value)}>
@@ -1233,42 +1229,33 @@ function AppointmentForm({ user, weekMonday, editing, onCancel, onSubmit, saving
           <span>Client / recruit</span>
           <input value={client} onChange={e => setClient(e.target.value)} placeholder="Who is being presented to" />
         </label>
-        {showMore && (
-          <>
-            <label className="tr-field">
-              <span>Date set</span>
-              <select value={dateSetOption} onChange={e => setDateSetOption(e.target.value)}>
-                {DATE_SET_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </label>
-            <div className="tr-field">
-              <span>Counts toward</span>
-              <div className={`tr-badge tr-badge-${meta.category}`}>
-                {meta.batchLabel} ({meta.target}) · week of {parseDate(weekMonday).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-              </div>
-            </div>
-            <label className="tr-field">
-              <span>Time zone</span>
-              <select value={timezone} onChange={e => setTimezone(e.target.value)}>
-                {timezoneOptions.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
-              </select>
-            </label>
-            <label className="tr-field">
-              <span>Trainee (optional)</span>
-              <input value={trainee} onChange={e => setTrainee(e.target.value)} placeholder="Who is being trained" />
-            </label>
-            <label className="tr-field tr-field-wide">
-              <span>Notes (optional)</span>
-              <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Anything else worth noting" />
-            </label>
-          </>
-        )}
+        <label className="tr-field">
+          <span>Date set</span>
+          <select value={dateSetOption} onChange={e => setDateSetOption(e.target.value)}>
+            {DATE_SET_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        </label>
+        <div className="tr-field">
+          <span>Counts toward</span>
+          <div className={`tr-badge tr-badge-${meta.category}`}>
+            {meta.batchLabel} ({meta.target}) · week of {parseDate(weekMonday).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+          </div>
+        </div>
+        <label className="tr-field">
+          <span>Time zone</span>
+          <select value={timezone} onChange={e => setTimezone(e.target.value)}>
+            {timezoneOptions.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+          </select>
+        </label>
+        <label className="tr-field">
+          <span>Trainee (optional)</span>
+          <input value={trainee} onChange={e => setTrainee(e.target.value)} placeholder="Who is being trained" />
+        </label>
+        <label className="tr-field tr-field-wide">
+          <span>Notes (optional)</span>
+          <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Anything else worth noting" />
+        </label>
       </div>
-      {!editing && (
-        <button type="button" className="tr-more-toggle" onClick={() => setShowMore(v => !v)}>
-          {showMore ? '▲ Fewer details' : '▾ More details (date set, time zone, trainee, notes)'}
-        </button>
-      )}
       {err && <div className="tr-error">{err}</div>}
       <div className="tr-form-actions">
         <button type="button" className="tr-btn tr-btn-ghost" onClick={onCancel}>Cancel</button>
