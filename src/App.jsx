@@ -2065,7 +2065,11 @@ function SystemsBody({ user }) {
 
   // Best-to-worst — most of the 9 characteristics checked comes first.
   const byChecked = (a, b) => prospectTotalChecked(b) - prospectTotalChecked(a);
+  // List is purely for active prospecting — once marked recruited and/or
+  // sold, a prospect moves out of List and lives in those tabs instead
+  // (both, if marked as both).
   const listSorted = prospects
+    .filter(p => !p.markedRecruited && !p.markedSold)
     .filter(p => leaningFilter === 'all' || prospectLeaningKey(p) === leaningFilter)
     .sort(byChecked);
   const recruitedProspects = prospects.filter(p => p.markedRecruited).sort(byChecked);
