@@ -39,7 +39,6 @@ const DATE_SET_OPTIONS = [
   { value: 'thursday', label: 'Thursday', batchLabel: 'Thursday Batch', shortLabel: 'Thu', category: 'weekday', target: WEEKDAY_TARGET },
   { value: 'friday', label: 'Friday', batchLabel: 'Friday Batch', shortLabel: 'Fri', category: 'weekday', target: WEEKDAY_TARGET },
 ];
-const WEEK_TOTAL_TARGET = DATE_SET_OPTIONS.reduce((s, o) => s + o.target, 0);
 function dateSetMeta(value) {
   return DATE_SET_OPTIONS.find(o => o.value === value) || DATE_SET_OPTIONS[0];
 }
@@ -1399,8 +1398,6 @@ function OpenRequirementsBody({ view, user }) {
 // calendar — a live month view of every appointment's actual date/time
 // ---------------------------------------------------------------------
 
-// TODO: replace with your real Google OAuth client ID once you've created
-// it in Google Cloud Console — see GOOGLE-CALENDAR-SETUP.md.
 const GOOGLE_CLIENT_ID = '106061643707-avmoqp1oe5idqdioocen9vnpsqd9i82l.apps.googleusercontent.com';
 
 function googleOAuthUrl(accessToken) {
@@ -1461,8 +1458,6 @@ async function fetchGoogleEvents(startDate, endDate) {
   }
 }
 
-// TODO: replace with your real Zoom OAuth client ID once you've created it
-// in the Zoom App Marketplace — see ZOOM-INTEGRATION-SETUP.md.
 const ZOOM_CLIENT_ID = 'uTaIzgPhRMuVSfpHOCwKw';
 
 function zoomOAuthUrl(accessToken) {
@@ -2536,7 +2531,7 @@ function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, membe
                         {DATE_SET_OPTIONS.map((opt, i) => (
                           <td key={opt.value}><MiniBar count={counts[i]} target={opt.target} /></td>
                         ))}
-                        <td className="tr-mono">{total}/{WEEK_TOTAL_TARGET}</td>
+                        <td className="tr-mono">{total}/{WEEKLY_TOTAL_TARGET}</td>
                         <td><StatusBadge status={status} /></td>
                       </tr>
                       {isOpen && (
