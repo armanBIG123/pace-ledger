@@ -403,6 +403,71 @@ async function insertFollowUpAppointment(userId, original, followUpDate, followU
   if (error) return { ok: false, error: error.message };
   return { ok: true, record: rowToRecord(data) };
 }
+// ---------------------------------------------------------------------
+// systems — prospecting ability
+// ---------------------------------------------------------------------
+// Characteristics 1-5 skew toward sale potential; 6-9 skew toward recruit
+// potential. A prospect strong in both is good for either.
+const SALE_CHARACTERISTICS = [
+  { key: 'charAge25Plus', dbCol: 'char_age_25_plus', label: 'Is 25 years or older', hint: 'Key age for financial planning' },
+  { key: 'charMarried', dbCol: 'char_married_or_relationship', label: 'Married, or in a relationship', hint: 'Someone big they care about' },
+  { key: 'charDependents', dbCol: 'char_has_dependents', label: 'Has children or dependents', hint: 'People relying on them' },
+  { key: 'charHomeowner', dbCol: 'char_homeowner', label: 'Is a homeowner', hint: 'Needs to protect their assets' },
+  { key: 'charWorking', dbCol: 'char_currently_working', label: 'Is currently working', hint: 'Needs to protect their income' },
+];
+const RECRUIT_CHARACTERISTICS = [
+  { key: 'charAmbitious', dbCol: 'char_ambitious', label: 'Ambitious' },
+  { key: 'charDissatisfied', dbCol: 'char_dissatisfied', label: 'Dissatisfied with where they are' },
+  { key: 'charCoachable', dbCol: 'char_coachable', label: 'Coachable / positive mindset and attitude' },
+  { key: 'charEntrepreneur', dbCol: 'char_entrepreneur', label: 'Entrepreneur' },
+];
+const ALL_CHARACTERISTICS = [...SALE_CHARACTERISTICS, ...RECRUIT_CHARACTERISTICS];
+const LEANING_LABELS = { none: 'Not yet scored', sale: 'Sale potential', recruit: 'Recruit potential', both: 'Both' };
+
+function prospectSaleScore(p) { return SALE_CHARACTERISTICS.filter(c => p[c.key]).length; }
+function prospectRecruitScore(p) { return RECRUIT_CHARACTERISTICS.filter(c => p[c.key]).length; }
+function prospectTotalChecked(p) { return prospectSaleScore(p) + prospectRecruitScore(p); }
+function prospectLeaningKey(p) {
+  const s = prospectSaleScore(p), r = prospectRecruitScore(p);
+  if (s === 0 && r === 0) return 'none';
+  if (s > r) return 'sale';
+  if (r > s) return 'recruit';
+  return 'both';
+}
+function rowToProspect(row) {
+  const rec = {
+    id: row.id, userId: row.user_id,
+    firstName: row.first_name, lastName: row.last_name,
+    age: row.age, relationshipStrength: row.relationship_strength,
+    notes: row.notes || '', createdAt: row.created_at,
+  };
+  ALL_CHARACTERISTICS.forEach(c => { rec[c.key] = !!row[c.dbCol]; });
+  return rec;
+}
+async function fetchMyProspects(userId) {
+  const { data, error } = await supabase.from('prospects').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+  if (error) { console.error(error); return []; }
+  return data.map(rowToProspect);
+}
+async function insertProspect(userId, form) {
+  const payload = {
+    user_id: userId,
+    first_name: form.firstName.trim(),
+    last_name: form.lastName.trim(),
+    age: form.age ? Number(form.age) : null,
+    relationship_strength: form.relationshipStrength,
+    notes: form.notes.trim() || null,
+  };
+  ALL_CHARACTERISTICS.forEach(c => { payload[c.dbCol] = !!form[c.key]; });
+  const { data, error } = await supabase.from('prospects').insert(payload).select().single();
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, record: rowToProspect(data) };
+}
+async function deleteProspect(id) {
+  const { error } = await supabase.from('prospects').delete().eq('id', id);
+  return !error;
+}
+
 async function fetchMyAppointments(userId) {
   const { data, error } = await supabase
     .from('appointments').select('*').eq('user_id', userId)
@@ -1788,6 +1853,110 @@ function CalendarBody({ user }) {
   );
 }
 
+function ProspectForm({ onCancel, onSubmit, saving }) {
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [age, setAge] = useState('');
+  const [relationshipStrength, setRelationshipStrength] = useState(5);
+  const [chars, setChars] = useState(() => {
+    const initial = {};
+    ALL_CHARACTERISTICS.forEach(c => { initial[c.key] = false; });
+    return initial;
+  });
+  const [notes, setNotes] = useState('');
+  const [err, setErr] = useState('');
+
+  function toggleChar(key) { setChars(prev => ({ ...prev, [key]: !prev[key] })); }
+
+  function submit() {
+    if (!firstName.trim() || !lastName.trim()) { setErr("Enter the prospect's first and last name."); return; }
+    setErr('');
+    onSubmit({ firstName, lastName, age, relationshipStrength, notes, ...chars });
+  }
+
+  return (
+    <div className="tr-card tr-form">
+      <h3 className="tr-h3">New prospect</h3>
+      <div className="tr-form-grid">
+        <label className="tr-field">
+          <span>First name</span>
+          <input value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="First name" />
+        </label>
+        <label className="tr-field">
+          <span>Last name</span>
+          <input value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Last name" />
+        </label>
+        <label className="tr-field">
+          <span>Age</span>
+          <input type="number" min="0" max="120" value={age} onChange={e => setAge(e.target.value)} placeholder="Age" />
+        </label>
+        <label className="tr-field tr-field-wide">
+          <span>Relationship strength: {relationshipStrength}/10</span>
+          <input type="range" min="0" max="10" value={relationshipStrength} onChange={e => setRelationshipStrength(Number(e.target.value))} />
+        </label>
+      </div>
+      <div className="tr-prospect-chars">
+        <div className="tr-prospect-char-group">
+          <h4 className="tr-h4">Sale indicators</h4>
+          {SALE_CHARACTERISTICS.map(c => (
+            <label key={c.key} className="tr-checkbox-field tr-prospect-char-row">
+              <input type="checkbox" checked={chars[c.key]} onChange={() => toggleChar(c.key)} />
+              <span>{c.label}{c.hint ? <span className="tr-note"> — {c.hint}</span> : null}</span>
+            </label>
+          ))}
+        </div>
+        <div className="tr-prospect-char-group">
+          <h4 className="tr-h4">Recruit indicators</h4>
+          {RECRUIT_CHARACTERISTICS.map(c => (
+            <label key={c.key} className="tr-checkbox-field tr-prospect-char-row">
+              <input type="checkbox" checked={chars[c.key]} onChange={() => toggleChar(c.key)} />
+              <span>{c.label}</span>
+            </label>
+          ))}
+        </div>
+      </div>
+      <label className="tr-field tr-field-wide" style={{ marginTop: 14 }}>
+        <span>Notes (optional)</span>
+        <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Anything else worth noting about this prospect" />
+      </label>
+      {err && <div className="tr-error">{err}</div>}
+      <div className="tr-form-actions">
+        <button type="button" className="tr-btn tr-btn-ghost" onClick={onCancel}>Cancel</button>
+        <button type="button" className="tr-btn tr-btn-brass" onClick={submit} disabled={saving}>{saving ? 'Saving…' : 'Save prospect'}</button>
+      </div>
+    </div>
+  );
+}
+function ProspectCard({ prospect, onDelete }) {
+  const total = prospectTotalChecked(prospect);
+  const leaning = prospectLeaningKey(prospect);
+  const checkedChars = ALL_CHARACTERISTICS.filter(c => prospect[c.key]);
+  return (
+    <div className="tr-card tr-prospect-card">
+      <div className="tr-policy-head">
+        <div>
+          <strong>{prospect.firstName} {prospect.lastName}</strong>
+          <div className="tr-note">
+            {prospect.age ? `${prospect.age} years old · ` : ''}Relationship: {prospect.relationshipStrength}/10
+          </div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span className={`tr-type-badge ${leaning === 'sale' ? 'tr-type-badge-sale' : leaning === 'recruit' ? 'tr-type-badge-recruit' : leaning === 'both' ? 'tr-type-badge-both' : ''}`}>
+            {LEANING_LABELS[leaning]}
+          </span>
+          <span className="tr-mono">{total}/9</span>
+          <button type="button" className="tr-icon-btn" onClick={() => onDelete(prospect.id)} title="Delete prospect"><Trash2 size={14} /></button>
+        </div>
+      </div>
+      {checkedChars.length > 0 && (
+        <div className="tr-prospect-char-pills">
+          {checkedChars.map(c => <span key={c.key} className="tr-prospect-char-pill">{c.label}</span>)}
+        </div>
+      )}
+      {prospect.notes && <p className="tr-note" style={{ marginTop: 8 }}>{prospect.notes}</p>}
+    </div>
+  );
+}
 function CalendlyLinkEditor({ user }) {
   const [link, setLink] = useState('');
   const [loaded, setLoaded] = useState(false);
@@ -1828,6 +1997,82 @@ function CalendlyLinkEditor({ user }) {
         <button type="button" className="tr-btn tr-btn-brass" onClick={save} disabled={saving}>
           {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save link'}
         </button>
+      </div>
+    </div>
+  );
+}
+function SystemsBody({ user }) {
+  const [prospects, setProspects] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [leaningFilter, setLeaningFilter] = useState('all'); // 'all' | 'sale' | 'recruit' | 'both'
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setProspects(await fetchMyProspects(user.id));
+    setLoading(false);
+  }, [user.id]);
+  useEffect(() => { refresh(); }, [refresh]);
+
+  async function handleSubmit(form) {
+    setSaving(true);
+    setError('');
+    const res = await insertProspect(user.id, form);
+    setSaving(false);
+    if (!res.ok) { setError(res.error || 'Could not save. Try again.'); return; }
+    setProspects(prev => [res.record, ...prev]);
+    setShowForm(false);
+  }
+  async function handleDelete(id) {
+    if (!window.confirm("Delete this prospect? This can't be undone.")) return;
+    const prev = prospects;
+    setProspects(prospects.filter(p => p.id !== id));
+    const ok = await deleteProspect(id);
+    if (!ok) setProspects(prev);
+  }
+
+  const sorted = prospects
+    .filter(p => leaningFilter === 'all' || prospectLeaningKey(p) === leaningFilter)
+    .sort((a, b) => prospectTotalChecked(b) - prospectTotalChecked(a));
+
+  return (
+    <div className="tr-appts-shell">
+      <nav className="tr-appts-sidebar">
+        <div className="tr-sidebar-item tr-sidebar-item-week tr-sidebar-item-active" style={{ cursor: 'default' }}>
+          <span>List</span>
+          <span className="tr-mono">{prospects.length}</span>
+        </div>
+      </nav>
+      <div className="tr-appts-main">
+        <div className="tr-row-head">
+          <h2 className="tr-h2">Prospecting ability</h2>
+          <button className="tr-btn tr-btn-brass" onClick={() => setShowForm(v => !v)}>
+            <Plus size={16} /> {showForm ? 'Close' : 'New prospect'}
+          </button>
+        </div>
+        {error && <div className="tr-error">{error}</div>}
+        {showForm && <ProspectForm onCancel={() => setShowForm(false)} onSubmit={handleSubmit} saving={saving} />}
+        <div className="tr-typefilter-row">
+          <span className="tr-typefilter-label">Show:</span>
+          <div className="tr-pillrow">
+            {[['all', 'All'], ['sale', 'Sale potential'], ['recruit', 'Recruit potential'], ['both', 'Both']].map(([v, label]) => (
+              <button
+                key={v} type="button"
+                className={`tr-btn tr-btn-sm ${leaningFilter === v ? 'tr-btn-brass' : 'tr-btn-ghost'}`}
+                onClick={() => setLeaningFilter(v)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <span className="tr-typefilter-note">Sorted by how many of the 9 characteristics are checked.</span>
+        </div>
+        {loading ? <SkeletonCards count={3} /> : sorted.length === 0 ? (
+          <div className="tr-card"><p className="tr-empty">No prospects logged yet.</p></div>
+        ) : (
+          sorted.map(p => <ProspectCard key={p.id} prospect={p} onDelete={handleDelete} />)
+        )}
       </div>
     </div>
   );
@@ -2114,12 +2359,14 @@ function AdvisorView({ user }) {
     <Shell>
       <Header user={user} />
       <main className="tr-main">
-        <div className="tr-tabs" style={{ maxWidth: 320 }}>
+        <div className="tr-tabs" style={{ maxWidth: 460 }}>
           <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
           <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
+          <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Systems</button>
         </div>
         {tab === 'mine' && <MyAppointmentsBody user={user} />}
         {tab === 'calendar' && <CalendarBody user={user} />}
+        {tab === 'systems' && <SystemsBody user={user} />}
       </main>
     </Shell>
   );
@@ -2353,14 +2600,16 @@ function ManagerView({ user }) {
     <Shell>
       <Header user={user} />
       <main className="tr-main">
-        <div className="tr-tabs" style={{ maxWidth: 600 }}>
+        <div className="tr-tabs" style={{ maxWidth: 740 }}>
           <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
           <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
+          <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Systems</button>
           <button className={`tr-tab ${tab === 'pace' ? 'tr-tab-active' : ''}`} onClick={() => setTab('pace')}>Team Pace</button>
           <button className={`tr-tab ${tab === 'production' ? 'tr-tab-active' : ''}`} onClick={() => setTab('production')}>Track Production</button>
         </div>
         {tab === 'mine' && <MyAppointmentsBody user={user} />}
         {tab === 'calendar' && <CalendarBody user={user} />}
+        {tab === 'systems' && <SystemsBody user={user} />}
         {tab === 'pace' && <TeamPaceBody user={user} />}
         {tab === 'production' && <TrackProductionBody user={user} />}
       </main>
@@ -2541,9 +2790,10 @@ function AdminView({ user }) {
     <Shell>
       <Header user={user} />
       <main className="tr-main">
-        <div className="tr-tabs" style={{ maxWidth: 900 }}>
+        <div className="tr-tabs" style={{ maxWidth: 1040 }}>
           <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
           <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
+          <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Systems</button>
           <button className={`tr-tab ${tab === 'pace' ? 'tr-tab-active' : ''}`} onClick={() => setTab('pace')}>Team Pace</button>
           <button className={`tr-tab ${tab === 'directs' ? 'tr-tab-active' : ''}`} onClick={() => setTab('directs')}>Direct Managers</button>
           <button className={`tr-tab ${tab === 'production' ? 'tr-tab-active' : ''}`} onClick={() => setTab('production')}>Track Production</button>
@@ -2551,6 +2801,7 @@ function AdminView({ user }) {
         </div>
         {tab === 'mine' && <MyAppointmentsBody user={user} />}
         {tab === 'calendar' && <CalendarBody user={user} />}
+        {tab === 'systems' && <SystemsBody user={user} />}
         {tab === 'pace' && <TeamPaceBody user={user} />}
         {tab === 'directs' && <DirectManagersBody user={user} />}
         {tab === 'production' && <TrackProductionBody user={user} />}
@@ -2859,6 +3110,12 @@ const CSS = `
 .tr-type-badge-recruit { background: rgba(53,116,184,0.12); color: var(--type-recruit-dark); }
 .tr-type-badge-sale { background: rgba(217,119,46,0.12); color: var(--type-sale-dark); }
 .tr-type-badge-both { background: linear-gradient(90deg, rgba(53,116,184,0.12), rgba(217,119,46,0.12)); color: var(--ink); }
+.tr-prospect-chars { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+.tr-prospect-char-group { display: flex; flex-direction: column; gap: 8px; }
+.tr-prospect-char-row { align-items: flex-start !important; }
+.tr-prospect-card { display: flex; flex-direction: column; gap: 4px; }
+.tr-prospect-char-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.tr-prospect-char-pill { font-size: 11px; padding: 3px 9px; border-radius: 999px; background: var(--paper-dim); color: var(--slate); }
 .tr-type-recruit { box-shadow: inset 3px 0 0 0 var(--type-recruit); }
 .tr-type-sale { box-shadow: inset 3px 0 0 0 var(--type-sale); }
 .tr-type-both { border-left: 4px solid transparent; border-image: linear-gradient(180deg, var(--type-recruit) 50%, var(--type-sale) 50%) 1; }
@@ -2959,6 +3216,7 @@ const CSS = `
 }
 @media (max-width: 640px) {
   .tr-form-grid { grid-template-columns: 1fr; }
+  .tr-prospect-chars { grid-template-columns: 1fr; }
   .tr-pace-grid { grid-template-columns: 1fr; }
   .tr-header { padding: 12px 16px; }
   .tr-header-name { display: none; }
