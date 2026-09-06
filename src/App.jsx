@@ -433,6 +433,12 @@ function prospectLeaningKey(p) {
   if (r > s) return 'recruit';
   return 'both';
 }
+function daysAgoLabel(dateStr) {
+  const days = Math.floor((Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24));
+  if (days <= 0) return 'Logged today';
+  if (days === 1) return 'Logged 1 day ago';
+  return `Logged ${days} days ago`;
+}
 function rowToProspect(row) {
   const rec = {
     id: row.id, userId: row.user_id,
@@ -446,6 +452,14 @@ function rowToProspect(row) {
 }
 async function fetchMyProspects(userId) {
   const { data, error } = await supabase.from('prospects').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+  if (error) { console.error(error); return []; }
+  return data.map(rowToProspect);
+}
+// For managers/admins — RLS automatically scopes this to their own
+// prospects plus their team's (or everyone's, for super_admin), same
+// pattern as fetchSoldPolicies.
+async function fetchAllVisibleProspects() {
+  const { data, error } = await supabase.from('prospects').select('*').order('created_at', { ascending: false });
   if (error) { console.error(error); return []; }
   return data.map(rowToProspect);
 }
@@ -1138,14 +1152,14 @@ function TypeChoice({ recruit, sale, onToggleRecruit, onToggleSale }) {
   );
 }
 
-function AppointmentForm({ user, weekMonday, editing, onCancel, onSubmit, saving }) {
+function AppointmentForm({ user, weekMonday, editing, prefillClient, onCancel, onSubmit, saving }) {
   const [dateSetOption, setDateSetOption] = useState(editing?.dateSetOption || defaultDateSetOption());
   const [appointmentDate, setAppointmentDate] = useState(editing?.appointmentDate || '');
   const [appointmentTime, setAppointmentTime] = useState(editing?.appointmentTime || '');
   const [timezone, setTimezone] = useState(editing?.appointmentTimezone || detectTimezone());
   const [presenter, setPresenter] = useState(editing?.presenter || user.displayName || '');
   const [trainee, setTrainee] = useState(editing?.trainee || '');
-  const [client, setClient] = useState(editing?.client || '');
+  const [client, setClient] = useState(editing?.client || prefillClient || '');
   const [notes, setNotes] = useState(editing?.notes || '');
   const [typeRecruit, setTypeRecruit] = useState(editing ? isRecruitType(editing) : false);
   const [typeSale, setTypeSale] = useState(editing ? isSaleType(editing) : false);
@@ -1917,7 +1931,7 @@ function ProspectForm({ onCancel, onSubmit, saving }) {
     </div>
   );
 }
-function ProspectCard({ prospect, rank, onDelete, onToggleOutcome }) {
+function ProspectCard({ prospect, rank, onDelete, onToggleOutcome, onLogAppointment }) {
   const total = prospectTotalChecked(prospect);
   const leaning = prospectLeaningKey(prospect);
   const checkedChars = ALL_CHARACTERISTICS.filter(c => prospect[c.key]);
@@ -1931,6 +1945,7 @@ function ProspectCard({ prospect, rank, onDelete, onToggleOutcome }) {
             <div className="tr-note">
               {prospect.age ? `${prospect.age} years old · ` : ''}Relationship: {prospect.relationshipStrength}/10
             </div>
+            <div className="tr-note">{daysAgoLabel(prospect.createdAt)}</div>
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -1948,6 +1963,11 @@ function ProspectCard({ prospect, rank, onDelete, onToggleOutcome }) {
       )}
       {prospect.notes && <p className="tr-note" style={{ marginTop: 8 }}>{prospect.notes}</p>}
       <div className="tr-prospect-outcome-row">
+        {onLogAppointment && (
+          <button type="button" className="tr-btn tr-btn-sm tr-btn-ghost" onClick={() => onLogAppointment(prospect)}>
+            <CalendarDays size={13} /> Log appointment
+          </button>
+        )}
         <button
           type="button" className={`tr-btn tr-btn-sm ${prospect.markedRecruited ? 'tr-btn-brass' : 'tr-btn-ghost'}`}
           onClick={() => onToggleOutcome(prospect, 'markedRecruited')}>
@@ -2006,13 +2026,14 @@ function CalendlyLinkEditor({ user }) {
     </div>
   );
 }
-function SystemsBody({ user }) {
+function SystemsBody({ user, onLogAppointment }) {
   const [prospects, setProspects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [systemsView, setSystemsView] = useState('list'); // 'prospect' | 'list' | 'recruit' | 'sold'
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [leaningFilter, setLeaningFilter] = useState('all'); // 'all' | 'sale' | 'recruit' | 'both'
+  const [searchQuery, setSearchQuery] = useState('');
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -2050,12 +2071,17 @@ function SystemsBody({ user }) {
   // List is purely for active prospecting — once marked recruited and/or
   // sold, a prospect moves out of List and lives in those tabs instead
   // (both, if marked as both).
-  const listSorted = prospects
-    .filter(p => !p.markedRecruited && !p.markedSold)
-    .filter(p => leaningFilter === 'all' || prospectLeaningKey(p) === leaningFilter)
-    .sort(byChecked);
-  const recruitedProspects = prospects.filter(p => p.markedRecruited).sort(byChecked);
-  const soldProspects = prospects.filter(p => p.markedSold).sort(byChecked);
+  function bySearch(list) {
+    if (!searchQuery.trim()) return list;
+    const q = searchQuery.trim().toLowerCase();
+    return list.filter(p => `${p.firstName} ${p.lastName}`.toLowerCase().includes(q));
+  }
+  const listAll = prospects.filter(p => !p.markedRecruited && !p.markedSold);
+  const recruitedAll = prospects.filter(p => p.markedRecruited);
+  const soldAll = prospects.filter(p => p.markedSold);
+  const listSorted = bySearch(listAll.filter(p => leaningFilter === 'all' || prospectLeaningKey(p) === leaningFilter)).sort(byChecked);
+  const recruitedProspects = bySearch(recruitedAll).sort(byChecked);
+  const soldProspects = bySearch(soldAll).sort(byChecked);
 
   const activeList = systemsView === 'recruit' ? recruitedProspects : systemsView === 'sold' ? soldProspects : listSorted;
   const activeTitle = systemsView === 'recruit' ? 'Recruited' : systemsView === 'sold' ? 'Sold' : 'Prospecting ability';
@@ -2073,19 +2099,19 @@ function SystemsBody({ user }) {
           type="button" className={`tr-sidebar-item tr-sidebar-item-week ${systemsView === 'list' ? 'tr-sidebar-item-active' : ''}`}
           onClick={() => setSystemsView('list')}>
           <span>List</span>
-          <span className="tr-mono">{prospects.length}</span>
+          <span className="tr-mono">{listAll.length}</span>
         </button>
         <button
           type="button" className={`tr-sidebar-item tr-sidebar-item-recruit ${systemsView === 'recruit' ? 'tr-sidebar-item-active' : ''}`}
           onClick={() => setSystemsView('recruit')}>
           <span>Recruit</span>
-          <span className="tr-mono">{recruitedProspects.length}</span>
+          <span className="tr-mono">{recruitedAll.length}</span>
         </button>
         <button
           type="button" className={`tr-sidebar-item tr-sidebar-item-sale ${systemsView === 'sold' ? 'tr-sidebar-item-active' : ''}`}
           onClick={() => setSystemsView('sold')}>
           <span>Sold</span>
-          <span className="tr-mono">{soldProspects.length}</span>
+          <span className="tr-mono">{soldAll.length}</span>
         </button>
       </nav>
       <div className="tr-appts-main">
@@ -2100,6 +2126,15 @@ function SystemsBody({ user }) {
             <div className="tr-row-head">
               <h2 className="tr-h2">{activeTitle}</h2>
               <button className="tr-btn tr-btn-brass" onClick={() => setSystemsView('prospect')}><Plus size={16} /> New prospect</button>
+            </div>
+            <div className="tr-search-row">
+              <Search size={15} className="tr-search-icon" />
+              <input
+                className="tr-search-input" type="text" placeholder="Search by prospect name…"
+                value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+              {searchQuery && (
+                <button type="button" className="tr-icon-btn" onClick={() => setSearchQuery('')} title="Clear search"><X size={15} /></button>
+              )}
             </div>
             {systemsView === 'list' && (
               <div className="tr-typefilter-row">
@@ -2121,7 +2156,7 @@ function SystemsBody({ user }) {
               <div className="tr-card"><p className="tr-empty">{activeEmpty}</p></div>
             ) : (
               activeList.map((p, i) => (
-                <ProspectCard key={p.id} prospect={p} rank={i + 1} onDelete={handleDelete} onToggleOutcome={handleToggleOutcome} />
+                <ProspectCard key={p.id} prospect={p} rank={i + 1} onDelete={handleDelete} onToggleOutcome={handleToggleOutcome} onLogAppointment={onLogAppointment} />
               ))
             )}
           </>
@@ -2130,7 +2165,7 @@ function SystemsBody({ user }) {
     </div>
   );
 }
-function MyAppointmentsBody({ user }) {
+function MyAppointmentsBody({ user, prefillClient, onPrefillConsumed }) {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [weekMonday, setWeekMonday] = useState(weekStartOf(todayStr()));
@@ -2147,6 +2182,23 @@ function MyAppointmentsBody({ user }) {
   // (including '' for "No status") — a real sub-page, not a nested widget.
   const [statusView, setStatusView] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [pendingPrefillName, setPendingPrefillName] = useState(null);
+
+  // Arriving here from a prospect's "Log appointment" button — jump
+  // straight to the weekly view with the log form open, pre-filled.
+  // The name is captured into local state immediately, since the parent
+  // clears its own copy right after handing it off — AppointmentForm
+  // reads from this local copy instead, which isn't affected by that.
+  useEffect(() => {
+    if (prefillClient) {
+      setStatusView(null);
+      setEditingAppt(null);
+      setPendingPrefillName(prefillClient);
+      setShowForm(true);
+      onPrefillConsumed();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefillClient]);
 
   const searchResults = searchQuery.trim()
     ? appointments
@@ -2155,6 +2207,20 @@ function MyAppointmentsBody({ user }) {
     : [];
   const todayCount = appointments.filter(a => a.appointmentDate === todayStr()).length;
   const needsFollowUpCount = appointments.filter(a => a.status === 'needs_follow_up').length;
+
+  function handleExportAppointments() {
+    const rows = [['Date set', 'Appointment date', 'Time', 'Timezone', 'Presenter', 'Trainee', 'Client', 'Type', 'Status', 'Notes', 'Zoom link']];
+    appointments
+      .slice()
+      .sort((a, b) => (b.appointmentDate + b.appointmentTime).localeCompare(a.appointmentDate + a.appointmentTime))
+      .forEach(a => {
+        rows.push([
+          a.dateSetOption, a.appointmentDate, a.appointmentTime, a.appointmentTimezone,
+          a.presenter, a.trainee, a.client, typeLabel(a), a.status, a.notes, a.zoomUrl,
+        ]);
+      });
+    downloadCSV(`my-appointments-${todayStr()}.csv`, rows);
+  }
 
   function byType(list) {
     if (typeFilter === 'all') return list;
@@ -2206,7 +2272,7 @@ function MyAppointmentsBody({ user }) {
     .filter(a => (a.status || '') === statusView)
     .sort((a, b) => (b.appointmentDate + b.appointmentTime).localeCompare(a.appointmentDate + a.appointmentTime));
 
-  function closeForm() { setShowForm(false); setEditingAppt(null); }
+  function closeForm() { setShowForm(false); setEditingAppt(null); setPendingPrefillName(null); }
   function openEdit(appt) { setEditingAppt(appt); setShowForm(true); }
 
   async function handleFormSubmit(form) {
@@ -2328,6 +2394,9 @@ function MyAppointmentsBody({ user }) {
           {searchQuery && (
             <button type="button" className="tr-icon-btn" onClick={() => setSearchQuery('')} title="Clear search"><X size={15} /></button>
           )}
+          <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={handleExportAppointments} disabled={appointments.length === 0}>
+            <Download size={14} /> Export CSV
+          </button>
         </div>
         <div className="tr-typefilter-row">
           <span className="tr-typefilter-label">Show:</span>
@@ -2369,7 +2438,7 @@ function MyAppointmentsBody({ user }) {
             </div>
             {error && <div className="tr-error">{error}</div>}
             {showForm && (
-              <AppointmentForm user={user} weekMonday={weekMonday} editing={editingAppt} onCancel={closeForm} onSubmit={handleFormSubmit} saving={saving} />
+              <AppointmentForm user={user} weekMonday={weekMonday} editing={editingAppt} prefillClient={!editingAppt ? pendingPrefillName : null} onCancel={closeForm} onSubmit={handleFormSubmit} saving={saving} />
             )}
             {loading ? <SkeletonRows count={5} /> : groups.map(g => (
               <ApptGroup
@@ -2408,6 +2477,7 @@ function MyAppointmentsBody({ user }) {
 }
 function AdvisorView({ user }) {
   const [tab, setTab] = useState('mine');
+  const [prefillClient, setPrefillClient] = useState(null);
   return (
     <Shell>
       <Header user={user} />
@@ -2417,9 +2487,11 @@ function AdvisorView({ user }) {
           <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
           <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Systems</button>
         </div>
-        {tab === 'mine' && <MyAppointmentsBody user={user} />}
+        {tab === 'mine' && <MyAppointmentsBody user={user} prefillClient={prefillClient} onPrefillConsumed={() => setPrefillClient(null)} />}
         {tab === 'calendar' && <CalendarBody user={user} />}
-        {tab === 'systems' && <SystemsBody user={user} />}
+        {tab === 'systems' && (
+          <SystemsBody user={user} onLogAppointment={p => { setPrefillClient(`${p.firstName} ${p.lastName}`); setTab('mine'); }} />
+        )}
       </main>
     </Shell>
   );
@@ -2479,6 +2551,17 @@ function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, membe
   });
   const metCount = memberStatuses.filter(s => s === 'met').length;
   const missedCount = memberStatuses.filter(s => s === 'missed').length;
+  // Early warning, not just an end-of-week verdict — flags anyone with
+  // zero appointments logged so far this week, once there's been enough
+  // time (through Tuesday) that it's a meaningful signal rather than
+  // just "it's still early." Only meaningful when looking at the actual
+  // current week, not one being browsed in the past or future.
+  const isCurrentWeek = weekMonday === weekStartOf(todayStr());
+  const daysElapsedInWeek = Math.floor((new Date(todayStr()) - new Date(weekMonday)) / (1000 * 60 * 60 * 24));
+  const showInactivityWarning = isCurrentWeek && daysElapsedInWeek >= 4;
+  const inactiveCount = showInactivityWarning
+    ? members.filter(m => weekAppts.filter(a => a.userId === m.id && !a.isFollowUp).length === 0).length
+    : 0;
 
   return (
     <>
@@ -2499,6 +2582,9 @@ function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, membe
           <div className="tr-health-line">
             <strong className="tr-health-good">{metCount} of {members.length} on pace</strong>
             {missedCount > 0 && <span className="tr-health-bad"> · {missedCount} behind</span>}
+            {showInactivityWarning && inactiveCount > 0 && (
+              <span className="tr-health-warn"> · {inactiveCount} with nothing logged yet this week</span>
+            )}
             {' '}this week.
           </div>
           <div className="tr-card tr-summary-card">
@@ -2571,6 +2657,79 @@ function DirectManagersBody({ user }) {
 // ---------------------------------------------------------------------
 // track production — sold premium + recruits for the week, manager/admin only
 // ---------------------------------------------------------------------
+function TeamProspectingBody({ user }) {
+  const [members, setMembers] = useState([]);
+  const [prospects, setProspects] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    const [memberList, prospectList] = await Promise.all([
+      fetchTeamMembers(user),
+      fetchAllVisibleProspects(),
+    ]);
+    setMembers(memberList);
+    setProspects(prospectList);
+    setLoading(false);
+  }, [user.id, user.role]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  return (
+    <>
+      <div className="tr-row-head">
+        <h2 className="tr-h2"><Users size={18} /> Team prospecting</h2>
+        <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+      </div>
+      <p className="tr-subtitle">
+        Pipeline health across your team — individual notes stay visible only to whoever logged each prospect.
+      </p>
+      {loading ? <SkeletonTable rows={5} cols={6} /> : members.length === 0 ? (
+        <div className="tr-card"><p className="tr-empty">No team members yet.</p></div>
+      ) : (
+        <div className="tr-card tr-summary-card">
+          <div className="tr-table-wrap">
+            <table className="tr-table tr-table-summary">
+              <thead>
+                <tr>
+                  <th>Team member</th>
+                  <th>Active prospects</th>
+                  <th>Sale potential</th>
+                  <th>Recruit potential</th>
+                  <th>Recruited</th>
+                  <th>Sold</th>
+                </tr>
+              </thead>
+              <tbody>
+                {members.map(m => {
+                  const list = prospects.filter(p => p.userId === m.id);
+                  const active = list.filter(p => !p.markedRecruited && !p.markedSold);
+                  const sale = active.filter(p => prospectLeaningKey(p) === 'sale').length;
+                  const recruit = active.filter(p => prospectLeaningKey(p) === 'recruit').length;
+                  const recruited = list.filter(p => p.markedRecruited).length;
+                  const sold = list.filter(p => p.markedSold).length;
+                  return (
+                    <tr key={m.id}>
+                      <td>
+                        {m.display_name}
+                        <div className="tr-tenure">Member for {tenureSince(m.created_at)}</div>
+                      </td>
+                      <td className="tr-mono">{active.length}</td>
+                      <td className="tr-mono">{sale}</td>
+                      <td className="tr-mono">{recruit}</td>
+                      <td className="tr-mono">{recruited}</td>
+                      <td className="tr-mono">{sold}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 function TrackProductionBody({ user }) {
   const [members, setMembers] = useState([]);
   const [weekAppts, setWeekAppts] = useState([]);
@@ -2649,20 +2808,25 @@ function TrackProductionBody({ user }) {
 
 function ManagerView({ user }) {
   const [tab, setTab] = useState('mine');
+  const [prefillClient, setPrefillClient] = useState(null);
   return (
     <Shell>
       <Header user={user} />
       <main className="tr-main">
-        <div className="tr-tabs" style={{ maxWidth: 740 }}>
+        <div className="tr-tabs" style={{ maxWidth: 900 }}>
           <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
           <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
           <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Systems</button>
+          <button className={`tr-tab ${tab === 'teamsystems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('teamsystems')}>Team Prospecting</button>
           <button className={`tr-tab ${tab === 'pace' ? 'tr-tab-active' : ''}`} onClick={() => setTab('pace')}>Team Pace</button>
           <button className={`tr-tab ${tab === 'production' ? 'tr-tab-active' : ''}`} onClick={() => setTab('production')}>Track Production</button>
         </div>
-        {tab === 'mine' && <MyAppointmentsBody user={user} />}
+        {tab === 'mine' && <MyAppointmentsBody user={user} prefillClient={prefillClient} onPrefillConsumed={() => setPrefillClient(null)} />}
         {tab === 'calendar' && <CalendarBody user={user} />}
-        {tab === 'systems' && <SystemsBody user={user} />}
+        {tab === 'systems' && (
+          <SystemsBody user={user} onLogAppointment={p => { setPrefillClient(`${p.firstName} ${p.lastName}`); setTab('mine'); }} />
+        )}
+        {tab === 'teamsystems' && <TeamProspectingBody user={user} />}
         {tab === 'pace' && <TeamPaceBody user={user} />}
         {tab === 'production' && <TrackProductionBody user={user} />}
       </main>
@@ -2839,22 +3003,27 @@ function AuditLogView() {
 }
 function AdminView({ user }) {
   const [tab, setTab] = useState('mine');
+  const [prefillClient, setPrefillClient] = useState(null);
   return (
     <Shell>
       <Header user={user} />
       <main className="tr-main">
-        <div className="tr-tabs" style={{ maxWidth: 1040 }}>
+        <div className="tr-tabs" style={{ maxWidth: 1200 }}>
           <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
           <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
           <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Systems</button>
+          <button className={`tr-tab ${tab === 'teamsystems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('teamsystems')}>Team Prospecting</button>
           <button className={`tr-tab ${tab === 'pace' ? 'tr-tab-active' : ''}`} onClick={() => setTab('pace')}>Team Pace</button>
           <button className={`tr-tab ${tab === 'directs' ? 'tr-tab-active' : ''}`} onClick={() => setTab('directs')}>Direct Managers</button>
           <button className={`tr-tab ${tab === 'production' ? 'tr-tab-active' : ''}`} onClick={() => setTab('production')}>Track Production</button>
           <button className={`tr-tab ${tab === 'users' ? 'tr-tab-active' : ''}`} onClick={() => setTab('users')}>Manage Team</button>
         </div>
-        {tab === 'mine' && <MyAppointmentsBody user={user} />}
+        {tab === 'mine' && <MyAppointmentsBody user={user} prefillClient={prefillClient} onPrefillConsumed={() => setPrefillClient(null)} />}
         {tab === 'calendar' && <CalendarBody user={user} />}
-        {tab === 'systems' && <SystemsBody user={user} />}
+        {tab === 'systems' && (
+          <SystemsBody user={user} onLogAppointment={p => { setPrefillClient(`${p.firstName} ${p.lastName}`); setTab('mine'); }} />
+        )}
+        {tab === 'teamsystems' && <TeamProspectingBody user={user} />}
         {tab === 'pace' && <TeamPaceBody user={user} />}
         {tab === 'directs' && <DirectManagersBody user={user} />}
         {tab === 'production' && <TrackProductionBody user={user} />}
@@ -3133,6 +3302,7 @@ const CSS = `
 .tr-health-line { font-size: 13.5px; color: var(--slate); margin-bottom: 10px; }
 .tr-health-good { color: #2E6E51; }
 .tr-health-bad { color: var(--rust); font-weight: 600; }
+.tr-health-warn { color: var(--amber); font-weight: 600; }
 .tr-audit-list { margin-top: 12px; display: flex; flex-direction: column; gap: 2px; }
 .tr-audit-row { display: flex; gap: 10px; font-size: 13px; padding: 7px 0; border-bottom: 1px solid var(--line); }
 .tr-audit-row:last-child { border-bottom: none; }
