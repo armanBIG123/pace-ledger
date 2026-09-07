@@ -422,6 +422,7 @@ const RECRUIT_CHARACTERISTICS = [
 ];
 const ALL_CHARACTERISTICS = [...SALE_CHARACTERISTICS, ...RECRUIT_CHARACTERISTICS];
 const LEANING_LABELS = { none: 'Not yet scored', sale: 'Sale potential', recruit: 'Recruit potential', both: 'Both' };
+const PROSPECT_SOURCES = ['Referral', 'Cold outreach', 'Event', 'Social media', 'Other'];
 
 function prospectSaleScore(p) { return SALE_CHARACTERISTICS.filter(c => p[c.key]).length; }
 function prospectRecruitScore(p) { return RECRUIT_CHARACTERISTICS.filter(c => p[c.key]).length; }
@@ -439,12 +440,21 @@ function daysAgoLabel(dateStr) {
   if (days === 1) return 'Logged 1 day ago';
   return `Logged ${days} days ago`;
 }
+// No "last contacted" field exists yet, so createdAt is the best available
+// proxy — a prospect still sitting active (unconverted) two-plus weeks
+// after being logged is a fair signal it needs a follow-up nudge.
+const STALE_PROSPECT_DAYS = 14;
+function isStaleProspect(p) {
+  if (p.markedRecruited || p.markedSold) return false;
+  const days = Math.floor((Date.now() - new Date(p.createdAt).getTime()) / (1000 * 60 * 60 * 24));
+  return days >= STALE_PROSPECT_DAYS;
+}
 function rowToProspect(row) {
   const rec = {
     id: row.id, userId: row.user_id,
     firstName: row.first_name, lastName: row.last_name,
     age: row.age, relationshipStrength: row.relationship_strength,
-    notes: row.notes || '', createdAt: row.created_at,
+    notes: row.notes || '', createdAt: row.created_at, source: row.source || '',
     markedSold: row.marked_sold || false, markedRecruited: row.marked_recruited || false,
   };
   ALL_CHARACTERISTICS.forEach(c => { rec[c.key] = !!row[c.dbCol]; });
@@ -471,6 +481,7 @@ async function insertProspect(userId, form) {
     age: form.age ? Number(form.age) : null,
     relationship_strength: form.relationshipStrength,
     notes: form.notes.trim() || null,
+    source: form.source || null,
   };
   ALL_CHARACTERISTICS.forEach(c => { payload[c.dbCol] = !!form[c.key]; });
   const { data, error } = await supabase.from('prospects').insert(payload).select().single();
@@ -708,6 +719,33 @@ function DashboardStrip({ todayCount, needsFollowUpCount, soldThisWeekCount, onJ
     </div>
   );
 }
+// Read-only for the advisor — they can see what their manager left for the
+// week they're currently viewing, but only a manager/admin can write one.
+function MyCoachingNotes({ userId, weekOf }) {
+  const [notes, setNotes] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchCoachingNotes(userId, weekOf).then(rows => { setNotes(rows); setLoading(false); });
+  }, [userId, weekOf]);
+
+  if (loading || notes.length === 0) return null;
+
+  return (
+    <div className="tr-card tr-coaching-panel" style={{ marginTop: 0, paddingTop: 0, borderTop: 'none' }}>
+      <h4 className="tr-h4">A note from your manager, for this week</h4>
+      <div className="tr-notes-list">
+        {notes.map(n => (
+          <div key={n.id} className="tr-note-item">
+            <div className="tr-note-meta">{n.author_name} · {new Date(n.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>
+            <div>{n.note}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 function PaceStrip({ groups }) {
   return (
     <div className="tr-card tr-pace">
@@ -764,6 +802,69 @@ function PaceTrend({ appointments, currentWeekMonday, numWeeks = 6 }) {
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+}
+// Best week ever, current streak, and longest-ever streak of weeks
+// hitting the 33/week target — computed from whatever's already loaded,
+// no extra fetch. Walks real calendar weeks via shiftWeekStr rather than
+// just array positions, so a gap in the data correctly breaks a streak.
+function computeStreaksAndBests(appointments) {
+  const weekTotals = {};
+  appointments.filter(a => !a.isFollowUp).forEach(a => {
+    weekTotals[a.weekOf] = (weekTotals[a.weekOf] || 0) + 1;
+  });
+  const currentActualWeek = weekStartOf(todayStr());
+
+  let bestWeekCount = 0;
+  Object.values(weekTotals).forEach(c => { if (c > bestWeekCount) bestWeekCount = c; });
+
+  // Current streak: walk backward from the most recently completed week.
+  let currentStreak = 0;
+  let cursor = shiftWeekStr(currentActualWeek, -1);
+  while ((weekTotals[cursor] || 0) >= WEEKLY_TOTAL_TARGET) {
+    currentStreak++;
+    cursor = shiftWeekStr(cursor, -1);
+  }
+
+  // Longest streak ever: walk forward across real weeks from the earliest
+  // one with any data, through the last completed week.
+  let longestStreak = 0;
+  const allWeeks = Object.keys(weekTotals).sort();
+  if (allWeeks.length > 0) {
+    let runLength = 0;
+    let w = allWeeks[0];
+    const lastCompletedWeek = shiftWeekStr(currentActualWeek, -1);
+    while (w <= lastCompletedWeek) {
+      if ((weekTotals[w] || 0) >= WEEKLY_TOTAL_TARGET) {
+        runLength++;
+        longestStreak = Math.max(longestStreak, runLength);
+      } else {
+        runLength = 0;
+      }
+      w = shiftWeekStr(w, 1);
+    }
+  }
+
+  return { bestWeekCount, currentStreak, longestStreak };
+}
+function PersonalBests({ appointments }) {
+  const { bestWeekCount, currentStreak, longestStreak } = computeStreaksAndBests(appointments);
+  if (bestWeekCount === 0) return null;
+  return (
+    <div className="tr-card tr-bests">
+      <div className="tr-bests-stat">
+        <span className="tr-dash-num">{bestWeekCount}</span>
+        <span className="tr-dash-label">best week ever</span>
+      </div>
+      <div className="tr-bests-stat">
+        <span className="tr-dash-num">{currentStreak}</span>
+        <span className="tr-dash-label">week streak{currentStreak !== 1 ? 's' : ''} on pace</span>
+      </div>
+      <div className="tr-bests-stat">
+        <span className="tr-dash-num">{longestStreak}</span>
+        <span className="tr-dash-label">longest streak ever</span>
       </div>
     </div>
   );
@@ -1861,6 +1962,7 @@ function ProspectForm({ onCancel, onSubmit, saving }) {
     return initial;
   });
   const [notes, setNotes] = useState('');
+  const [source, setSource] = useState('');
   const [err, setErr] = useState('');
 
   function toggleChar(key) { setChars(prev => ({ ...prev, [key]: !prev[key] })); }
@@ -1868,7 +1970,7 @@ function ProspectForm({ onCancel, onSubmit, saving }) {
   function submit() {
     if (!firstName.trim() || !lastName.trim()) { setErr("Enter the prospect's first and last name."); return; }
     setErr('');
-    onSubmit({ firstName, lastName, age, relationshipStrength, notes, ...chars });
+    onSubmit({ firstName, lastName, age, relationshipStrength, notes, source, ...chars });
   }
 
   return (
@@ -1886,6 +1988,13 @@ function ProspectForm({ onCancel, onSubmit, saving }) {
         <label className="tr-field">
           <span>Age</span>
           <input type="number" min="0" max="120" value={age} onChange={e => setAge(e.target.value)} placeholder="Age" />
+        </label>
+        <label className="tr-field">
+          <span>Source</span>
+          <select value={source} onChange={e => setSource(e.target.value)}>
+            <option value="">— not specified —</option>
+            {PROSPECT_SOURCES.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
         </label>
         <label className="tr-field tr-field-wide">
           <span>Relationship strength: {relationshipStrength}/10</span>
@@ -1924,6 +2033,35 @@ function ProspectForm({ onCancel, onSubmit, saving }) {
     </div>
   );
 }
+// Reused both personally (Systems > List) and aggregated (Team
+// Prospecting) — takes whatever set of prospects is relevant and shows
+// where the drop-off actually happens.
+function ProspectFunnel({ prospects, title }) {
+  const total = prospects.length;
+  if (total === 0) return null;
+  const converted = prospects.filter(p => p.markedRecruited || p.markedSold).length;
+  const recruited = prospects.filter(p => p.markedRecruited).length;
+  const sold = prospects.filter(p => p.markedSold).length;
+  const pct = n => Math.round((n / total) * 100);
+  const stages = [
+    { label: 'Logged', count: total, pct: 100, cls: '' },
+    { label: 'Converted', count: converted, pct: pct(converted), cls: 'tr-funnel-bar-converted' },
+    { label: 'Recruited', count: recruited, pct: pct(recruited), cls: 'tr-funnel-bar-recruit' },
+    { label: 'Sold', count: sold, pct: pct(sold), cls: 'tr-funnel-bar-sale' },
+  ];
+  return (
+    <div className="tr-card tr-funnel">
+      <h4 className="tr-h4">{title || 'Conversion funnel'}</h4>
+      {stages.map(s => (
+        <div key={s.label} className="tr-funnel-stage">
+          <span className="tr-funnel-stage-label">{s.label}</span>
+          <div className="tr-funnel-track"><div className={`tr-funnel-bar ${s.cls}`} style={{ width: `${Math.max(s.pct, s.count > 0 ? 4 : 0)}%` }} /></div>
+          <span className="tr-funnel-stage-count">{s.count}{s.label !== 'Logged' ? ` (${s.pct}%)` : ''}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
 function ProspectCard({ prospect, rank, onDelete, onToggleOutcome, onLogAppointment }) {
   const total = prospectTotalChecked(prospect);
   const leaning = prospectLeaningKey(prospect);
@@ -1938,10 +2076,11 @@ function ProspectCard({ prospect, rank, onDelete, onToggleOutcome, onLogAppointm
             <div className="tr-note">
               {prospect.age ? `${prospect.age} years old · ` : ''}Relationship: {prospect.relationshipStrength}/10
             </div>
-            <div className="tr-note">{daysAgoLabel(prospect.createdAt)}</div>
+            <div className="tr-note">{daysAgoLabel(prospect.createdAt)}{prospect.source ? ` · ${prospect.source}` : ''}</div>
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {isStaleProspect(prospect) && <span className="tr-type-badge tr-type-badge-stale" title={`No update in ${STALE_PROSPECT_DAYS}+ days`}>Needs follow-up</span>}
           <span className={`tr-type-badge ${leaning === 'sale' ? 'tr-type-badge-sale' : leaning === 'recruit' ? 'tr-type-badge-recruit' : leaning === 'both' ? 'tr-type-badge-both' : ''}`}>
             {LEANING_LABELS[leaning]}
           </span>
@@ -2070,6 +2209,7 @@ function SystemsBody({ user, onLogAppointment }) {
     return list.filter(p => `${p.firstName} ${p.lastName}`.toLowerCase().includes(q));
   }
   const listAll = prospects.filter(p => !p.markedRecruited && !p.markedSold);
+  const staleCount = listAll.filter(isStaleProspect).length;
   const recruitedAll = prospects.filter(p => p.markedRecruited);
   const soldAll = prospects.filter(p => p.markedSold);
   const listSorted = bySearch(listAll.filter(p => leaningFilter === 'all' || prospectLeaningKey(p) === leaningFilter)).sort(byChecked);
@@ -2129,6 +2269,10 @@ function SystemsBody({ user, onLogAppointment }) {
                 <button type="button" className="tr-icon-btn" onClick={() => setSearchQuery('')} title="Clear search"><X size={15} /></button>
               )}
             </div>
+            {systemsView === 'list' && <ProspectFunnel prospects={prospects} />}
+            {systemsView === 'list' && staleCount > 0 && (
+              <div className="tr-health-line"><span className="tr-health-bad">{staleCount} prospect{staleCount === 1 ? '' : 's'} need{staleCount === 1 ? 's' : ''} a follow-up</span> — no update in {STALE_PROSPECT_DAYS}+ days.</div>
+            )}
             {systemsView === 'list' && (
               <div className="tr-typefilter-row">
                 <span className="tr-typefilter-label">Show:</span>
@@ -2412,11 +2556,13 @@ function MyAppointmentsBody({ user, prefillClient, onPrefillConsumed }) {
               todayCount={todayCount} needsFollowUpCount={needsFollowUpCount} soldThisWeekCount={soldThisWeekCount}
               onJumpToToday={() => setWeekMonday(weekStartOf(todayStr()))}
               onJumpToFollowUp={() => setStatusView('needs_follow_up')} />
+            <MyCoachingNotes userId={user.id} weekOf={weekMonday} />
             <ZoomConnect status={zoomStatus} connecting={zoomConnecting} onConnect={handleZoomConnect} onDisconnect={handleZoomDisconnect} />
             {(user.role === 'manager' || user.role === 'super_admin') && <CalendlyLinkEditor user={user} />}
             <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
             <PaceStrip groups={groups.map(g => ({ option: g.option, count: g.list.length, list: g.list }))} />
             <PaceTrend appointments={appointments} currentWeekMonday={weekMonday} />
+            <PersonalBests appointments={appointments} />
             {upcomingFollowUps.length > 0 && (
               <ApptGroup
                 title={`Upcoming follow-ups (${upcomingFollowUps.length})`}
@@ -2504,6 +2650,50 @@ function MiniBar({ count, target }) {
     <div className="tr-minibar-wrap">
       <div className="tr-minibar-track"><div className="tr-minibar-fill" style={{ width: `${pct}%` }} /></div>
       <span className="tr-mono tr-minibar-num">{count}/{target}</span>
+    </div>
+  );
+}
+// A general, week-scoped feedback channel a manager can leave for an
+// advisor — separate from Open Requirements' policy-specific notes.
+function CoachingNotesPanel({ advisorId, weekOf, currentUser }) {
+  const [notes, setNotes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [newNote, setNewNote] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchCoachingNotes(advisorId, weekOf).then(rows => { setNotes(rows); setLoading(false); });
+  }, [advisorId, weekOf]);
+
+  async function submit() {
+    if (!newNote.trim()) return;
+    setSaving(true);
+    const res = await addCoachingNote(advisorId, weekOf, currentUser.id, currentUser.displayName, newNote);
+    setSaving(false);
+    if (res.ok) { setNotes(prev => [...prev, res.record]); setNewNote(''); }
+  }
+  function handleKeyDown(e) { if (e.key === 'Enter') { e.preventDefault(); submit(); } }
+
+  return (
+    <div className="tr-coaching-panel" onClick={e => e.stopPropagation()}>
+      <h4 className="tr-h4">Coaching notes for this week</h4>
+      {loading ? <SkelBlock w="100%" h="30px" /> : notes.length === 0 ? (
+        <p className="tr-empty">No notes yet for this week.</p>
+      ) : (
+        <div className="tr-notes-list">
+          {notes.map(n => (
+            <div key={n.id} className="tr-note-item">
+              <div className="tr-note-meta">{n.author_name} · {new Date(n.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</div>
+              <div>{n.note}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="tr-note-add" onKeyDown={handleKeyDown}>
+        <input value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="Leave a note about this week…" />
+        <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={submit} disabled={saving || !newNote.trim()}>Add</button>
+      </div>
     </div>
   );
 }
@@ -2618,6 +2808,7 @@ function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, membe
                           {DATE_SET_OPTIONS.map((opt, i) => (
                             <ApptGroup key={opt.value} title={`${opt.batchLabel} (${counts[i]}/${opt.target})`} list={byType(groups[i])} empty="None logged." />
                           ))}
+                          {adv.id !== user.id && <CoachingNotesPanel advisorId={adv.id} weekOf={weekMonday} currentUser={user} />}
                         </td></tr>
                       )}
                     </React.Fragment>
@@ -2684,7 +2875,9 @@ function TeamProspectingBody({ user }) {
       {loading ? <SkeletonTable rows={5} cols={6} /> : members.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">No team members yet.</p></div>
       ) : (
-        <div className="tr-card tr-summary-card">
+        <>
+          <ProspectFunnel prospects={prospects} title="Team conversion funnel" />
+          <div className="tr-card tr-summary-card">
           <div className="tr-table-wrap">
             <table className="tr-table tr-table-summary">
               <thead>
@@ -2723,6 +2916,7 @@ function TeamProspectingBody({ user }) {
             </table>
           </div>
         </div>
+        </>
       )}
     </>
   );
@@ -2858,6 +3052,22 @@ async function fetchAuditLog() {
   const { data, error } = await supabase.from('audit_log').select('*').order('created_at', { ascending: false }).limit(50);
   if (error) { console.error(error); return []; }
   return data;
+}
+// Manager coaching notes — a general, week-scoped feedback channel,
+// separate from Open Requirements' policy-specific notes.
+async function fetchCoachingNotes(advisorId, weekOf) {
+  const { data, error } = await supabase
+    .from('coaching_notes').select('*').eq('advisor_id', advisorId).eq('week_of', weekOf)
+    .order('created_at', { ascending: true });
+  if (error) { console.error(error); return []; }
+  return data;
+}
+async function addCoachingNote(advisorId, weekOf, authorId, authorName, note) {
+  const { data, error } = await supabase.from('coaching_notes').insert({
+    advisor_id: advisorId, week_of: weekOf, author_id: authorId, author_name: authorName, note: note.trim(),
+  }).select().single();
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, record: data };
 }
 function ManageUsersView({ currentUserId, currentUserName }) {
   const [users, setUsers] = useState([]);
@@ -3299,6 +3509,9 @@ const CSS = `
 .tr-trend-bar-current { background: var(--brass); }
 .tr-trend-bar-current.tr-trend-bar-good { background: #3F8F6C; }
 .tr-trend-num { font-size: 10.5px; color: var(--slate-light); font-variant-numeric: tabular-nums; }
+.tr-bests { display: flex; gap: 20px; justify-content: space-around; }
+.tr-bests-stat { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.tr-coaching-panel { margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); cursor: default; }
 .tr-health-line { font-size: 13.5px; color: var(--slate); margin-bottom: 10px; }
 .tr-health-good { color: #2E6E51; }
 .tr-health-bad { color: var(--rust); font-weight: 600; }
@@ -3333,6 +3546,16 @@ const CSS = `
 .tr-type-badge-recruit { background: rgba(53,116,184,0.12); color: var(--type-recruit-dark); }
 .tr-type-badge-sale { background: rgba(217,119,46,0.12); color: var(--type-sale-dark); }
 .tr-type-badge-both { background: linear-gradient(90deg, rgba(53,116,184,0.12), rgba(217,119,46,0.12)); color: var(--ink); }
+.tr-type-badge-stale { background: rgba(184,80,61,0.12); color: var(--rust); }
+.tr-funnel { display: flex; flex-direction: column; gap: 10px; }
+.tr-funnel-stage { display: grid; grid-template-columns: 90px 1fr 90px; align-items: center; gap: 10px; }
+.tr-funnel-stage-label { font-size: 12.5px; color: var(--slate); }
+.tr-funnel-track { height: 16px; background: var(--paper-dim); border-radius: 4px; overflow: hidden; }
+.tr-funnel-bar { height: 100%; background: var(--brass); border-radius: 4px; transition: width .3s ease; }
+.tr-funnel-bar-converted { background: #3F8F6C; }
+.tr-funnel-bar-recruit { background: var(--type-recruit); }
+.tr-funnel-bar-sale { background: var(--type-sale); }
+.tr-funnel-stage-count { font-size: 12.5px; color: var(--slate-light); text-align: right; font-variant-numeric: tabular-nums; }
 .tr-prospect-chars { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
 .tr-prospect-char-group { display: flex; flex-direction: column; gap: 8px; }
 .tr-prospect-char-row { align-items: flex-start !important; }
