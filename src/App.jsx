@@ -1414,6 +1414,33 @@ function OpenRequirementsBody({ view, user }) {
 
 const GOOGLE_CLIENT_ID = '106061643707-avmoqp1oe5idqdioocen9vnpsqd9i82l.apps.googleusercontent.com';
 
+// Google Calendar and Zoom both follow the identical connect / check
+// status / disconnect shape, differing only in which table and which
+// email column they use — these three shared helpers do the real work
+// once, so the provider-specific functions below are one line each.
+async function connectProvider(buildAuthUrl) {
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) return;
+  window.location.href = buildAuthUrl(data.session.access_token);
+}
+async function fetchProviderConnectionStatus(table, emailColumn, emailKey) {
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (!sessionData.session) return { connected: false };
+  // Only ever select the two display-safe columns — never the tokens,
+  // even though the security rules would technically allow it for your
+  // own row.
+  const { data, error } = await supabase
+    .from(table).select(`${emailColumn}, connected_at`).eq('user_id', sessionData.session.user.id).maybeSingle();
+  if (error || !data) return { connected: false };
+  return { connected: true, [emailKey]: data[emailColumn] };
+}
+async function disconnectProvider(table) {
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) return false;
+  const { error } = await supabase.from(table).delete().eq('user_id', data.session.user.id);
+  return !error;
+}
+
 function googleOAuthUrl(accessToken) {
   const redirectUri = `${supabase.supabaseUrl}/functions/v1/google-oauth-callback`;
   const params = new URLSearchParams({
@@ -1427,31 +1454,9 @@ function googleOAuthUrl(accessToken) {
   });
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
-async function connectGoogleCalendar() {
-  const { data } = await supabase.auth.getSession();
-  if (!data.session) return;
-  window.location.href = googleOAuthUrl(data.session.access_token);
-}
-async function fetchGoogleConnectionStatus() {
-  const { data: sessionData } = await supabase.auth.getSession();
-  if (!sessionData.session) return { connected: false };
-  // Only ever select the two display-safe columns — never the tokens,
-  // even though the security rules would technically allow it for your
-  // own row.
-  const { data, error } = await supabase
-    .from('google_calendar_connections')
-    .select('google_email, connected_at')
-    .eq('user_id', sessionData.session.user.id)
-    .maybeSingle();
-  if (error || !data) return { connected: false };
-  return { connected: true, googleEmail: data.google_email };
-}
-async function disconnectGoogleCalendar() {
-  const { data } = await supabase.auth.getSession();
-  if (!data.session) return false;
-  const { error } = await supabase.from('google_calendar_connections').delete().eq('user_id', data.session.user.id);
-  return !error;
-}
+async function connectGoogleCalendar() { return connectProvider(googleOAuthUrl); }
+async function fetchGoogleConnectionStatus() { return fetchProviderConnectionStatus('google_calendar_connections', 'google_email', 'googleEmail'); }
+async function disconnectGoogleCalendar() { return disconnectProvider('google_calendar_connections'); }
 async function fetchGoogleEvents(startDate, endDate) {
   const { data: sessionData } = await supabase.auth.getSession();
   if (!sessionData.session) return { connected: false, events: [] };
@@ -1484,25 +1489,9 @@ function zoomOAuthUrl(accessToken) {
   });
   return `https://zoom.us/oauth/authorize?${params.toString()}`;
 }
-async function connectZoom() {
-  const { data } = await supabase.auth.getSession();
-  if (!data.session) return;
-  window.location.href = zoomOAuthUrl(data.session.access_token);
-}
-async function fetchZoomConnectionStatus() {
-  const { data: sessionData } = await supabase.auth.getSession();
-  if (!sessionData.session) return { connected: false };
-  const { data, error } = await supabase
-    .from('zoom_connections').select('zoom_email, connected_at').eq('user_id', sessionData.session.user.id).maybeSingle();
-  if (error || !data) return { connected: false };
-  return { connected: true, zoomEmail: data.zoom_email };
-}
-async function disconnectZoom() {
-  const { data } = await supabase.auth.getSession();
-  if (!data.session) return false;
-  const { error } = await supabase.from('zoom_connections').delete().eq('user_id', data.session.user.id);
-  return !error;
-}
+async function connectZoom() { return connectProvider(zoomOAuthUrl); }
+async function fetchZoomConnectionStatus() { return fetchProviderConnectionStatus('zoom_connections', 'zoom_email', 'zoomEmail'); }
+async function disconnectZoom() { return disconnectProvider('zoom_connections'); }
 // Calls the server-side function to actually create a real, unique Zoom
 // meeting for this specific appointment via Zoom's API.
 async function createZoomMeeting({ topic, startTime, durationMinutes, timezone, hostUserId }) {
@@ -1575,6 +1564,10 @@ function googleEventTimeKey(e) {
   const d = new Date(e.start);
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
+// ---------------------------------------------------------------------
+// trainings — org-wide announcements, visible to everyone regardless of
+// role or reporting structure, posted by super admins only
+// ---------------------------------------------------------------------
 function TrainingPostCard({ user, onPosted }) {
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState('');
@@ -2657,6 +2650,10 @@ function DirectManagersBody({ user }) {
 // ---------------------------------------------------------------------
 // track production — sold premium + recruits for the week, manager/admin only
 // ---------------------------------------------------------------------
+// ---------------------------------------------------------------------
+// team prospecting — manager/admin visibility into their team's pipeline,
+// aggregate counts only; individual prospect notes stay private
+// ---------------------------------------------------------------------
 function TeamProspectingBody({ user }) {
   const [members, setMembers] = useState([]);
   const [prospects, setProspects] = useState([]);
@@ -2968,6 +2965,9 @@ function ManageUsersView({ currentUserId, currentUserName }) {
     </>
   );
 }
+// Read-only history of role changes, reports-to changes, and removals —
+// lives right under the user table above since it's really an extension
+// of Manage Team, not a separate feature.
 function AuditLogView() {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
