@@ -488,6 +488,20 @@ async function insertProspect(userId, form) {
   if (error) return { ok: false, error: error.message };
   return { ok: true, record: rowToProspect(data) };
 }
+async function updateProspect(id, form) {
+  const payload = {
+    first_name: form.firstName.trim(),
+    last_name: form.lastName.trim(),
+    age: form.age ? Number(form.age) : null,
+    relationship_strength: form.relationshipStrength,
+    notes: form.notes.trim() || null,
+    source: form.source || null,
+  };
+  ALL_CHARACTERISTICS.forEach(c => { payload[c.dbCol] = !!form[c.key]; });
+  const { data, error } = await supabase.from('prospects').update(payload).eq('id', id).select().single();
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, record: rowToProspect(data) };
+}
 async function updateProspectOutcome(id, { markedSold, markedRecruited }) {
   const payload = {};
   if (markedSold !== undefined) payload.marked_sold = markedSold;
@@ -1951,18 +1965,18 @@ function CalendarBody({ user }) {
   );
 }
 
-function ProspectForm({ onCancel, onSubmit, saving }) {
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [age, setAge] = useState('');
-  const [relationshipStrength, setRelationshipStrength] = useState(5);
+function ProspectForm({ editing, onCancel, onSubmit, saving }) {
+  const [firstName, setFirstName] = useState(editing?.firstName || '');
+  const [lastName, setLastName] = useState(editing?.lastName || '');
+  const [age, setAge] = useState(editing?.age != null ? String(editing.age) : '');
+  const [relationshipStrength, setRelationshipStrength] = useState(editing?.relationshipStrength ?? 5);
   const [chars, setChars] = useState(() => {
     const initial = {};
-    ALL_CHARACTERISTICS.forEach(c => { initial[c.key] = false; });
+    ALL_CHARACTERISTICS.forEach(c => { initial[c.key] = editing ? !!editing[c.key] : false; });
     return initial;
   });
-  const [notes, setNotes] = useState('');
-  const [source, setSource] = useState('');
+  const [notes, setNotes] = useState(editing?.notes || '');
+  const [source, setSource] = useState(editing?.source || '');
   const [err, setErr] = useState('');
 
   function toggleChar(key) { setChars(prev => ({ ...prev, [key]: !prev[key] })); }
@@ -1975,7 +1989,7 @@ function ProspectForm({ onCancel, onSubmit, saving }) {
 
   return (
     <div className="tr-card tr-form">
-      <h3 className="tr-h3">New prospect</h3>
+      <h3 className="tr-h3">{editing ? 'Edit prospect' : 'New prospect'}</h3>
       <div className="tr-form-grid">
         <label className="tr-field">
           <span>First name</span>
@@ -2028,7 +2042,7 @@ function ProspectForm({ onCancel, onSubmit, saving }) {
       {err && <div className="tr-error">{err}</div>}
       <div className="tr-form-actions">
         <button type="button" className="tr-btn tr-btn-ghost" onClick={onCancel}>Cancel</button>
-        <button type="button" className="tr-btn tr-btn-brass" onClick={submit} disabled={saving}>{saving ? 'Saving…' : 'Save prospect'}</button>
+        <button type="button" className="tr-btn tr-btn-brass" onClick={submit} disabled={saving}>{saving ? 'Saving…' : editing ? 'Save changes' : 'Save prospect'}</button>
       </div>
     </div>
   );
@@ -2062,7 +2076,7 @@ function ProspectFunnel({ prospects, title }) {
     </div>
   );
 }
-function ProspectCard({ prospect, rank, onDelete, onToggleOutcome, onLogAppointment }) {
+function ProspectCard({ prospect, rank, onDelete, onToggleOutcome, onLogAppointment, onEdit, readOnly }) {
   const total = prospectTotalChecked(prospect);
   const leaning = prospectLeaningKey(prospect);
   const checkedChars = ALL_CHARACTERISTICS.filter(c => prospect[c.key]);
@@ -2085,7 +2099,8 @@ function ProspectCard({ prospect, rank, onDelete, onToggleOutcome, onLogAppointm
             {LEANING_LABELS[leaning]}
           </span>
           <span className="tr-mono">{total}/9</span>
-          <button type="button" className="tr-icon-btn" onClick={() => onDelete(prospect.id)} title="Delete prospect"><Trash2 size={14} /></button>
+          {onEdit && <button type="button" className="tr-icon-btn" onClick={() => onEdit(prospect)} title="Edit prospect"><Pencil size={14} /></button>}
+          {onDelete && <button type="button" className="tr-icon-btn" onClick={() => onDelete(prospect.id)} title="Delete prospect"><Trash2 size={14} /></button>}
         </div>
       </div>
       {checkedChars.length > 0 && (
@@ -2094,6 +2109,7 @@ function ProspectCard({ prospect, rank, onDelete, onToggleOutcome, onLogAppointm
         </div>
       )}
       {prospect.notes && <p className="tr-note" style={{ marginTop: 8 }}>{prospect.notes}</p>}
+      {!readOnly && (
       <div className="tr-prospect-outcome-row">
         {onLogAppointment && (
           <button type="button" className="tr-btn tr-btn-sm tr-btn-ghost" onClick={() => onLogAppointment(prospect)}>
@@ -2111,6 +2127,7 @@ function ProspectCard({ prospect, rank, onDelete, onToggleOutcome, onLogAppointm
           {prospect.markedSold ? '✓ Sold' : 'Mark sold'}
         </button>
       </div>
+      )}
     </div>
   );
 }
@@ -2166,6 +2183,7 @@ function SystemsBody({ user, onLogAppointment }) {
   const [error, setError] = useState('');
   const [leaningFilter, setLeaningFilter] = useState('all'); // 'all' | 'sale' | 'recruit' | 'both'
   const [searchQuery, setSearchQuery] = useState('');
+  const [editingProspect, setEditingProspect] = useState(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -2177,11 +2195,24 @@ function SystemsBody({ user, onLogAppointment }) {
   async function handleSubmit(form) {
     setSaving(true);
     setError('');
+    if (editingProspect) {
+      const res = await updateProspect(editingProspect.id, form);
+      setSaving(false);
+      if (!res.ok) { setError(res.error || 'Could not save. Try again.'); return; }
+      setProspects(prev => prev.map(p => p.id === editingProspect.id ? res.record : p));
+      setEditingProspect(null);
+      setSystemsView('list');
+      return;
+    }
     const res = await insertProspect(user.id, form);
     setSaving(false);
     if (!res.ok) { setError(res.error || 'Could not save. Try again.'); return; }
     setProspects(prev => [res.record, ...prev]);
     setSystemsView('list');
+  }
+  function handleEdit(prospect) {
+    setEditingProspect(prospect);
+    setSystemsView('prospect');
   }
   async function handleDelete(id) {
     if (!window.confirm("Delete this prospect? This can't be undone.")) return;
@@ -2251,14 +2282,14 @@ function SystemsBody({ user, onLogAppointment }) {
         {error && <div className="tr-error">{error}</div>}
         {systemsView === 'prospect' ? (
           <>
-            <h2 className="tr-h2">New prospect</h2>
-            <ProspectForm onCancel={() => setSystemsView('list')} onSubmit={handleSubmit} saving={saving} />
+            <h2 className="tr-h2">{editingProspect ? 'Edit prospect' : 'New prospect'}</h2>
+            <ProspectForm editing={editingProspect} onCancel={() => { setEditingProspect(null); setSystemsView('list'); }} onSubmit={handleSubmit} saving={saving} />
           </>
         ) : (
           <>
             <div className="tr-row-head">
               <h2 className="tr-h2">{activeTitle}</h2>
-              <button className="tr-btn tr-btn-brass" onClick={() => setSystemsView('prospect')}><Plus size={16} /> New prospect</button>
+              <button className="tr-btn tr-btn-brass" onClick={() => { setEditingProspect(null); setSystemsView('prospect'); }}><Plus size={16} /> New prospect</button>
             </div>
             <div className="tr-search-row">
               <Search size={15} className="tr-search-icon" />
@@ -2293,7 +2324,7 @@ function SystemsBody({ user, onLogAppointment }) {
               <div className="tr-card"><p className="tr-empty">{activeEmpty}</p></div>
             ) : (
               activeList.map((p, i) => (
-                <ProspectCard key={p.id} prospect={p} rank={i + 1} onDelete={handleDelete} onToggleOutcome={handleToggleOutcome} onLogAppointment={onLogAppointment} />
+                <ProspectCard key={p.id} prospect={p} rank={i + 1} onDelete={handleDelete} onToggleOutcome={handleToggleOutcome} onLogAppointment={onLogAppointment} onEdit={handleEdit} />
               ))
             )}
           </>
@@ -2849,6 +2880,7 @@ function TeamProspectingBody({ user }) {
   const [members, setMembers] = useState([]);
   const [prospects, setProspects] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -2870,7 +2902,7 @@ function TeamProspectingBody({ user }) {
         <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
       </div>
       <p className="tr-subtitle">
-        Pipeline health across your team — individual notes stay visible only to whoever logged each prospect.
+        Click a row to see that person's actual prospect list — same detail you'd see reviewing it with them directly.
       </p>
       {loading ? <SkeletonTable rows={5} cols={6} /> : members.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">No team members yet.</p></div>
@@ -2898,18 +2930,31 @@ function TeamProspectingBody({ user }) {
                   const recruit = active.filter(p => prospectLeaningKey(p) === 'recruit').length;
                   const recruited = list.filter(p => p.markedRecruited).length;
                   const sold = list.filter(p => p.markedSold).length;
+                  const isOpen = expanded === m.id;
+                  const sortedList = list.slice().sort((a, b) => prospectTotalChecked(b) - prospectTotalChecked(a));
                   return (
-                    <tr key={m.id}>
-                      <td>
-                        {m.display_name}
-                        <div className="tr-tenure">Member for {tenureSince(m.created_at)}</div>
-                      </td>
-                      <td className="tr-mono">{active.length}</td>
-                      <td className="tr-mono">{sale}</td>
-                      <td className="tr-mono">{recruit}</td>
-                      <td className="tr-mono">{recruited}</td>
-                      <td className="tr-mono">{sold}</td>
-                    </tr>
+                    <React.Fragment key={m.id}>
+                      <tr className="tr-clickable-row" onClick={() => setExpanded(isOpen ? null : m.id)}>
+                        <td>
+                          {m.display_name}
+                          <div className="tr-tenure">Member for {tenureSince(m.created_at)}</div>
+                        </td>
+                        <td className="tr-mono">{active.length}</td>
+                        <td className="tr-mono">{sale}</td>
+                        <td className="tr-mono">{recruit}</td>
+                        <td className="tr-mono">{recruited}</td>
+                        <td className="tr-mono">{sold}</td>
+                      </tr>
+                      {isOpen && (
+                        <tr className="tr-expand-row"><td colSpan={6}>
+                          {sortedList.length === 0 ? (
+                            <p className="tr-empty">No prospects logged yet.</p>
+                          ) : (
+                            sortedList.map((p, i) => <ProspectCard key={p.id} prospect={p} rank={i + 1} readOnly />)
+                          )}
+                        </td></tr>
+                      )}
+                    </React.Fragment>
                   );
                 })}
               </tbody>
