@@ -14,6 +14,14 @@ const WEEKLY_TOTAL_TARGET = WEEKEND_TARGET + WEEKDAY_TARGET * 5; // 33
 // date helpers
 // ---------------------------------------------------------------------
 function fmtDate(d) { return d.toISOString().slice(0, 10); }
+// Adds minutes to a date+time pair, correctly rolling over into the next
+// day if needed (e.g. an 11:45 PM appointment + 30 min).
+function addMinutesToDateTime(dateStr, timeStr, minutesToAdd) {
+  const dt = new Date(`${dateStr}T${timeStr}:00`);
+  dt.setMinutes(dt.getMinutes() + minutesToAdd);
+  const pad = n => String(n).padStart(2, '0');
+  return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}:00`;
+}
 function todayStr() { return fmtDate(new Date()); }
 function parseDate(s) { return new Date(s + 'T00:00:00'); }
 function addDays(d, n) { const r = new Date(d); r.setDate(r.getDate() + n); return r; }
@@ -1562,7 +1570,10 @@ function googleOAuthUrl(accessToken) {
     client_id: GOOGLE_CLIENT_ID,
     redirect_uri: redirectUri,
     response_type: 'code',
-    scope: 'https://www.googleapis.com/auth/calendar.readonly',
+    // calendar.events covers both reading events (what we already do) and
+    // creating them (new) — anyone who connected under the old
+    // calendar.readonly scope needs to reconnect once to grant this.
+    scope: 'https://www.googleapis.com/auth/calendar.events',
     access_type: 'offline',
     prompt: 'consent',
     state: accessToken,
@@ -1589,6 +1600,29 @@ async function fetchGoogleEvents(startDate, endDate) {
     return await res.json();
   } catch {
     return { connected: false, events: [] };
+  }
+}
+// Pushes a new appointment onto the advisor's own Google Calendar, and —
+// if a presenting manager's Zoom was used — that manager's calendar too,
+// as two independent events. Best-effort: failures here never block the
+// appointment itself from being saved.
+async function pushAppointmentToGoogleCalendar({ title, startDateTime, endDateTime, timezone, managerHostId }) {
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (!sessionData.session) return { ownPushed: false, managerPushed: false };
+  try {
+    const res = await fetch(`${supabase.supabaseUrl}/functions/v1/google-create-event`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${sessionData.session.access_token}`,
+        apikey: supabase.supabaseKey,
+      },
+      body: JSON.stringify({ title, startDateTime, endDateTime, timezone, managerHostId: managerHostId || null }),
+    });
+    if (!res.ok) return { ownPushed: false, managerPushed: false };
+    return await res.json();
+  } catch {
+    return { ownPushed: false, managerPushed: false };
   }
 }
 
@@ -2476,6 +2510,17 @@ function MyAppointmentsBody({ user, prefillClient, onPrefillConsumed }) {
           setZoomStatus({ connected: false });
         }
       }
+      // Best-effort push to Google Calendar — the advisor's own, and the
+      // presenting manager's too if their Zoom was used. Never blocks the
+      // appointment from being saved even if this fails entirely (e.g.
+      // neither side has reconnected to grant the newer write scope yet).
+      await pushAppointmentToGoogleCalendar({
+        title: `Meeting with ${form.client}`,
+        startDateTime: `${form.appointmentDate}T${form.appointmentTime}:00`,
+        endDateTime: addMinutesToDateTime(form.appointmentDate, form.appointmentTime, 30),
+        timezone: form.timezone,
+        managerHostId: form.zoomHostId,
+      });
       setSaving(false);
       setAppointments(prev => [...prev, record]);
       closeForm();
