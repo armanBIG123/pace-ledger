@@ -668,6 +668,30 @@ async function fetchManagerDirectory() {
   if (error) { console.error(error); return []; }
   return data;
 }
+async function fetchOrgDirectory() {
+  const { data, error } = await supabase.from('org_directory').select('*');
+  if (error) { console.error(error); return []; }
+  return data;
+}
+// Walks the manager_id chain to find everyone under a given person, at
+// any depth — includes the root person themselves, since a new recruit's
+// direct upline might be that top-level manager, not someone further
+// down. Used at sign-up to scope the "who is your direct upline" picker
+// to just the selected manager's own team.
+function computeDownline(rootId, allPeople) {
+  const result = [];
+  const queue = [rootId];
+  const visited = new Set();
+  while (queue.length > 0) {
+    const currentId = queue.shift();
+    if (visited.has(currentId)) continue;
+    visited.add(currentId);
+    const person = allPeople.find(p => p.id === currentId);
+    if (person) result.push(person);
+    allPeople.filter(p => p.manager_id === currentId).forEach(r => queue.push(r.id));
+  }
+  return result;
+}
 
 // ---------------------------------------------------------------------
 // shell / shared UI
@@ -1022,14 +1046,27 @@ function AuthScreen() {
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [managerId, setManagerId] = useState('');
+  const [uplineId, setUplineId] = useState('');
   const [managers, setManagers] = useState([]);
+  const [orgDirectory, setOrgDirectory] = useState([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
   useEffect(() => {
     fetchManagerDirectory().then(setManagers);
+    fetchOrgDirectory().then(setOrgDirectory);
   }, []);
+
+  // Once a manager is picked, scope the "who is your direct upline"
+  // options to just that manager's own team (themselves plus everyone
+  // under them), rather than the whole org.
+  const uplineOptions = managerId ? computeDownline(managerId, orgDirectory) : [];
+
+  function handleManagerSelect(id) {
+    setManagerId(id);
+    setUplineId(''); // the old upline pick may not be valid under a different manager
+  }
 
   async function submit() {
     setError(''); setNotice('');
@@ -1041,10 +1078,15 @@ function AuthScreen() {
         if (!displayName.trim()) { setError('Enter your full name.'); setBusy(false); return; }
         if (password.length < 6) { setError('Password needs to be at least 6 characters.'); setBusy(false); return; }
         if (managers.length > 0 && !managerId) { setError('Please select your manager.'); setBusy(false); return; }
+        if (managerId && !uplineId) { setError('Please select who your direct upline is.'); setBusy(false); return; }
         const { data, error: signErr } = await supabase.auth.signUp({
           email: mail,
           password,
-          options: { data: { display_name: displayName.trim(), manager_id: managerId || '' } },
+          // The direct-upline pick is the more specific answer to "who do
+          // you report to" — that's what actually gets stored as
+          // manager_id, not the broader top-level manager selection that
+          // was only used to scope which upline options to show.
+          options: { data: { display_name: displayName.trim(), manager_id: uplineId || managerId || '' } },
         });
         if (signErr) { setError(signErr.message); setBusy(false); return; }
         if (!data.session) {
@@ -1106,9 +1148,18 @@ function AuthScreen() {
             {mode === 'signup' && managers.length > 0 && (
               <label className="tr-field">
                 <span>Your manager</span>
-                <select value={managerId} onChange={e => setManagerId(e.target.value)}>
+                <select value={managerId} onChange={e => handleManagerSelect(e.target.value)}>
                   <option value="">Select your manager…</option>
                   {managers.map(m => <option key={m.id} value={m.id}>{m.display_name}</option>)}
+                </select>
+              </label>
+            )}
+            {mode === 'signup' && managerId && (
+              <label className="tr-field">
+                <span>Your direct upline (who recruited you)</span>
+                <select value={uplineId} onChange={e => setUplineId(e.target.value)}>
+                  <option value="">Select who recruited you…</option>
+                  {uplineOptions.map(p => <option key={p.id} value={p.id}>{p.display_name}</option>)}
                 </select>
               </label>
             )}
