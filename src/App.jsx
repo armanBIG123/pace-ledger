@@ -431,6 +431,52 @@ const RECRUIT_CHARACTERISTICS = [
 const ALL_CHARACTERISTICS = [...SALE_CHARACTERISTICS, ...RECRUIT_CHARACTERISTICS];
 const LEANING_LABELS = { none: 'Not yet scored', sale: 'Sale potential', recruit: 'Recruit potential', both: 'Both' };
 const PROSPECT_SOURCES = ['Referral', 'Cold outreach', 'Event', 'Social media', 'Other'];
+// Career-ladder reference data for Milestones > Promotion Guidelines.
+// Lowest to highest tier. FA/SA/AD are tracked on a rolling 30 days;
+// everything above that is tracked over 2 consecutive months.
+const HIERARCHY_TIERS = [
+  {
+    key: 'FA', name: 'Field Associate', commission: 40, window: 'rolling30',
+    criteria: ['Get licensed', '3 observation sales', '1 recruit'],
+  },
+  {
+    key: 'SA', name: 'Senior Associate', commission: 50, window: 'rolling30',
+    criteria: ['Build 1 Senior Associate', '$10k personal target premium', '$20k target premium base shop'],
+  },
+  {
+    key: 'AD', name: 'Associate Director', commission: 60, window: 'rolling30',
+    criteria: ['Build 3 Senior Associates', 'Another $10k personal target premium', '$35k target premium base shop'],
+  },
+  {
+    key: 'FD', name: 'Field Director', commission: 75, window: 'consecutive2',
+    criteria: ['Build 6 Senior Associates direct underneath you', '$50k target premium base shop'],
+  },
+  {
+    key: 'SFD', name: 'Senior Field Director', commission: 80, window: 'consecutive2',
+    criteria: ['Build 3 Field Directors', '$200k target premium base shop'],
+  },
+  {
+    key: 'DFD', name: 'Direct Field Director', commission: 83, window: 'consecutive2',
+    criteria: ['Build 4 Field Directors', '$250k target premium base shop'],
+  },
+  {
+    key: 'EFD', name: 'Executive Field Director', commission: 86, window: 'consecutive2',
+    criteria: ['Build 5 Field Directors', '$300k target premium base shop'],
+  },
+  {
+    key: 'FVC', name: 'Field Vice Chairman', commission: 89, window: 'consecutive2',
+    criteria: ['Build 6 Field Directors', '$500k target premium base shop'],
+  },
+  {
+    key: 'EVC', name: 'Executive Vice Chairman', commission: 90, window: 'consecutive2',
+    criteria: ['Build 7 Field Directors', '$750k target premium base shop'],
+  },
+];
+const HIERARCHY_TIER_WINDOW_LABELS = { rolling30: 'Tracked on a rolling 30 days', consecutive2: 'Must hit requirements for 2 consecutive months' };
+function hierarchyTierLabel(key) {
+  const tier = HIERARCHY_TIERS.find(t => t.key === key);
+  return tier ? `${tier.name} (${tier.key})` : '';
+}
 
 function prospectSaleScore(p) { return SALE_CHARACTERISTICS.filter(c => p[c.key]).length; }
 function prospectRecruitScore(p) { return RECRUIT_CHARACTERISTICS.filter(c => p[c.key]).length; }
@@ -2209,6 +2255,72 @@ function CalendlyLinkEditor({ user }) {
     </div>
   );
 }
+// ---------------------------------------------------------------------
+// milestones — career-ladder reference and (later) incentive tracking
+// ---------------------------------------------------------------------
+function TierCard({ tier, isCurrentTier }) {
+  return (
+    <div className={`tr-card tr-tier-card ${isCurrentTier ? 'tr-tier-card-current' : ''}`}>
+      <div className="tr-tier-head">
+        <div>
+          <span className="tr-tier-abbr">{tier.key}</span>
+          <strong>{tier.name}</strong>
+          {isCurrentTier && <span className="tr-type-badge tr-type-badge-both" style={{ marginLeft: 8 }}>Your tier</span>}
+        </div>
+        <span className="tr-tier-commission">{tier.commission}%</span>
+      </div>
+      <div className="tr-note">{HIERARCHY_TIER_WINDOW_LABELS[tier.window]}</div>
+      <ul className="tr-tier-criteria">
+        {tier.criteria.map((c, i) => <li key={i}>{c}</li>)}
+      </ul>
+    </div>
+  );
+}
+function PromotionGuidelinesBody({ user }) {
+  return (
+    <>
+      <h2 className="tr-h2">Promotion Guidelines</h2>
+      <p className="tr-subtitle">
+        {user.hierarchyTier
+          ? `Your current tier: ${hierarchyTierLabel(user.hierarchyTier)} (${HIERARCHY_TIERS.find(t => t.key === user.hierarchyTier)?.commission}% commission)`
+          : "Your hierarchy tier hasn't been set yet — ask a super admin to set it in Manage Team."}
+      </p>
+      {HIERARCHY_TIERS.map(tier => (
+        <TierCard key={tier.key} tier={tier} isCurrentTier={user.hierarchyTier === tier.key} />
+      ))}
+    </>
+  );
+}
+function IncentivesBody() {
+  return (
+    <>
+      <h2 className="tr-h2">Incentives</h2>
+      <div className="tr-card"><p className="tr-empty">Coming soon.</p></div>
+    </>
+  );
+}
+function MilestonesBody({ user }) {
+  const [view, setView] = useState('guidelines'); // 'guidelines' | 'incentives'
+  return (
+    <div className="tr-appts-shell">
+      <nav className="tr-appts-sidebar">
+        <button
+          type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'guidelines' ? 'tr-sidebar-item-active' : ''}`}
+          onClick={() => setView('guidelines')}>
+          <span>Promotion Guidelines</span>
+        </button>
+        <button
+          type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'incentives' ? 'tr-sidebar-item-active' : ''}`}
+          onClick={() => setView('incentives')}>
+          <span>Incentives</span>
+        </button>
+      </nav>
+      <div className="tr-appts-main">
+        {view === 'guidelines' ? <PromotionGuidelinesBody user={user} /> : <IncentivesBody />}
+      </div>
+    </div>
+  );
+}
 function SystemsBody({ user, onLogAppointment }) {
   const [prospects, setProspects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -2697,16 +2809,18 @@ function AdvisorView({ user }) {
     <Shell>
       <Header user={user} />
       <main className="tr-main">
-        <div className="tr-tabs" style={{ maxWidth: 460 }}>
+        <div className="tr-tabs" style={{ maxWidth: 580 }}>
           <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
           <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
           <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Systems</button>
+          <button className={`tr-tab ${tab === 'milestones' ? 'tr-tab-active' : ''}`} onClick={() => setTab('milestones')}>Milestones</button>
         </div>
         {tab === 'mine' && <MyAppointmentsBody user={user} prefillClient={prefillClient} onPrefillConsumed={() => setPrefillClient(null)} />}
         {tab === 'calendar' && <CalendarBody user={user} />}
         {tab === 'systems' && (
           <SystemsBody user={user} onLogAppointment={p => { setPrefillClient(`${p.firstName} ${p.lastName}`); setTab('mine'); }} />
         )}
+        {tab === 'milestones' && <MilestonesBody user={user} />}
       </main>
     </Shell>
   );
@@ -3094,10 +3208,11 @@ function ManagerView({ user }) {
     <Shell>
       <Header user={user} />
       <main className="tr-main">
-        <div className="tr-tabs" style={{ maxWidth: 900 }}>
+        <div className="tr-tabs" style={{ maxWidth: 1020 }}>
           <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
           <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
           <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Systems</button>
+          <button className={`tr-tab ${tab === 'milestones' ? 'tr-tab-active' : ''}`} onClick={() => setTab('milestones')}>Milestones</button>
           <button className={`tr-tab ${tab === 'teamsystems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('teamsystems')}>Team Prospecting</button>
           <button className={`tr-tab ${tab === 'pace' ? 'tr-tab-active' : ''}`} onClick={() => setTab('pace')}>Team Pace</button>
           <button className={`tr-tab ${tab === 'production' ? 'tr-tab-active' : ''}`} onClick={() => setTab('production')}>Track Production</button>
@@ -3107,6 +3222,7 @@ function ManagerView({ user }) {
         {tab === 'systems' && (
           <SystemsBody user={user} onLogAppointment={p => { setPrefillClient(`${p.firstName} ${p.lastName}`); setTab('mine'); }} />
         )}
+        {tab === 'milestones' && <MilestonesBody user={user} />}
         {tab === 'teamsystems' && <TeamProspectingBody user={user} />}
         {tab === 'pace' && <TeamPaceBody user={user} />}
         {tab === 'production' && <TrackProductionBody user={user} />}
@@ -3133,6 +3249,10 @@ async function deleteUserProfile(id) {
 }
 async function changeUserManager(id, newManagerId) {
   const { error } = await supabase.from('profiles').update({ manager_id: newManagerId || null }).eq('id', id);
+  return !error ? null : error.message;
+}
+async function changeUserTier(id, newTier) {
+  const { error } = await supabase.from('profiles').update({ hierarchy_tier: newTier || null }).eq('id', id);
   return !error ? null : error.message;
 }
 async function logAuditEvent(actorId, actorName, action, targetName, details) {
@@ -3199,6 +3319,17 @@ function ManageUsersView({ currentUserId, currentUserName }) {
     logAuditEvent(currentUserId, currentUserName, 'Changed reports-to', target?.display_name, `now reports to ${newManagerName || 'nobody'}`);
   }
 
+  async function handleTierChange(id, newTier) {
+    const target = users.find(u => u.id === id);
+    setSavingId(id);
+    setError('');
+    const err = await changeUserTier(id, newTier);
+    setSavingId(null);
+    if (err) { setError(err); return; }
+    setUsers(prev => prev.map(u => u.id === id ? { ...u, hierarchy_tier: newTier || null } : u));
+    logAuditEvent(currentUserId, currentUserName, 'Changed hierarchy tier', target?.display_name, `${target?.hierarchy_tier || 'none'} → ${newTier || 'none'}`);
+  }
+
   async function handleDelete(id, name) {
     const ok = window.confirm(`Remove ${name} from the team? They'll no longer be able to use the app. Their past appointment history is kept, not deleted.`);
     if (!ok) return;
@@ -3218,7 +3349,7 @@ function ManageUsersView({ currentUserId, currentUserName }) {
       {loading ? <SkeletonTable rows={6} cols={5} /> : (
         <div className="tr-table-wrap">
           <table className="tr-table tr-table-summary">
-            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Reports To</th><th></th></tr></thead>
+            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Reports To</th><th>Tier</th><th></th></tr></thead>
             <tbody>
               {users.map(u => (
                 <tr key={u.id}>
@@ -3246,6 +3377,12 @@ function ManageUsersView({ currentUserId, currentUserName }) {
                         {adminOptions.map(a => <option key={a.id} value={a.id}>{a.display_name}</option>)}
                       </select>
                     ) : '—'}
+                  </td>
+                  <td>
+                    <select value={u.hierarchy_tier || ''} disabled={savingId === u.id} onChange={e => handleTierChange(u.id, e.target.value)}>
+                      <option value="">— none —</option>
+                      {HIERARCHY_TIERS.map(t => <option key={t.key} value={t.key}>{t.key} — {t.name}</option>)}
+                    </select>
                   </td>
                   <td>
                     {u.id !== currentUserId && (
@@ -3308,10 +3445,11 @@ function AdminView({ user }) {
     <Shell>
       <Header user={user} />
       <main className="tr-main">
-        <div className="tr-tabs" style={{ maxWidth: 1200 }}>
+        <div className="tr-tabs" style={{ maxWidth: 1360 }}>
           <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
           <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
           <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Systems</button>
+          <button className={`tr-tab ${tab === 'milestones' ? 'tr-tab-active' : ''}`} onClick={() => setTab('milestones')}>Milestones</button>
           <button className={`tr-tab ${tab === 'teamsystems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('teamsystems')}>Team Prospecting</button>
           <button className={`tr-tab ${tab === 'pace' ? 'tr-tab-active' : ''}`} onClick={() => setTab('pace')}>Team Pace</button>
           <button className={`tr-tab ${tab === 'directs' ? 'tr-tab-active' : ''}`} onClick={() => setTab('directs')}>Direct Managers</button>
@@ -3323,6 +3461,7 @@ function AdminView({ user }) {
         {tab === 'systems' && (
           <SystemsBody user={user} onLogAppointment={p => { setPrefillClient(`${p.firstName} ${p.lastName}`); setTab('mine'); }} />
         )}
+        {tab === 'milestones' && <MilestonesBody user={user} />}
         {tab === 'teamsystems' && <TeamProspectingBody user={user} />}
         {tab === 'pace' && <TeamPaceBody user={user} />}
         {tab === 'directs' && <DirectManagersBody user={user} />}
@@ -3415,7 +3554,7 @@ export default function App() {
   }
   if (profileLoading || !profile) return <Shell><Spinner label="Loading your account…" /></Shell>;
 
-  const user = { id: session.user.id, displayName: profile.display_name, role: profile.role };
+  const user = { id: session.user.id, displayName: profile.display_name, role: profile.role, hierarchyTier: profile.hierarchy_tier };
   return (
     <>
       <ConnectionBanner banner={connectionBanner} onDismiss={() => setConnectionBanner(null)} />
@@ -3653,6 +3792,13 @@ const CSS = `
 .tr-prospect-char-pills { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .tr-prospect-char-pill { font-size: 11px; padding: 3px 9px; border-radius: 999px; background: var(--paper-dim); color: var(--slate); }
 .tr-prospect-rank { flex-shrink: 0; display: flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: var(--brass); color: var(--ink); font-weight: 700; font-size: 13px; }
+.tr-tier-card { border-color: var(--line); }
+.tr-tier-card-current { border-color: var(--brass); box-shadow: 0 0 0 1px var(--brass); }
+.tr-tier-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.tr-tier-abbr { display: inline-block; min-width: 40px; padding: 2px 8px; margin-right: 10px; border-radius: 5px; background: var(--paper-dim); color: var(--brass-dark); font-weight: 700; font-size: 12.5px; text-align: center; }
+.tr-tier-commission { font-size: 20px; font-weight: 700; color: var(--brass-dark); }
+.tr-tier-criteria { margin: 8px 0 0; padding-left: 20px; font-size: 13.5px; color: var(--slate); }
+.tr-tier-criteria li { margin-bottom: 3px; }
 .tr-prospect-outcome-row { display: flex; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .tr-type-recruit { box-shadow: inset 3px 0 0 0 var(--type-recruit); }
 .tr-type-sale { box-shadow: inset 3px 0 0 0 var(--type-sale); }
