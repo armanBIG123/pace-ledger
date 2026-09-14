@@ -488,6 +488,18 @@ function prospectLeaningKey(p) {
   if (r > s) return 'recruit';
   return 'both';
 }
+// Carries a prospect's leaning and notes straight into the appointment
+// form, not just their name, so logging the resulting appointment doesn't
+// mean re-entering what was already captured while prospecting.
+function prospectToAppointmentPrefill(p) {
+  const leaning = prospectLeaningKey(p);
+  return {
+    client: `${p.firstName} ${p.lastName}`,
+    notes: p.notes || '',
+    typeRecruit: leaning === 'recruit' || leaning === 'both',
+    typeSale: leaning === 'sale' || leaning === 'both',
+  };
+}
 function daysAgoLabel(dateStr) {
   const days = Math.floor((Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24));
   if (days <= 0) return 'Logged today';
@@ -1363,17 +1375,17 @@ function TypeChoice({ recruit, sale, onToggleRecruit, onToggleSale }) {
   );
 }
 
-function AppointmentForm({ user, weekMonday, editing, prefillClient, onCancel, onSubmit, saving }) {
+function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onSubmit, saving }) {
   const [dateSetOption, setDateSetOption] = useState(editing?.dateSetOption || defaultDateSetOption());
   const [appointmentDate, setAppointmentDate] = useState(editing?.appointmentDate || '');
   const [appointmentTime, setAppointmentTime] = useState(editing?.appointmentTime || '');
   const [timezone, setTimezone] = useState(editing?.appointmentTimezone || detectTimezone());
   const [presenter, setPresenter] = useState(editing?.presenter || user.displayName || '');
   const [trainee, setTrainee] = useState(editing?.trainee || '');
-  const [client, setClient] = useState(editing?.client || prefillClient || '');
-  const [notes, setNotes] = useState(editing?.notes || '');
-  const [typeRecruit, setTypeRecruit] = useState(editing ? isRecruitType(editing) : false);
-  const [typeSale, setTypeSale] = useState(editing ? isSaleType(editing) : false);
+  const [client, setClient] = useState(editing?.client || prefillData?.client || '');
+  const [notes, setNotes] = useState(editing?.notes || prefillData?.notes || '');
+  const [typeRecruit, setTypeRecruit] = useState(editing ? isRecruitType(editing) : !!prefillData?.typeRecruit);
+  const [typeSale, setTypeSale] = useState(editing ? isSaleType(editing) : !!prefillData?.typeSale);
   const [zoomHostId, setZoomHostId] = useState('');
   const [err, setErr] = useState('');
   const [zoomManagers, setZoomManagers] = useState([]);
@@ -2570,7 +2582,7 @@ function SystemsBody({ user, onLogAppointment }) {
     </div>
   );
 }
-function MyAppointmentsBody({ user, prefillClient, onPrefillConsumed }) {
+function MyAppointmentsBody({ user, prefillData, onPrefillConsumed }) {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [weekMonday, setWeekMonday] = useState(weekStartOf(todayStr()));
@@ -2587,23 +2599,24 @@ function MyAppointmentsBody({ user, prefillClient, onPrefillConsumed }) {
   // (including '' for "No status") — a real sub-page, not a nested widget.
   const [statusView, setStatusView] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [pendingPrefillName, setPendingPrefillName] = useState(null);
+  const [pendingPrefillData, setPendingPrefillData] = useState(null);
 
   // Arriving here from a prospect's "Log appointment" button — jump
-  // straight to the weekly view with the log form open, pre-filled.
-  // The name is captured into local state immediately, since the parent
-  // clears its own copy right after handing it off — AppointmentForm
-  // reads from this local copy instead, which isn't affected by that.
+  // straight to the weekly view with the log form open, pre-filled with
+  // the prospect's name, notes, and recruit/sale leaning. The data is
+  // captured into local state immediately, since the parent clears its
+  // own copy right after handing it off — AppointmentForm reads from
+  // this local copy instead, which isn't affected by that.
   useEffect(() => {
-    if (prefillClient) {
+    if (prefillData) {
       setStatusView(null);
       setEditingAppt(null);
-      setPendingPrefillName(prefillClient);
+      setPendingPrefillData(prefillData);
       setShowForm(true);
       onPrefillConsumed();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prefillClient]);
+  }, [prefillData]);
 
   const searchResults = searchQuery.trim()
     ? appointments
@@ -2677,7 +2690,7 @@ function MyAppointmentsBody({ user, prefillClient, onPrefillConsumed }) {
     .filter(a => (a.status || '') === statusView)
     .sort((a, b) => (b.appointmentDate + b.appointmentTime).localeCompare(a.appointmentDate + a.appointmentTime));
 
-  function closeForm() { setShowForm(false); setEditingAppt(null); setPendingPrefillName(null); }
+  function closeForm() { setShowForm(false); setEditingAppt(null); setPendingPrefillData(null); }
   function openEdit(appt) { setEditingAppt(appt); setShowForm(true); }
 
   async function handleFormSubmit(form) {
@@ -2855,7 +2868,7 @@ function MyAppointmentsBody({ user, prefillClient, onPrefillConsumed }) {
             </div>
             {error && <div className="tr-error">{error}</div>}
             {showForm && (
-              <AppointmentForm user={user} weekMonday={weekMonday} editing={editingAppt} prefillClient={!editingAppt ? pendingPrefillName : null} onCancel={closeForm} onSubmit={handleFormSubmit} saving={saving} />
+              <AppointmentForm user={user} weekMonday={weekMonday} editing={editingAppt} prefillData={!editingAppt ? pendingPrefillData : null} onCancel={closeForm} onSubmit={handleFormSubmit} saving={saving} />
             )}
             {loading ? <SkeletonRows count={5} /> : groups.map(g => (
               <ApptGroup
@@ -2894,7 +2907,7 @@ function MyAppointmentsBody({ user, prefillClient, onPrefillConsumed }) {
 }
 function AdvisorView({ user }) {
   const [tab, setTab] = useState('mine');
-  const [prefillClient, setPrefillClient] = useState(null);
+  const [prefillData, setPrefillData] = useState(null);
   return (
     <Shell>
       <Header user={user} />
@@ -2902,14 +2915,14 @@ function AdvisorView({ user }) {
         <div className="tr-tabs" style={{ maxWidth: 700 }}>
           <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
           <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
-          <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Systems</button>
+          <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Prospecting</button>
           <button className={`tr-tab ${tab === 'milestones' ? 'tr-tab-active' : ''}`} onClick={() => setTab('milestones')}>Milestones</button>
           <button className={`tr-tab ${tab === 'documents' ? 'tr-tab-active' : ''}`} onClick={() => setTab('documents')}>Documents</button>
         </div>
-        {tab === 'mine' && <MyAppointmentsBody user={user} prefillClient={prefillClient} onPrefillConsumed={() => setPrefillClient(null)} />}
+        {tab === 'mine' && <MyAppointmentsBody user={user} prefillData={prefillData} onPrefillConsumed={() => setPrefillData(null)} />}
         {tab === 'calendar' && <CalendarBody user={user} />}
         {tab === 'systems' && (
-          <SystemsBody user={user} onLogAppointment={p => { setPrefillClient(`${p.firstName} ${p.lastName}`); setTab('mine'); }} />
+          <SystemsBody user={user} onLogAppointment={p => { setPrefillData(prospectToAppointmentPrefill(p)); setTab('mine'); }} />
         )}
         {tab === 'milestones' && <MilestonesBody user={user} />}
         {tab === 'documents' && <DocumentsBody user={user} />}
@@ -3295,7 +3308,7 @@ function TrackProductionBody({ user }) {
 
 function ManagerView({ user }) {
   const [tab, setTab] = useState('mine');
-  const [prefillClient, setPrefillClient] = useState(null);
+  const [prefillData, setPrefillData] = useState(null);
   return (
     <Shell>
       <Header user={user} />
@@ -3303,17 +3316,17 @@ function ManagerView({ user }) {
         <div className="tr-tabs" style={{ maxWidth: 1140 }}>
           <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
           <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
-          <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Systems</button>
+          <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Prospecting</button>
           <button className={`tr-tab ${tab === 'milestones' ? 'tr-tab-active' : ''}`} onClick={() => setTab('milestones')}>Milestones</button>
           <button className={`tr-tab ${tab === 'documents' ? 'tr-tab-active' : ''}`} onClick={() => setTab('documents')}>Documents</button>
           <button className={`tr-tab ${tab === 'teamsystems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('teamsystems')}>Team Prospecting</button>
           <button className={`tr-tab ${tab === 'pace' ? 'tr-tab-active' : ''}`} onClick={() => setTab('pace')}>Team Pace</button>
           <button className={`tr-tab ${tab === 'production' ? 'tr-tab-active' : ''}`} onClick={() => setTab('production')}>Track Production</button>
         </div>
-        {tab === 'mine' && <MyAppointmentsBody user={user} prefillClient={prefillClient} onPrefillConsumed={() => setPrefillClient(null)} />}
+        {tab === 'mine' && <MyAppointmentsBody user={user} prefillData={prefillData} onPrefillConsumed={() => setPrefillData(null)} />}
         {tab === 'calendar' && <CalendarBody user={user} />}
         {tab === 'systems' && (
-          <SystemsBody user={user} onLogAppointment={p => { setPrefillClient(`${p.firstName} ${p.lastName}`); setTab('mine'); }} />
+          <SystemsBody user={user} onLogAppointment={p => { setPrefillData(prospectToAppointmentPrefill(p)); setTab('mine'); }} />
         )}
         {tab === 'milestones' && <MilestonesBody user={user} />}
         {tab === 'documents' && <DocumentsBody user={user} />}
@@ -3571,7 +3584,7 @@ function AuditLogView() {
 }
 function AdminView({ user }) {
   const [tab, setTab] = useState('mine');
-  const [prefillClient, setPrefillClient] = useState(null);
+  const [prefillData, setPrefillData] = useState(null);
   return (
     <Shell>
       <Header user={user} />
@@ -3579,7 +3592,7 @@ function AdminView({ user }) {
         <div className="tr-tabs" style={{ maxWidth: 1480 }}>
           <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
           <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
-          <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Systems</button>
+          <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Prospecting</button>
           <button className={`tr-tab ${tab === 'milestones' ? 'tr-tab-active' : ''}`} onClick={() => setTab('milestones')}>Milestones</button>
           <button className={`tr-tab ${tab === 'documents' ? 'tr-tab-active' : ''}`} onClick={() => setTab('documents')}>Documents</button>
           <button className={`tr-tab ${tab === 'teamsystems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('teamsystems')}>Team Prospecting</button>
@@ -3588,10 +3601,10 @@ function AdminView({ user }) {
           <button className={`tr-tab ${tab === 'production' ? 'tr-tab-active' : ''}`} onClick={() => setTab('production')}>Track Production</button>
           <button className={`tr-tab ${tab === 'users' ? 'tr-tab-active' : ''}`} onClick={() => setTab('users')}>Manage Team</button>
         </div>
-        {tab === 'mine' && <MyAppointmentsBody user={user} prefillClient={prefillClient} onPrefillConsumed={() => setPrefillClient(null)} />}
+        {tab === 'mine' && <MyAppointmentsBody user={user} prefillData={prefillData} onPrefillConsumed={() => setPrefillData(null)} />}
         {tab === 'calendar' && <CalendarBody user={user} />}
         {tab === 'systems' && (
-          <SystemsBody user={user} onLogAppointment={p => { setPrefillClient(`${p.firstName} ${p.lastName}`); setTab('mine'); }} />
+          <SystemsBody user={user} onLogAppointment={p => { setPrefillData(prospectToAppointmentPrefill(p)); setTab('mine'); }} />
         )}
         {tab === 'milestones' && <MilestonesBody user={user} />}
         {tab === 'documents' && <DocumentsBody user={user} />}
