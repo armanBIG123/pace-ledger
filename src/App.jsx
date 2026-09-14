@@ -3762,12 +3762,33 @@ const CSS = `
 .tr-root :focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
 .tr-mono { font-family: 'IBM Plex Mono', monospace; }
 
+/* cross-browser normalization — Chrome, Safari, and Edge each style
+   native form controls quite differently by default; this makes every
+   select look and behave the same everywhere instead of relying on
+   whatever each browser's default chrome happens to look like. */
+.tr-root { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+.tr-root button, .tr-root a, .tr-root select, .tr-root input, .tr-root [role="button"] { -webkit-tap-highlight-color: transparent; }
+.tr-root select {
+  -webkit-appearance: none; -moz-appearance: none; appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6'><path d='M0 0L5 6L10 0Z' fill='%2333414D'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  padding-right: 28px;
+  cursor: pointer;
+}
+.tr-root select::-ms-expand { display: none; }
+/* Safari renders date/time inputs with extra internal padding around the
+   picker icon that Chrome doesn't add — this keeps the visible height
+   consistent with every other input regardless of browser. */
+.tr-root input[type="date"], .tr-root input[type="time"] { min-height: 38px; }
+
+
 /* header */
 .tr-header {
   background: var(--ink);
   color: var(--paper);
   display: flex; align-items: center; justify-content: space-between;
-  padding: 14px 24px;
+  padding: calc(14px + env(safe-area-inset-top, 0px)) 24px 14px;
   position: sticky; top: 0; z-index: 10;
   border-bottom: 1px solid rgba(255,255,255,0.08);
 }
@@ -3779,7 +3800,7 @@ const CSS = `
 .tr-header-role { text-transform: capitalize; font-size: 12px; padding: 3px 9px; border-radius: 999px; background: rgba(201,162,75,0.18); color: var(--brass); border: 1px solid rgba(201,162,75,0.35); }
 
 /* layout */
-.tr-main { max-width: 980px; margin: 0 auto; padding: 24px 20px 64px; display: flex; flex-direction: column; gap: 20px; }
+.tr-main { max-width: 980px; margin: 0 auto; padding: 24px 20px calc(64px + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: 20px; }
 .tr-row-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .tr-h2 { font-family: 'Newsreader', serif; font-size: 21px; font-weight: 600; color: var(--ink); display: flex; align-items: center; gap: 8px; margin: 0; }
 .tr-h3 { font-family: 'Newsreader', serif; font-size: 16px; font-weight: 600; color: var(--ink); margin: 0 0 10px; }
@@ -3819,6 +3840,14 @@ const CSS = `
 .tr-btn-sm { padding: 6px 12px; font-size: 13px; }
 .tr-btn-block { width: 100%; justify-content: center; margin-top: 6px; }
 .tr-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 7px; border: 1px solid transparent; background: transparent; color: inherit; cursor: pointer; }
+/* Devices with a real touchscreen (not just a narrow window) get larger
+   tap targets, matching Apple's and Google's 44px minimum — a mouse
+   pointer doesn't need this, so desktop stays compact. */
+@media (hover: none) and (pointer: coarse) {
+  .tr-icon-btn { width: 44px; height: 44px; }
+  .tr-btn { min-height: 44px; }
+  .tr-checkbox-field input[type="checkbox"] { width: 22px; height: 22px; }
+}
 .tr-header .tr-icon-btn { color: var(--paper); }
 .tr-header .tr-icon-btn:hover { background: rgba(255,255,255,0.1); }
 .tr-main .tr-icon-btn:hover { background: var(--paper-dim); }
@@ -3840,6 +3869,7 @@ const CSS = `
 .tr-field { display: flex; flex-direction: column; gap: 5px; font-size: 13px; font-weight: 500; color: var(--slate); }
 .tr-field-wide { grid-column: 1 / -1; }
 .tr-field input, .tr-field select { font-family: inherit; font-size: 14px; padding: 9px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
+.tr-field select { padding-right: 28px; }
 .tr-field input:focus, .tr-field select:focus { border-color: var(--brass); }
 .tr-badge { font-size: 12.5px; font-weight: 500; padding: 8px 10px; border-radius: 6px; border: 1px dashed var(--line); background: var(--paper); }
 .tr-badge-weekend { color: var(--brass-dark); border-color: rgba(201,162,75,0.5); background: rgba(201,162,75,0.08); }
@@ -3868,6 +3898,12 @@ const CSS = `
 .tr-table th { text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--slate-light); padding: 6px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .tr-table td { padding: 9px 10px; border-bottom: 1px solid var(--line); color: var(--ink); vertical-align: top; }
 .tr-table tbody tr:last-child td { border-bottom: none; }
+/* A select embedded directly in a table cell (not inside a .tr-field)
+   has no natural width limit — the browser sizes it to fit its widest
+   option, which for something like a full tier name can force the whole
+   table wider than the screen. This caps it and truncates with an
+   ellipsis; the full text is still shown when the dropdown is opened. */
+.tr-table td select { max-width: 190px; padding: 6px 26px 6px 8px; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: 6px; border: 1px solid var(--line); background-color: var(--paper); color: var(--ink); }
 .tr-note { color: var(--slate-light); }
 .tr-empty { font-size: 13.5px; color: var(--slate-light); margin: 4px 0 0; }
 .tr-subtitle { font-size: 13.5px; color: var(--slate-light); margin: -8px 0 16px; }
@@ -4030,7 +4066,7 @@ const CSS = `
 .tr-auth-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
 .tr-auth-card { width: 100%; max-width: 400px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 28px 26px; box-shadow: 0 4px 24px rgba(19,35,48,0.08); }
 .tr-auth-sub { text-align: center; font-size: 13.5px; color: var(--slate-light); margin: 6px 0 18px; }
-.tr-tabs { display: flex; background: var(--paper-dim); border-radius: 8px; padding: 3px; margin-bottom: 18px; }
+.tr-tabs { display: flex; flex-wrap: wrap; background: var(--paper-dim); border-radius: 8px; padding: 3px; margin-bottom: 18px; }
 .tr-tab { flex: 1; padding: 8px; border: none; background: transparent; border-radius: 6px; font-family: inherit; font-size: 13.5px; font-weight: 500; color: var(--slate-light); cursor: pointer; }
 .tr-tab-active { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(19,35,48,0.08); }
 .tr-auth-form { display: flex; flex-direction: column; gap: 12px; }
@@ -4054,9 +4090,9 @@ const CSS = `
   .tr-form-grid { grid-template-columns: 1fr; }
   .tr-prospect-chars { grid-template-columns: 1fr; }
   .tr-pace-grid { grid-template-columns: 1fr; }
-  .tr-header { padding: 12px 16px; }
+  .tr-header { padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 12px; }
   .tr-header-name { display: none; }
-  .tr-main { padding: 18px 14px 48px; }
+  .tr-main { padding: 18px 14px calc(48px + env(safe-area-inset-bottom, 0px)); }
   .tr-tabs { flex-wrap: wrap; }
   .tr-tabs .tr-tab { flex: 1 1 45%; }
   .tr-appts-shell { flex-direction: column; }
