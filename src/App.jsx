@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   LogIn, LogOut, Plus, Trash2, ChevronLeft, ChevronRight, Users,
   CalendarDays, ShieldCheck, UserPlus, Loader2, Pencil, ClipboardCheck, TrendingUp, UserCog, DollarSign,
-  Download, Search, X, GraduationCap
+  Download, Search, X, GraduationCap, FileText
 } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
 
@@ -2372,6 +2372,113 @@ function MilestonesBody({ user }) {
     </div>
   );
 }
+// ---------------------------------------------------------------------
+// documents — shared PDF library, open to everyone; upload/delete is
+// super_admin only
+// ---------------------------------------------------------------------
+function DocumentsBody({ user }) {
+  const [documents, setDocuments] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showUpload, setShowUpload] = useState(false);
+  const [title, setTitle] = useState('');
+  const [file, setFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState('');
+  const [downloadingId, setDownloadingId] = useState(null);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setDocuments(await fetchDocuments());
+    setLoading(false);
+  }, []);
+  useEffect(() => { refresh(); }, [refresh]);
+
+  async function handleUpload() {
+    if (!file) { setError('Choose a PDF to upload.'); return; }
+    if (!title.trim()) { setError('Give the document a title.'); return; }
+    setUploading(true);
+    setError('');
+    const res = await uploadDocument(file, title, user.id, user.displayName);
+    setUploading(false);
+    if (!res.ok) { setError(res.error || 'Upload failed. Try again.'); return; }
+    setDocuments(prev => [res.record, ...prev]);
+    setTitle(''); setFile(null); setShowUpload(false);
+  }
+  async function handleDelete(doc) {
+    if (!window.confirm(`Delete "${doc.title}"? This can't be undone.`)) return;
+    const prev = documents;
+    setDocuments(documents.filter(d => d.id !== doc.id));
+    const ok = await deleteDocument(doc.id, doc.file_path);
+    if (!ok) setDocuments(prev);
+  }
+  async function handleDownload(doc) {
+    setDownloadingId(doc.id);
+    const url = await getDocumentDownloadUrl(doc.file_path);
+    setDownloadingId(null);
+    if (url) window.open(url, '_blank');
+    else setError('Could not generate a download link. Try again.');
+  }
+
+  return (
+    <>
+      <div className="tr-row-head">
+        <h2 className="tr-h2"><FileText size={18} /> Documents</h2>
+        {user.role === 'super_admin' && (
+          <button className="tr-btn tr-btn-brass" onClick={() => setShowUpload(v => !v)}>
+            <Plus size={16} /> {showUpload ? 'Close' : 'Upload document'}
+          </button>
+        )}
+      </div>
+      <p className="tr-subtitle">Training and presentation materials the whole team can download and practice with.</p>
+      {error && <div className="tr-error">{error}</div>}
+      {showUpload && (
+        <div className="tr-card tr-form">
+          <div className="tr-form-grid">
+            <label className="tr-field tr-field-wide">
+              <span>Title</span>
+              <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. New Product Presentation" />
+            </label>
+            <label className="tr-field tr-field-wide">
+              <span>PDF file</span>
+              <input type="file" accept="application/pdf" onChange={e => setFile(e.target.files[0] || null)} />
+            </label>
+          </div>
+          <div className="tr-form-actions">
+            <button type="button" className="tr-btn tr-btn-brass" onClick={handleUpload} disabled={uploading}>{uploading ? 'Uploading…' : 'Upload'}</button>
+          </div>
+        </div>
+      )}
+      {loading ? <SkeletonCards count={3} /> : documents.length === 0 ? (
+        <div className="tr-card"><p className="tr-empty">No documents uploaded yet.</p></div>
+      ) : (
+        documents.map(doc => (
+          <div key={doc.id} className="tr-card tr-document-card">
+            <div className="tr-policy-head">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <FileText size={20} className="tr-document-icon" />
+                <div>
+                  <strong>{doc.title}</strong>
+                  <div className="tr-note">
+                    Uploaded by {doc.uploaded_by_name} · {new Date(doc.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    {doc.file_size ? ` · ${formatFileSize(doc.file_size)}` : ''}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <button type="button" className="tr-btn tr-btn-sm tr-btn-ghost" onClick={() => handleDownload(doc)} disabled={downloadingId === doc.id}>
+                  <Download size={13} /> {downloadingId === doc.id ? 'Preparing…' : 'Download'}
+                </button>
+                {user.role === 'super_admin' && (
+                  <button type="button" className="tr-icon-btn" onClick={() => handleDelete(doc)} title="Delete document"><Trash2 size={14} /></button>
+                )}
+              </div>
+            </div>
+          </div>
+        ))
+      )}
+    </>
+  );
+}
 function SystemsBody({ user, onLogAppointment }) {
   const [prospects, setProspects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -2860,11 +2967,12 @@ function AdvisorView({ user }) {
     <Shell>
       <Header user={user} />
       <main className="tr-main">
-        <div className="tr-tabs" style={{ maxWidth: 580 }}>
+        <div className="tr-tabs" style={{ maxWidth: 700 }}>
           <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
           <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
           <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Systems</button>
           <button className={`tr-tab ${tab === 'milestones' ? 'tr-tab-active' : ''}`} onClick={() => setTab('milestones')}>Milestones</button>
+          <button className={`tr-tab ${tab === 'documents' ? 'tr-tab-active' : ''}`} onClick={() => setTab('documents')}>Documents</button>
         </div>
         {tab === 'mine' && <MyAppointmentsBody user={user} prefillClient={prefillClient} onPrefillConsumed={() => setPrefillClient(null)} />}
         {tab === 'calendar' && <CalendarBody user={user} />}
@@ -2872,6 +2980,7 @@ function AdvisorView({ user }) {
           <SystemsBody user={user} onLogAppointment={p => { setPrefillClient(`${p.firstName} ${p.lastName}`); setTab('mine'); }} />
         )}
         {tab === 'milestones' && <MilestonesBody user={user} />}
+        {tab === 'documents' && <DocumentsBody user={user} />}
       </main>
     </Shell>
   );
@@ -3259,11 +3368,12 @@ function ManagerView({ user }) {
     <Shell>
       <Header user={user} />
       <main className="tr-main">
-        <div className="tr-tabs" style={{ maxWidth: 1020 }}>
+        <div className="tr-tabs" style={{ maxWidth: 1140 }}>
           <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
           <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
           <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Systems</button>
           <button className={`tr-tab ${tab === 'milestones' ? 'tr-tab-active' : ''}`} onClick={() => setTab('milestones')}>Milestones</button>
+          <button className={`tr-tab ${tab === 'documents' ? 'tr-tab-active' : ''}`} onClick={() => setTab('documents')}>Documents</button>
           <button className={`tr-tab ${tab === 'teamsystems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('teamsystems')}>Team Prospecting</button>
           <button className={`tr-tab ${tab === 'pace' ? 'tr-tab-active' : ''}`} onClick={() => setTab('pace')}>Team Pace</button>
           <button className={`tr-tab ${tab === 'production' ? 'tr-tab-active' : ''}`} onClick={() => setTab('production')}>Track Production</button>
@@ -3274,6 +3384,7 @@ function ManagerView({ user }) {
           <SystemsBody user={user} onLogAppointment={p => { setPrefillClient(`${p.firstName} ${p.lastName}`); setTab('mine'); }} />
         )}
         {tab === 'milestones' && <MilestonesBody user={user} />}
+        {tab === 'documents' && <DocumentsBody user={user} />}
         {tab === 'teamsystems' && <TeamProspectingBody user={user} />}
         {tab === 'pace' && <TeamPaceBody user={user} />}
         {tab === 'production' && <TrackProductionBody user={user} />}
@@ -3313,6 +3424,43 @@ async function fetchAuditLog() {
   const { data, error } = await supabase.from('audit_log').select('*').order('created_at', { ascending: false }).limit(50);
   if (error) { console.error(error); return []; }
   return data;
+}
+// ---------------------------------------------------------------------
+// documents — shared PDF library for training/practice materials
+// ---------------------------------------------------------------------
+async function fetchDocuments() {
+  const { data, error } = await supabase.from('documents').select('*').order('created_at', { ascending: false });
+  if (error) { console.error(error); return []; }
+  return data;
+}
+async function uploadDocument(file, title, userId, userName) {
+  const filePath = `${crypto.randomUUID()}-${file.name}`;
+  const { error: uploadErr } = await supabase.storage.from('documents').upload(filePath, file);
+  if (uploadErr) return { ok: false, error: uploadErr.message };
+  const { data, error: insertErr } = await supabase.from('documents').insert({
+    title: title.trim(), file_path: filePath, file_size: file.size,
+    uploaded_by: userId, uploaded_by_name: userName,
+  }).select().single();
+  if (insertErr) return { ok: false, error: insertErr.message };
+  return { ok: true, record: data };
+}
+async function deleteDocument(id, filePath) {
+  await supabase.storage.from('documents').remove([filePath]);
+  const { error } = await supabase.from('documents').delete().eq('id', id);
+  return !error;
+}
+// Generated fresh on every download click — the bucket is private, so
+// this is the only way to actually retrieve a file, and it expires
+// quickly rather than being a permanent, shareable link.
+async function getDocumentDownloadUrl(filePath) {
+  const { data, error } = await supabase.storage.from('documents').createSignedUrl(filePath, 60);
+  if (error) { console.error(error); return null; }
+  return data.signedUrl;
+}
+function formatFileSize(bytes) {
+  if (!bytes) return '';
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 // Manager coaching notes — a general, week-scoped feedback channel,
 // separate from Open Requirements' policy-specific notes.
@@ -3496,11 +3644,12 @@ function AdminView({ user }) {
     <Shell>
       <Header user={user} />
       <main className="tr-main">
-        <div className="tr-tabs" style={{ maxWidth: 1360 }}>
+        <div className="tr-tabs" style={{ maxWidth: 1480 }}>
           <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
           <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
           <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Systems</button>
           <button className={`tr-tab ${tab === 'milestones' ? 'tr-tab-active' : ''}`} onClick={() => setTab('milestones')}>Milestones</button>
+          <button className={`tr-tab ${tab === 'documents' ? 'tr-tab-active' : ''}`} onClick={() => setTab('documents')}>Documents</button>
           <button className={`tr-tab ${tab === 'teamsystems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('teamsystems')}>Team Prospecting</button>
           <button className={`tr-tab ${tab === 'pace' ? 'tr-tab-active' : ''}`} onClick={() => setTab('pace')}>Team Pace</button>
           <button className={`tr-tab ${tab === 'directs' ? 'tr-tab-active' : ''}`} onClick={() => setTab('directs')}>Direct Managers</button>
@@ -3513,6 +3662,7 @@ function AdminView({ user }) {
           <SystemsBody user={user} onLogAppointment={p => { setPrefillClient(`${p.firstName} ${p.lastName}`); setTab('mine'); }} />
         )}
         {tab === 'milestones' && <MilestonesBody user={user} />}
+        {tab === 'documents' && <DocumentsBody user={user} />}
         {tab === 'teamsystems' && <TeamProspectingBody user={user} />}
         {tab === 'pace' && <TeamPaceBody user={user} />}
         {tab === 'directs' && <DirectManagersBody user={user} />}
@@ -3850,6 +4000,8 @@ const CSS = `
 .tr-tier-commission { font-size: 20px; font-weight: 700; color: var(--brass-dark); }
 .tr-tier-criteria { margin: 8px 0 0; padding-left: 20px; font-size: 13.5px; color: var(--slate); }
 .tr-tier-criteria li { margin-bottom: 3px; }
+.tr-document-card { padding: 14px 18px; }
+.tr-document-icon { color: var(--brass-dark); flex-shrink: 0; }
 .tr-prospect-outcome-row { display: flex; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .tr-type-recruit { box-shadow: inset 3px 0 0 0 var(--type-recruit); }
 .tr-type-sale { box-shadow: inset 3px 0 0 0 var(--type-sale); }
