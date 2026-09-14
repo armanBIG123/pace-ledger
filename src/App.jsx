@@ -3437,8 +3437,10 @@ function ManageUsersView({ currentUserId, currentUserName }) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  const managerOptions = users.filter(u => u.role === 'manager');
   const adminOptions = users.filter(u => u.role === 'super_admin');
+  // A super admin can personally be someone's direct upline too, not
+  // just oversee the org — same reasoning as the sign-up manager picker.
+  const advisorUplineOptions = users.filter(u => u.role === 'manager' || u.role === 'super_admin');
 
   async function handleChange(id, newRole) {
     const target = users.find(u => u.id === id);
@@ -3513,7 +3515,7 @@ function ManageUsersView({ currentUserId, currentUserName }) {
                     {u.role === 'advisor' ? (
                       <select value={u.manager_id || ''} disabled={savingId === u.id} onChange={e => handleManagerChange(u.id, e.target.value)}>
                         <option value="">— none —</option>
-                        {managerOptions.map(m => <option key={m.id} value={m.id}>{m.display_name}</option>)}
+                        {advisorUplineOptions.map(m => <option key={m.id} value={m.id}>{m.display_name}{m.role === 'super_admin' ? ' (Super Admin)' : ''}</option>)}
                       </select>
                     ) : u.role === 'manager' ? (
                       <select value={u.manager_id || ''} disabled={savingId === u.id} onChange={e => handleManagerChange(u.id, e.target.value)}>
