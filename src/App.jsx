@@ -1230,15 +1230,6 @@ function openPicker(e) {
     try { e.target.showPicker(); } catch { /* unsupported in this browser, ignore */ }
   }
 }
-async function fetchCalendlyContacts() {
-  const { data, error } = await supabase
-    .from('profiles').select('id, display_name, role, calendly_url')
-    .in('role', ['manager', 'super_admin'])
-    .not('calendly_url', 'is', null)
-    .order('display_name');
-  if (error) { console.error(error); return []; }
-  return data;
-}
 async function fetchZoomConnectedManagers() {
   const { data, error } = await supabase
     .from('zoom_connected_managers').select('id, display_name').order('display_name');
@@ -1385,12 +1376,10 @@ function AppointmentForm({ user, weekMonday, editing, prefillClient, onCancel, o
   const [typeSale, setTypeSale] = useState(editing ? isSaleType(editing) : false);
   const [zoomHostId, setZoomHostId] = useState('');
   const [err, setErr] = useState('');
-  const [calendlyContacts, setCalendlyContacts] = useState([]);
   const [zoomManagers, setZoomManagers] = useState([]);
   const timezoneOptions = timezoneOptionsWithDetected();
 
   useEffect(() => {
-    fetchCalendlyContacts().then(setCalendlyContacts);
     fetchZoomConnectedManagers().then(setZoomManagers);
   }, []);
 
@@ -1420,23 +1409,11 @@ function AppointmentForm({ user, weekMonday, editing, prefillClient, onCancel, o
           This one needs to be rescheduled — saving will count it toward this week's batch as a new entry, and clear its old follow-up status.
         </div>
       )}
-      {calendlyContacts.length > 0 && (
-        <div className="tr-field tr-field-wide tr-form-section">
-          <span>If a manager is presenting, open their Calendly to schedule</span>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 4 }}>
-            {calendlyContacts.map(c => (
-              <a key={c.id} href={c.calendly_url} target="_blank" rel="noopener noreferrer" className="tr-btn tr-btn-ghost tr-btn-sm">
-                {c.display_name}'s Calendly
-              </a>
-            ))}
-          </div>
-        </div>
-      )}
       {!editing && zoomManagers.length > 0 && (
         <label className="tr-field tr-field-wide tr-form-section">
           <span>Which manager is presenting? (uses their connected Zoom to create the meeting)</span>
           <select value={zoomHostId} onChange={e => setZoomHostId(e.target.value)}>
-            <option value="">Me — use my own connected Zoom</option>
+            <option value="">None</option>
             {zoomManagers.map(m => <option key={m.id} value={m.id}>{m.display_name}</option>)}
           </select>
         </label>
@@ -2262,50 +2239,6 @@ function ProspectCard({ prospect, rank, onDelete, onToggleOutcome, onLogAppointm
     </div>
   );
 }
-function CalendlyLinkEditor({ user }) {
-  const [link, setLink] = useState('');
-  const [loaded, setLoaded] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState('');
-
-  useEffect(() => {
-    supabase.from('profiles').select('calendly_url').eq('id', user.id).single()
-      .then(({ data }) => { setLink(data?.calendly_url || ''); setLoaded(true); });
-  }, [user.id]);
-
-  async function save() {
-    setSaving(true); setSaved(false); setError('');
-    const { error: err } = await supabase.from('profiles').update({ calendly_url: link.trim() || null }).eq('id', user.id);
-    setSaving(false);
-    if (err) { setError(err.message); return; }
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  }
-
-  if (!loaded) return null;
-
-  return (
-    <div className="tr-card">
-      <h3 className="tr-h3">Your Calendly link</h3>
-      <p className="tr-subtitle">
-        Advisors will see this and can click it when they log an appointment where you're the presenter.
-      </p>
-      <div className="tr-form-grid">
-        <label className="tr-field tr-field-wide">
-          <span>Calendly URL</span>
-          <input value={link} onChange={e => setLink(e.target.value)} placeholder="https://calendly.com/your-name/30min" />
-        </label>
-      </div>
-      {error && <div className="tr-error">{error}</div>}
-      <div className="tr-form-actions">
-        <button type="button" className="tr-btn tr-btn-brass" onClick={save} disabled={saving}>
-          {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save link'}
-        </button>
-      </div>
-    </div>
-  );
-}
 // ---------------------------------------------------------------------
 // milestones — career-ladder reference and (later) incentive tracking
 // ---------------------------------------------------------------------
@@ -2904,7 +2837,6 @@ function MyAppointmentsBody({ user, prefillClient, onPrefillConsumed }) {
               onJumpToFollowUp={() => setStatusView('needs_follow_up')} />
             <MyCoachingNotes userId={user.id} weekOf={weekMonday} />
             <ZoomConnect status={zoomStatus} connecting={zoomConnecting} onConnect={handleZoomConnect} onDisconnect={handleZoomDisconnect} />
-            {(user.role === 'manager' || user.role === 'super_admin') && <CalendlyLinkEditor user={user} />}
             <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
             <PaceStrip groups={groups.map(g => ({ option: g.option, count: g.list.length, list: g.list }))} />
             <PaceTrend appointments={appointments} currentWeekMonday={weekMonday} />
