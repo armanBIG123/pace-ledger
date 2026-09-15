@@ -146,7 +146,9 @@ function rowToRecord(row) {
     appointmentDate: row.appointment_date,
     appointmentTime: (row.appointment_time || '').slice(0, 5),
     presenter: row.presenter,
+    presenterId: row.presenter_id || '',
     trainee: row.trainee || '',
+    traineeId: row.trainee_id || '',
     client: row.client_name,
     notes: row.notes || '',
     createdAt: row.created_at,
@@ -437,39 +439,78 @@ const PROSPECT_SOURCES = ['Referral', 'Cold outreach', 'Event', 'Social media', 
 const HIERARCHY_TIERS = [
   {
     key: 'FA', name: 'Field Associate', commission: 40, window: 'rolling30',
-    criteria: ['Get licensed', '3 observation sales', '1 recruit'],
+    criteria: ['Get licensed', '3 observation sales', '1 direct recruit'],
+    requirements: [
+      { type: 'licensed' },
+      { type: 'observationSales', count: 3 },
+      { type: 'directRecruits', count: 1 },
+    ],
   },
   {
     key: 'SA', name: 'Senior Associate', commission: 50, window: 'rolling30',
-    criteria: ['Build 1 Senior Associate', '$10k personal target premium', '$20k target premium base shop'],
+    criteria: ['Build 1 direct Senior Associate', '$10k personal target premium', '$20k target premium base shop'],
+    requirements: [
+      { type: 'directTierCount', tier: 'SA', count: 1 },
+      { type: 'personalPremium', amount: 10000 },
+      { type: 'baseShopPremium', amount: 20000 },
+    ],
   },
   {
     key: 'AD', name: 'Associate Director', commission: 60, window: 'rolling30',
-    criteria: ['Build 3 Senior Associates', 'Another $10k personal target premium', '$35k target premium base shop'],
+    criteria: ['Build 3 direct Senior Associates', 'Another $10k personal target premium', '$35k target premium base shop'],
+    requirements: [
+      { type: 'directTierCount', tier: 'SA', count: 3 },
+      { type: 'personalPremium', amount: 10000 },
+      { type: 'baseShopPremium', amount: 35000 },
+    ],
   },
   {
     key: 'FD', name: 'Field Director', commission: 75, window: 'consecutive2',
-    criteria: ['Build 6 Senior Associates direct underneath you', '$50k target premium base shop'],
+    criteria: ['Build 6 direct Senior Associates', '$50k target premium base shop'],
+    requirements: [
+      { type: 'directTierCount', tier: 'SA', count: 6 },
+      { type: 'baseShopPremium', amount: 50000 },
+    ],
   },
   {
     key: 'SFD', name: 'Senior Field Director', commission: 80, window: 'consecutive2',
-    criteria: ['Build 3 Field Directors', '$200k target premium base shop'],
+    criteria: ['Build 3 direct Field Directors', '$200k target premium base shop'],
+    requirements: [
+      { type: 'directTierCount', tier: 'FD', count: 3 },
+      { type: 'baseShopPremium', amount: 200000 },
+    ],
   },
   {
     key: 'DFD', name: 'Direct Field Director', commission: 83, window: 'consecutive2',
-    criteria: ['Build 4 Field Directors', '$250k target premium base shop'],
+    criteria: ['Build 4 direct Field Directors', '$250k target premium base shop'],
+    requirements: [
+      { type: 'directTierCount', tier: 'FD', count: 4 },
+      { type: 'baseShopPremium', amount: 250000 },
+    ],
   },
   {
     key: 'EFD', name: 'Executive Field Director', commission: 86, window: 'consecutive2',
-    criteria: ['Build 5 Field Directors', '$300k target premium base shop'],
+    criteria: ['Build 5 direct Field Directors', '$300k target premium base shop'],
+    requirements: [
+      { type: 'directTierCount', tier: 'FD', count: 5 },
+      { type: 'baseShopPremium', amount: 300000 },
+    ],
   },
   {
     key: 'FVC', name: 'Field Vice Chairman', commission: 89, window: 'consecutive2',
-    criteria: ['Build 6 Field Directors', '$500k target premium base shop'],
+    criteria: ['Build 6 direct Field Directors', '$500k target premium base shop'],
+    requirements: [
+      { type: 'directTierCount', tier: 'FD', count: 6 },
+      { type: 'baseShopPremium', amount: 500000 },
+    ],
   },
   {
     key: 'EVC', name: 'Executive Vice Chairman', commission: 90, window: 'consecutive2',
-    criteria: ['Build 7 Field Directors', '$750k target premium base shop'],
+    criteria: ['Build 7 direct Field Directors', '$750k target premium base shop'],
+    requirements: [
+      { type: 'directTierCount', tier: 'FD', count: 7 },
+      { type: 'baseShopPremium', amount: 750000 },
+    ],
   },
 ];
 const HIERARCHY_TIER_WINDOW_LABELS = { rolling30: 'Tracked on a rolling 30 days', consecutive2: 'Must hit requirements for 2 consecutive months' };
@@ -604,7 +645,9 @@ async function insertAppointment(userId, form) {
     appointment_time: form.appointmentTime,
     appointment_timezone: form.timezone || null,
     presenter: form.presenter.trim(),
+    presenter_id: form.presenterId || null,
     trainee: form.trainee.trim() || null,
+    trainee_id: form.traineeId || null,
     client_name: form.client.trim(),
     notes: form.notes.trim() || null,
     presentation_type: form.presentationType || null,
@@ -628,7 +671,9 @@ async function updateAppointment(id, form, isReschedule) {
     appointment_time: form.appointmentTime,
     appointment_timezone: form.timezone || null,
     presenter: form.presenter.trim(),
+    presenter_id: form.presenterId || null,
     trainee: form.trainee.trim() || null,
+    trainee_id: form.traineeId || null,
     client_name: form.client.trim(),
     notes: form.notes.trim() || null,
     presentation_type: form.presentationType || null,
@@ -701,6 +746,21 @@ function computeDownline(rootId, allPeople) {
     const person = allPeople.find(p => p.id === currentId);
     if (person) result.push(person);
     allPeople.filter(p => p.manager_id === currentId).forEach(r => queue.push(r.id));
+  }
+  return result;
+}
+// The reverse walk — from a person up through their manager, their
+// manager's manager, and so on. Includes the person themselves first, so
+// this alone gives the full "who could this person select as presenter"
+// list: themselves, plus everyone above them in the reporting chain.
+function computeUpline(userId, allPeople) {
+  const result = [];
+  const visited = new Set();
+  let current = allPeople.find(p => p.id === userId);
+  while (current && !visited.has(current.id)) {
+    visited.add(current.id);
+    result.push(current);
+    current = current.manager_id ? allPeople.find(p => p.id === current.manager_id) : null;
   }
   return result;
 }
@@ -1380,8 +1440,9 @@ function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onS
   const [appointmentDate, setAppointmentDate] = useState(editing?.appointmentDate || '');
   const [appointmentTime, setAppointmentTime] = useState(editing?.appointmentTime || '');
   const [timezone, setTimezone] = useState(editing?.appointmentTimezone || detectTimezone());
-  const [presenter, setPresenter] = useState(editing?.presenter || user.displayName || '');
-  const [trainee, setTrainee] = useState(editing?.trainee || '');
+  const [presenterId, setPresenterId] = useState(editing?.presenterId || user.id);
+  const [traineeId, setTraineeId] = useState(editing?.traineeId || '');
+  const [orgDirectory, setOrgDirectory] = useState([]);
   const [client, setClient] = useState(editing?.client || prefillData?.client || '');
   const [notes, setNotes] = useState(editing?.notes || prefillData?.notes || '');
   const [typeRecruit, setTypeRecruit] = useState(editing ? isRecruitType(editing) : !!prefillData?.typeRecruit);
@@ -1393,12 +1454,28 @@ function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onS
 
   useEffect(() => {
     fetchZoomConnectedManagers().then(setZoomManagers);
+    fetchOrgDirectory().then(setOrgDirectory);
   }, []);
+
+  // Presenter options: the logged-in person, plus everyone above them in
+  // the reporting chain — covers both "I'm presenting alone" and "my
+  // manager is presenting and I'm being trained." Trainee options depend
+  // on WHO is selected as presenter, not who's logged in — someone
+  // training under their manager should see themselves as a valid
+  // trainee option, and a manager presenting should see their own
+  // downline, so this recomputes whenever the presenter selection changes.
+  const presenterOptions = computeUpline(user.id, orgDirectory);
+  const traineeOptions = presenterId ? computeDownline(presenterId, orgDirectory).filter(p => p.id !== presenterId) : [];
+
+  function handlePresenterChange(id) {
+    setPresenterId(id);
+    setTraineeId(''); // the old trainee pick may not be valid under a different presenter
+  }
 
   const meta = dateSetMeta(dateSetOption);
 
   function submit() {
-    if (!appointmentDate || !appointmentTime || !presenter.trim() || !client.trim() || (!typeRecruit && !typeSale)) {
+    if (!appointmentDate || !appointmentTime || !presenterId || !client.trim() || (!typeRecruit && !typeSale)) {
       setErr('Fill in the appointment date/time, presenter, client/recruit, and whether it\'s a recruit and/or sale.');
       return;
     }
@@ -1407,7 +1484,13 @@ function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onS
     if (typeRecruit && typeSale) { presentationType = 'recruit'; presentationTypeSecondary = 'sale'; }
     else if (typeRecruit) { presentationType = 'recruit'; }
     else if (typeSale) { presentationType = 'sale'; }
-    onSubmit({ dateSetOption, appointmentDate, appointmentTime, timezone, presenter, trainee, client, notes, presentationType, presentationTypeSecondary, zoomHostId: zoomHostId || null });
+    const presenterName = presenterOptions.find(p => p.id === presenterId)?.display_name || user.displayName || '';
+    const traineeName = traineeId ? (traineeOptions.find(p => p.id === traineeId)?.display_name || '') : '';
+    onSubmit({
+      dateSetOption, appointmentDate, appointmentTime, timezone,
+      presenter: presenterName, presenterId, trainee: traineeName, traineeId,
+      client, notes, presentationType, presentationTypeSecondary, zoomHostId: zoomHostId || null,
+    });
   }
   function handleKeyDown(e) {
     if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') { e.preventDefault(); submit(); }
@@ -1445,7 +1528,9 @@ function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onS
         </label>
         <label className="tr-field">
           <span>Presenter</span>
-          <input value={presenter} onChange={e => setPresenter(e.target.value)} placeholder="Who is presenting" />
+          <select value={presenterId} onChange={e => handlePresenterChange(e.target.value)}>
+            {presenterOptions.map(p => <option key={p.id} value={p.id}>{p.display_name}{p.id === user.id ? ' (you)' : ''}</option>)}
+          </select>
         </label>
         <label className="tr-field">
           <span>Client / recruit</span>
@@ -1469,10 +1554,15 @@ function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onS
             {timezoneOptions.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
           </select>
         </label>
-        <label className="tr-field">
-          <span>Trainee (optional)</span>
-          <input value={trainee} onChange={e => setTrainee(e.target.value)} placeholder="Who is being trained" />
-        </label>
+        {traineeOptions.length > 0 && (
+          <label className="tr-field">
+            <span>Trainee (optional)</span>
+            <select value={traineeId} onChange={e => setTraineeId(e.target.value)}>
+              <option value="">— none —</option>
+              {traineeOptions.map(p => <option key={p.id} value={p.id}>{p.display_name}{p.id === user.id ? ' (you)' : ''}</option>)}
+            </select>
+          </label>
+        )}
         <label className="tr-field tr-field-wide">
           <span>Notes (optional)</span>
           <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Anything else worth noting" />
@@ -2254,6 +2344,18 @@ function ProspectCard({ prospect, rank, onDelete, onToggleOutcome, onLogAppointm
 // ---------------------------------------------------------------------
 // milestones — career-ladder reference and (later) incentive tracking
 // ---------------------------------------------------------------------
+function isLicensed(profile) {
+  return !!(profile?.npn?.trim() && profile?.fg_writing_number?.trim());
+}
+async function fetchMyLicensing(userId) {
+  const { data, error } = await supabase.from('profiles').select('npn, fg_writing_number').eq('id', userId).single();
+  if (error) { console.error(error); return { npn: '', fg_writing_number: '' }; }
+  return data;
+}
+async function saveLicensing(userId, npn, fgWritingNumber) {
+  const { error } = await supabase.from('profiles').update({ npn: npn.trim() || null, fg_writing_number: fgWritingNumber.trim() || null }).eq('id', userId);
+  return !error;
+}
 function TierCard({ tier, isCurrentTier }) {
   return (
     <div className={`tr-card tr-tier-card ${isCurrentTier ? 'tr-tier-card-current' : ''}`}>
@@ -2295,8 +2397,66 @@ function IncentivesBody() {
     </>
   );
 }
+function LicensingBody({ user }) {
+  const [npn, setNpn] = useState('');
+  const [fgNumber, setFgNumber] = useState('');
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    fetchMyLicensing(user.id).then(data => {
+      setNpn(data.npn || '');
+      setFgNumber(data.fg_writing_number || '');
+      setLoaded(true);
+    });
+  }, [user.id]);
+
+  async function save() {
+    setSaving(true); setSaved(false);
+    const ok = await saveLicensing(user.id, npn, fgNumber);
+    setSaving(false);
+    if (ok) { setSaved(true); setTimeout(() => setSaved(false), 2000); }
+  }
+
+  const licensed = isLicensed({ npn, fg_writing_number: fgNumber });
+
+  return (
+    <>
+      <h2 className="tr-h2">Licensing</h2>
+      <p className="tr-subtitle">
+        Field Associates are plugged in right away, even before they're licensed — this is where that gets marked
+        official once it happens.
+      </p>
+      {!loaded ? <SkeletonCards count={1} /> : (
+        <div className="tr-card">
+          <div className="tr-row-head" style={{ marginBottom: 14 }}>
+            <h3 className="tr-h3" style={{ margin: 0 }}>Your licensing info</h3>
+            {licensed && <span className="tr-type-badge tr-type-badge-both">✓ Licensed</span>}
+          </div>
+          <div className="tr-form-grid">
+            <label className="tr-field">
+              <span>National Producer Number (NPN)</span>
+              <input value={npn} onChange={e => setNpn(e.target.value)} placeholder="e.g. 1234567" />
+            </label>
+            <label className="tr-field">
+              <span>Fidelity &amp; Guaranty (F&amp;G) Writing Number</span>
+              <input value={fgNumber} onChange={e => setFgNumber(e.target.value)} placeholder="Your F&G writing number" />
+            </label>
+          </div>
+          {!licensed && <p className="tr-note" style={{ marginTop: 4 }}>Both fields need to be filled in to count as licensed.</p>}
+          <div className="tr-form-actions">
+            <button type="button" className="tr-btn tr-btn-brass" onClick={save} disabled={saving}>
+              {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save'}
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 function MilestonesBody({ user }) {
-  const [view, setView] = useState('guidelines'); // 'guidelines' | 'incentives'
+  const [view, setView] = useState('guidelines'); // 'guidelines' | 'licensing' | 'incentives'
   return (
     <div className="tr-appts-shell">
       <nav className="tr-appts-sidebar">
@@ -2306,13 +2466,20 @@ function MilestonesBody({ user }) {
           <span>Promotion Guidelines</span>
         </button>
         <button
+          type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'licensing' ? 'tr-sidebar-item-active' : ''}`}
+          onClick={() => setView('licensing')}>
+          <span>Licensing</span>
+        </button>
+        <button
           type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'incentives' ? 'tr-sidebar-item-active' : ''}`}
           onClick={() => setView('incentives')}>
           <span>Incentives</span>
         </button>
       </nav>
       <div className="tr-appts-main">
-        {view === 'guidelines' ? <PromotionGuidelinesBody user={user} /> : <IncentivesBody />}
+        {view === 'guidelines' && <PromotionGuidelinesBody user={user} />}
+        {view === 'licensing' && <LicensingBody user={user} />}
+        {view === 'incentives' && <IncentivesBody />}
       </div>
     </div>
   );
