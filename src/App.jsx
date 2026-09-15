@@ -3437,10 +3437,11 @@ function ManageUsersView({ currentUserId, currentUserName }) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  const adminOptions = users.filter(u => u.role === 'super_admin');
-  // A super admin can personally be someone's direct upline too, not
-  // just oversee the org — same reasoning as the sign-up manager picker.
-  const advisorUplineOptions = users.filter(u => u.role === 'manager' || u.role === 'super_admin');
+  // A manager or super admin can personally be someone's direct upline —
+  // used for both advisors and other managers reporting further up, so
+  // the org can stack multiple manager levels without needing anything
+  // new added later.
+  const managerAndAdminOptions = users.filter(u => u.role === 'manager' || u.role === 'super_admin');
 
   async function handleChange(id, newRole) {
     const target = users.find(u => u.id === id);
@@ -3515,12 +3516,12 @@ function ManageUsersView({ currentUserId, currentUserName }) {
                     {u.role === 'advisor' ? (
                       <select value={u.manager_id || ''} disabled={savingId === u.id} onChange={e => handleManagerChange(u.id, e.target.value)}>
                         <option value="">— none —</option>
-                        {advisorUplineOptions.map(m => <option key={m.id} value={m.id}>{m.display_name}{m.role === 'super_admin' ? ' (Super Admin)' : ''}</option>)}
+                        {managerAndAdminOptions.map(m => <option key={m.id} value={m.id}>{m.display_name}{m.role === 'super_admin' ? ' (Super Admin)' : ''}</option>)}
                       </select>
                     ) : u.role === 'manager' ? (
                       <select value={u.manager_id || ''} disabled={savingId === u.id} onChange={e => handleManagerChange(u.id, e.target.value)}>
                         <option value="">— none —</option>
-                        {adminOptions.map(a => <option key={a.id} value={a.id}>{a.display_name}</option>)}
+                        {managerAndAdminOptions.filter(m => m.id !== u.id).map(m => <option key={m.id} value={m.id}>{m.display_name}{m.role === 'super_admin' ? ' (Super Admin)' : ''}</option>)}
                       </select>
                     ) : '—'}
                   </td>
