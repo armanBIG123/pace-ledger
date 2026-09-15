@@ -3854,6 +3854,31 @@ function ManageUsersView({ currentUserId, currentUserName }) {
   // new added later.
   const managerAndAdminOptions = users.filter(u => u.role === 'manager' || u.role === 'super_admin');
 
+  const ROLE_LABELS = { advisor: 'Advisor', manager: 'Manager', super_admin: 'Super Admin' };
+  function handleExportRoster() {
+    const rows = [['Name', 'Email', 'Role', 'Hierarchy Tier', 'Reports To', 'Top-Level Team', 'Licensed', 'Member Since']];
+    users.forEach(u => {
+      const reportsTo = u.manager_id ? (users.find(m => m.id === u.manager_id)?.display_name || '') : '';
+      // The root of the upline chain — whichever top-level manager or
+      // super admin this person's org ultimately rolls up to, regardless
+      // of how many management layers sit in between. Lets a filter on
+      // this one column show everyone under a given leader at any depth.
+      const upline = computeUpline(u.id, users);
+      const topLevelTeam = upline.length > 0 ? upline[upline.length - 1].display_name : u.display_name;
+      rows.push([
+        u.display_name,
+        u.email || '',
+        ROLE_LABELS[u.role] || u.role,
+        u.hierarchy_tier ? hierarchyTierLabel(u.hierarchy_tier) : '',
+        reportsTo,
+        topLevelTeam,
+        isLicensed(u) ? 'Yes' : 'No',
+        u.created_at ? new Date(u.created_at).toLocaleDateString('en-US') : '',
+      ]);
+    });
+    downloadCSV(`team-roster-${todayStr()}.csv`, rows);
+  }
+
   async function handleChange(id, newRole) {
     const target = users.find(u => u.id === id);
     setSavingId(id);
@@ -3902,6 +3927,12 @@ function ManageUsersView({ currentUserId, currentUserName }) {
 
   return (
     <>
+    <div className="tr-row-head">
+      <h2 className="tr-h2">Manage Team</h2>
+      <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={handleExportRoster} disabled={users.length === 0}>
+        <Download size={14} /> Export CSV
+      </button>
+    </div>
     <div className="tr-card tr-summary-card">
       {error && <div className="tr-error" style={{ margin: 16 }}>{error}</div>}
       {loading ? <SkeletonTable rows={6} cols={5} /> : (
