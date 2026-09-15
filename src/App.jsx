@@ -519,6 +519,98 @@ function hierarchyTierLabel(key) {
   return tier ? `${tier.name} (${tier.key})` : '';
 }
 
+// ---------------------------------------------------------------------
+// live promotion progress — reads current appointments/hierarchy data
+// fresh every time it's computed, so it can never go stale the way a
+// stored/cached progress value could.
+// ---------------------------------------------------------------------
+function tierIndex(tierKey) { return HIERARCHY_TIERS.findIndex(t => t.key === tierKey); }
+function nextTierAfter(tierKey) {
+  const idx = tierIndex(tierKey);
+  if (idx === -1 || idx === HIERARCHY_TIERS.length - 1) return null;
+  return HIERARCHY_TIERS[idx + 1];
+}
+// "At least" — someone who's since been promoted past a tier still
+// counts toward "Build N direct X", they don't stop counting just
+// because they moved on.
+function tierAtLeast(personTierKey, targetTierKey) {
+  const pi = tierIndex(personTierKey), ti = tierIndex(targetTierKey);
+  return pi !== -1 && ti !== -1 && pi >= ti;
+}
+function inLastDays(dateStr, days) {
+  if (!dateStr) return false;
+  return new Date(dateStr).getTime() >= Date.now() - days * 24 * 60 * 60 * 1000;
+}
+function sumPremiumWhere(appointments, datePredicate) {
+  return appointments
+    .filter(a => a.officiallySold && datePredicate(a.appointmentDate))
+    .reduce((sum, a) => sum + (Number(a.targetPremium) || 0), 0);
+}
+// Real calendar months, not rolling 60-day windows — the current
+// (in-progress) month plus the 2 before it, each independently checked
+// against the target.
+function computeConsecutiveMonthsProgress(appointments, amountTarget) {
+  const now = new Date();
+  const months = [];
+  for (let i = 2; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const year = d.getFullYear(), month = d.getMonth();
+    const sum = sumPremiumWhere(appointments, dateStr => {
+      const ad = new Date(dateStr);
+      return ad.getFullYear() === year && ad.getMonth() === month;
+    });
+    months.push({ year, month, label: d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }), sum, met: sum >= amountTarget, isCurrent: i === 0 });
+  }
+  return months;
+}
+function hasConsecutivePair(months) {
+  for (let i = 0; i < months.length - 1; i++) {
+    if (months[i].met && months[i + 1].met) return true;
+  }
+  return false;
+}
+// Evaluates every requirement for someone's NEXT tier and returns a
+// structured result the UI can render directly — nothing here is
+// stored; it's recomputed from live data every time it's called.
+function computeTierProgress(person, allPeople, myAppointments, downlineAppointments, traineeAppointments) {
+  const next = nextTierAfter(person.hierarchy_tier);
+  if (!next) return null;
+  const directReports = allPeople.filter(p => p.manager_id === person.id);
+
+  const results = next.requirements.map(req => {
+    if (req.type === 'licensed') {
+      const met = isLicensed(person);
+      return { ...req, kind: 'status', met, label: 'Licensed' };
+    }
+    if (req.type === 'observationSales') {
+      const count = traineeAppointments.filter(a => a.officiallySold && inLastDays(a.appointmentDate, 30)).length;
+      return { ...req, kind: 'count', met: count >= req.count, current: count, target: req.count, label: `${req.count} observation sale${req.count === 1 ? '' : 's'}` };
+    }
+    if (req.type === 'directRecruits') {
+      const count = directReports.length;
+      return { ...req, kind: 'count', met: count >= req.count, current: count, target: req.count, label: `${req.count} direct recruit${req.count === 1 ? '' : 's'}` };
+    }
+    if (req.type === 'directTierCount') {
+      const count = directReports.filter(p => tierAtLeast(p.hierarchy_tier, req.tier)).length;
+      const tierName = HIERARCHY_TIERS.find(t => t.key === req.tier)?.name;
+      return { ...req, kind: 'count', met: count >= req.count, current: count, target: req.count, label: `${req.count} direct ${tierName}${req.count === 1 ? '' : 's'}` };
+    }
+    if (req.type === 'personalPremium' || req.type === 'baseShopPremium') {
+      const source = req.type === 'personalPremium' ? myAppointments : downlineAppointments;
+      const baseLabel = req.type === 'personalPremium' ? 'Personal target premium' : 'Target premium base shop';
+      if (next.window === 'rolling30') {
+        const sum = sumPremiumWhere(source, d => inLastDays(d, 30));
+        return { ...req, kind: 'money', met: sum >= req.amount, current: sum, target: req.amount, label: `${baseLabel} (last 30 days)` };
+      }
+      const months = computeConsecutiveMonthsProgress(source, req.amount);
+      return { ...req, kind: 'money-consecutive', met: hasConsecutivePair(months), months, target: req.amount, label: baseLabel };
+    }
+    return { ...req, kind: 'status', met: false, label: 'Unknown requirement' };
+  });
+
+  return { nextTier: next, results, allMet: results.every(r => r.met) };
+}
+
 function prospectSaleScore(p) { return SALE_CHARACTERISTICS.filter(c => p[c.key]).length; }
 function prospectRecruitScore(p) { return RECRUIT_CHARACTERISTICS.filter(c => p[c.key]).length; }
 function prospectTotalChecked(p) { return prospectSaleScore(p) + prospectRecruitScore(p); }
@@ -625,6 +717,23 @@ async function fetchMyAppointments(userId) {
   const { data, error } = await supabase
     .from('appointments').select('*').eq('user_id', userId)
     .order('appointment_date', { ascending: true });
+  if (error) { console.error(error); return []; }
+  return data.map(rowToRecord);
+}
+// For Base Shop premium — relies on the recursive-downline RLS policy to
+// correctly include everyone under someone, at any depth, not just
+// direct reports.
+async function fetchAppointmentsForUserIds(userIds) {
+  if (userIds.length === 0) return [];
+  const { data, error } = await supabase.from('appointments').select('*').in('user_id', userIds);
+  if (error) { console.error(error); return []; }
+  return data.map(rowToRecord);
+}
+// For observation-sales tracking — appointments where this person was
+// the trainee, regardless of who logged it (relies on the
+// trainee-visibility RLS policy).
+async function fetchAppointmentsAsTrainee(userId) {
+  const { data, error } = await supabase.from('appointments').select('*').eq('trainee_id', userId);
   if (error) { console.error(error); return []; }
   return data.map(rowToRecord);
 }
@@ -2374,6 +2483,96 @@ function TierCard({ tier, isCurrentTier }) {
     </div>
   );
 }
+function RequirementRow({ req }) {
+  if (req.kind === 'status') {
+    return (
+      <div className="tr-req-row">
+        <span className="tr-req-label">{req.label}</span>
+        <span className={`tr-type-badge ${req.met ? 'tr-type-badge-both' : ''}`}>{req.met ? '✓ Done' : 'Not yet'}</span>
+      </div>
+    );
+  }
+  if (req.kind === 'count' || req.kind === 'money') {
+    const isMoney = req.kind === 'money';
+    const pct = Math.min(100, (req.current / req.target) * 100);
+    return (
+      <div className="tr-req-row tr-req-row-bar">
+        <div className="tr-req-head">
+          <span className="tr-req-label">{req.label}</span>
+          <span className="tr-req-nums">{isMoney ? `$${req.current.toLocaleString()} / $${req.target.toLocaleString()}` : `${req.current} / ${req.target}`}</span>
+        </div>
+        <div className="tr-req-track"><div className={`tr-req-bar ${req.met ? 'tr-req-bar-met' : ''}`} style={{ width: `${Math.max(pct, req.current > 0 ? 4 : 0)}%` }} /></div>
+      </div>
+    );
+  }
+  if (req.kind === 'money-consecutive') {
+    return (
+      <div className="tr-req-row tr-req-row-bar">
+        <div className="tr-req-head">
+          <span className="tr-req-label">{req.label} — 2 consecutive months at ${req.target.toLocaleString()}+</span>
+        </div>
+        <div className="tr-req-months">
+          {req.months.map(m => (
+            <div key={`${m.year}-${m.month}`} className={`tr-req-month ${m.met ? 'tr-req-month-met' : ''}`}>
+              <span className="tr-req-month-label">{m.label}{m.isCurrent ? ' (so far)' : ''}</span>
+              <span className="tr-req-month-sum">${m.sum.toLocaleString()}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  return null;
+}
+function MyProgressCard({ user }) {
+  const [loading, setLoading] = useState(true);
+  const [progress, setProgress] = useState(null);
+  const [notSet, setNotSet] = useState(false);
+  const [atTop, setAtTop] = useState(false);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    const [orgDirectory, licensing, myAppts, traineeAppts] = await Promise.all([
+      fetchOrgDirectory(),
+      fetchMyLicensing(user.id),
+      fetchMyAppointments(user.id),
+      fetchAppointmentsAsTrainee(user.id),
+    ]);
+    const person = { ...(orgDirectory.find(p => p.id === user.id) || { id: user.id, manager_id: null }), hierarchy_tier: user.hierarchyTier, ...licensing };
+    if (!person.hierarchy_tier) { setNotSet(true); setAtTop(false); setProgress(null); setLoading(false); return; }
+    if (!nextTierAfter(person.hierarchy_tier)) { setAtTop(true); setNotSet(false); setProgress(null); setLoading(false); return; }
+    const downline = computeDownline(user.id, orgDirectory).filter(p => p.id !== user.id);
+    const downlineAppts = await fetchAppointmentsForUserIds(downline.map(p => p.id));
+    setNotSet(false); setAtTop(false);
+    setProgress(computeTierProgress(person, orgDirectory, myAppts, downlineAppts, traineeAppts));
+    setLoading(false);
+  }, [user.id, user.hierarchyTier]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  if (loading) return <SkeletonCards count={2} />;
+  if (notSet) {
+    return <div className="tr-card"><p className="tr-empty">Your hierarchy tier hasn't been set yet — ask a super admin to set it in Manage Team.</p></div>;
+  }
+  if (atTop) {
+    return <div className="tr-card"><p className="tr-empty">You've reached the top of the ladder — Executive Vice Chairman.</p></div>;
+  }
+  if (!progress) return null;
+
+  return (
+    <div className="tr-card tr-progress-card">
+      <div className="tr-row-head" style={{ marginBottom: 2 }}>
+        <h3 className="tr-h3" style={{ margin: 0 }}>Your progress toward {progress.nextTier.name} ({progress.nextTier.key})</h3>
+        <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+      </div>
+      <p className="tr-subtitle" style={{ margin: '2px 0 14px' }}>{HIERARCHY_TIER_WINDOW_LABELS[progress.nextTier.window]}</p>
+      {progress.results.map((req, i) => <RequirementRow key={i} req={req} />)}
+      {progress.allMet && (
+        <div className="tr-badge tr-badge-weekday" style={{ marginTop: 12 }}>All requirements met — ready for promotion!</div>
+      )}
+    </div>
+  );
+}
 function PromotionGuidelinesBody({ user }) {
   return (
     <>
@@ -2383,6 +2582,7 @@ function PromotionGuidelinesBody({ user }) {
           ? `Your current tier: ${hierarchyTierLabel(user.hierarchyTier)} (${HIERARCHY_TIERS.find(t => t.key === user.hierarchyTier)?.commission}% commission)`
           : "Your hierarchy tier hasn't been set yet — ask a super admin to set it in Manage Team."}
       </p>
+      <MyProgressCard user={user} />
       {HIERARCHY_TIERS.map(tier => (
         <TierCard key={tier.key} tier={tier} isCurrentTier={user.hierarchyTier === tier.key} />
       ))}
@@ -4196,6 +4396,21 @@ const CSS = `
 .tr-tier-criteria { margin: 8px 0 0; padding-left: 20px; font-size: 13.5px; color: var(--slate); }
 .tr-tier-criteria li { margin-bottom: 3px; }
 .tr-locked-value { font-family: inherit; font-size: 14px; padding: 9px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--paper-dim); color: var(--ink); }
+.tr-progress-card { border-color: var(--brass); }
+.tr-req-row { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.tr-req-row:last-child { border-bottom: none; }
+.tr-req-row:not(.tr-req-row-bar) { display: flex; align-items: center; justify-content: space-between; }
+.tr-req-label { font-size: 13.5px; color: var(--ink); }
+.tr-req-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
+.tr-req-nums { font-size: 12.5px; color: var(--slate-light); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tr-req-track { height: 8px; background: var(--paper-dim); border-radius: 4px; overflow: hidden; }
+.tr-req-bar { height: 100%; background: var(--brass); border-radius: 4px; transition: width .3s ease; }
+.tr-req-bar-met { background: #3F8F6C; }
+.tr-req-months { display: flex; gap: 8px; margin-top: 4px; }
+.tr-req-month { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 6px; border-radius: 6px; background: var(--paper-dim); border: 1px solid var(--line); }
+.tr-req-month-met { background: rgba(63,143,108,0.12); border-color: rgba(63,143,108,0.4); }
+.tr-req-month-label { font-size: 11px; color: var(--slate-light); }
+.tr-req-month-sum { font-size: 13px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
 .tr-document-card { padding: 14px 18px; }
 .tr-document-icon { color: var(--brass-dark); flex-shrink: 0; }
 .tr-prospect-outcome-row { display: flex; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
