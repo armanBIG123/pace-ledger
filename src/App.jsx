@@ -2354,7 +2354,7 @@ async function fetchMyLicensing(userId) {
 }
 async function saveLicensing(userId, npn, fgWritingNumber) {
   const { error } = await supabase.from('profiles').update({ npn: npn.trim() || null, fg_writing_number: fgWritingNumber.trim() || null }).eq('id', userId);
-  return !error;
+  return error ? { ok: false, error: error.message } : { ok: true };
 }
 function TierCard({ tier, isCurrentTier }) {
   return (
@@ -2398,28 +2398,46 @@ function IncentivesBody() {
   );
 }
 function LicensingBody({ user }) {
+  const [savedNpn, setSavedNpn] = useState('');
+  const [savedFgNumber, setSavedFgNumber] = useState('');
   const [npn, setNpn] = useState('');
   const [fgNumber, setFgNumber] = useState('');
+  const [editing, setEditing] = useState(true);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     fetchMyLicensing(user.id).then(data => {
-      setNpn(data.npn || '');
-      setFgNumber(data.fg_writing_number || '');
+      const n = data.npn || '', f = data.fg_writing_number || '';
+      setSavedNpn(n); setSavedFgNumber(f);
+      setNpn(n); setFgNumber(f);
+      setEditing(!(n && f)); // only start locked if already fully licensed
       setLoaded(true);
     });
   }, [user.id]);
 
   async function save() {
-    setSaving(true); setSaved(false);
-    const ok = await saveLicensing(user.id, npn, fgNumber);
+    setSaving(true); setError('');
+    const res = await saveLicensing(user.id, npn, fgNumber);
     setSaving(false);
-    if (ok) { setSaved(true); setTimeout(() => setSaved(false), 2000); }
+    if (!res.ok) { setError(res.error || 'Could not save. Try again.'); return; }
+    setSavedNpn(npn.trim()); setSavedFgNumber(fgNumber.trim());
+    setEditing(false); // lock once saved — matches what's now actually on file
+  }
+  function cancelEdit() {
+    setNpn(savedNpn); setFgNumber(savedFgNumber);
+    setError('');
+    setEditing(!(savedNpn && savedFgNumber));
+  }
+  function startEdit() {
+    setError('');
+    setEditing(true);
   }
 
-  const licensed = isLicensed({ npn, fg_writing_number: fgNumber });
+  // Based on what's actually saved, not whatever's currently typed —
+  // the badge shouldn't flip on before Save locks it in.
+  const licensed = isLicensed({ npn: savedNpn, fg_writing_number: savedFgNumber });
 
   return (
     <>
@@ -2434,22 +2452,48 @@ function LicensingBody({ user }) {
             <h3 className="tr-h3" style={{ margin: 0 }}>Your licensing info</h3>
             {licensed && <span className="tr-type-badge tr-type-badge-both">✓ Licensed</span>}
           </div>
-          <div className="tr-form-grid">
-            <label className="tr-field">
-              <span>National Producer Number (NPN)</span>
-              <input value={npn} onChange={e => setNpn(e.target.value)} placeholder="e.g. 1234567" />
-            </label>
-            <label className="tr-field">
-              <span>Fidelity &amp; Guaranty (F&amp;G) Writing Number</span>
-              <input value={fgNumber} onChange={e => setFgNumber(e.target.value)} placeholder="Your F&G writing number" />
-            </label>
-          </div>
-          {!licensed && <p className="tr-note" style={{ marginTop: 4 }}>Both fields need to be filled in to count as licensed.</p>}
-          <div className="tr-form-actions">
-            <button type="button" className="tr-btn tr-btn-brass" onClick={save} disabled={saving}>
-              {saving ? 'Saving…' : saved ? 'Saved ✓' : 'Save'}
-            </button>
-          </div>
+          {editing ? (
+            <>
+              <div className="tr-form-grid">
+                <label className="tr-field">
+                  <span>National Producer Number (NPN)</span>
+                  <input value={npn} onChange={e => setNpn(e.target.value)} placeholder="e.g. 1234567" />
+                </label>
+                <label className="tr-field">
+                  <span>Fidelity &amp; Guaranty (F&amp;G) Writing Number</span>
+                  <input value={fgNumber} onChange={e => setFgNumber(e.target.value)} placeholder="Your F&G writing number" />
+                </label>
+              </div>
+              {!isLicensed({ npn, fg_writing_number: fgNumber }) && (
+                <p className="tr-note" style={{ marginTop: 4 }}>Both fields need to be filled in to count as licensed.</p>
+              )}
+              {error && <div className="tr-error">{error}</div>}
+              <div className="tr-form-actions">
+                {savedNpn && savedFgNumber && (
+                  <button type="button" className="tr-btn tr-btn-ghost" onClick={cancelEdit}>Cancel</button>
+                )}
+                <button type="button" className="tr-btn tr-btn-brass" onClick={save} disabled={saving}>
+                  {saving ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="tr-form-grid">
+                <div className="tr-field">
+                  <span>National Producer Number (NPN)</span>
+                  <div className="tr-locked-value">{savedNpn}</div>
+                </div>
+                <div className="tr-field">
+                  <span>Fidelity &amp; Guaranty (F&amp;G) Writing Number</span>
+                  <div className="tr-locked-value">{savedFgNumber}</div>
+                </div>
+              </div>
+              <div className="tr-form-actions">
+                <button type="button" className="tr-btn tr-btn-ghost" onClick={startEdit}><Pencil size={14} /> Edit</button>
+              </div>
+            </>
+          )}
         </div>
       )}
     </>
@@ -4151,6 +4195,7 @@ const CSS = `
 .tr-tier-commission { font-size: 20px; font-weight: 700; color: var(--brass-dark); }
 .tr-tier-criteria { margin: 8px 0 0; padding-left: 20px; font-size: 13.5px; color: var(--slate); }
 .tr-tier-criteria li { margin-bottom: 3px; }
+.tr-locked-value { font-family: inherit; font-size: 14px; padding: 9px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--paper-dim); color: var(--ink); }
 .tr-document-card { padding: 14px 18px; }
 .tr-document-icon { color: var(--brass-dark); flex-shrink: 0; }
 .tr-prospect-outcome-row { display: flex; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
