@@ -438,6 +438,10 @@ const PROSPECT_SOURCES = ['Referral', 'Cold outreach', 'Event', 'Social media', 
 // everything above that is tracked over 2 consecutive months.
 const HIERARCHY_TIERS = [
   {
+    key: 'UA', name: 'Unlicensed Associate', commission: 0, window: null,
+    criteria: [], requirements: [],
+  },
+  {
     key: 'FA', name: 'Field Associate', commission: 40, window: 'rolling30',
     criteria: ['Get licensed', '3 observation sales', '1 direct recruit'],
     requirements: [
@@ -2476,10 +2480,16 @@ function TierCard({ tier, isCurrentTier }) {
         </div>
         <span className="tr-tier-commission">{tier.commission}%</span>
       </div>
-      <div className="tr-note">{HIERARCHY_TIER_WINDOW_LABELS[tier.window]}</div>
-      <ul className="tr-tier-criteria">
-        {tier.criteria.map((c, i) => <li key={i}>{c}</li>)}
-      </ul>
+      {tier.criteria.length === 0 ? (
+        <div className="tr-note">Automatically assigned at sign-up.</div>
+      ) : (
+        <>
+          <div className="tr-note">{HIERARCHY_TIER_WINDOW_LABELS[tier.window]}</div>
+          <ul className="tr-tier-criteria">
+            {tier.criteria.map((c, i) => <li key={i}>{c}</li>)}
+          </ul>
+        </>
+      )}
     </div>
   );
 }
