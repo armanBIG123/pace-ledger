@@ -2809,6 +2809,9 @@ function DocumentsBody({ user }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [downloadingId, setDownloadingId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [renaming, setRenaming] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -2853,6 +2856,26 @@ function DocumentsBody({ user }) {
     setDownloadingId(null);
     if (url) window.open(url, '_blank');
     else setError('Could not generate a download link. Try again.');
+  }
+  function startRename(doc) {
+    setEditingId(doc.id);
+    setEditTitle(doc.title);
+    setError('');
+  }
+  function cancelRename() {
+    setEditingId(null);
+    setEditTitle('');
+  }
+  async function saveRename(doc) {
+    if (!editTitle.trim()) { setError('Title can\'t be empty.'); return; }
+    setRenaming(true);
+    setError('');
+    const ok = await updateDocumentTitle(doc.id, editTitle);
+    setRenaming(false);
+    if (!ok) { setError('Could not rename. Try again.'); return; }
+    setDocuments(prev => prev.map(d => d.id === doc.id ? { ...d, title: editTitle.trim() } : d));
+    setEditingId(null);
+    setEditTitle('');
   }
 
   return (
@@ -2908,24 +2931,41 @@ function DocumentsBody({ user }) {
           activeDocs.map(doc => (
             <div key={doc.id} className="tr-card tr-document-card">
               <div className="tr-policy-head">
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
                   <FileText size={20} className="tr-document-icon" />
-                  <div>
-                    <strong>{doc.title}</strong>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    {editingId === doc.id ? (
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                        <input
+                          value={editTitle} onChange={e => setEditTitle(e.target.value)} autoFocus
+                          style={{ flex: 1, minWidth: 0, font: 'inherit', padding: '5px 8px', borderRadius: 6, border: '1px solid var(--line)' }} />
+                        <button type="button" className="tr-btn tr-btn-sm tr-btn-brass" onClick={() => saveRename(doc)} disabled={renaming}>
+                          {renaming ? 'Saving…' : 'Save'}
+                        </button>
+                        <button type="button" className="tr-btn tr-btn-sm tr-btn-ghost" onClick={cancelRename} disabled={renaming}>Cancel</button>
+                      </div>
+                    ) : (
+                      <strong>{doc.title}</strong>
+                    )}
                     <div className="tr-note">
                       Uploaded by {doc.uploaded_by_name} · {new Date(doc.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                       {doc.file_size ? ` · ${formatFileSize(doc.file_size)}` : ''}
                     </div>
                   </div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <button type="button" className="tr-btn tr-btn-sm tr-btn-ghost" onClick={() => handleDownload(doc)} disabled={downloadingId === doc.id}>
-                    <Download size={13} /> {downloadingId === doc.id ? 'Preparing…' : 'Download'}
-                  </button>
-                  {user.role === 'super_admin' && (
-                    <button type="button" className="tr-icon-btn" onClick={() => handleDelete(doc)} title="Delete document"><Trash2 size={14} /></button>
-                  )}
-                </div>
+                {editingId !== doc.id && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button type="button" className="tr-btn tr-btn-sm tr-btn-ghost" onClick={() => handleDownload(doc)} disabled={downloadingId === doc.id}>
+                      <Download size={13} /> {downloadingId === doc.id ? 'Preparing…' : 'Download'}
+                    </button>
+                    {user.role === 'super_admin' && (
+                      <>
+                        <button type="button" className="tr-icon-btn" onClick={() => startRename(doc)} title="Rename document"><Pencil size={14} /></button>
+                        <button type="button" className="tr-icon-btn" onClick={() => handleDelete(doc)} title="Delete document"><Trash2 size={14} /></button>
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           ))
@@ -4019,6 +4059,10 @@ async function uploadDocument(file, title, userId, userName, fileType) {
 async function deleteDocument(id, filePath) {
   await supabase.storage.from('documents').remove([filePath]);
   const { error } = await supabase.from('documents').delete().eq('id', id);
+  return !error;
+}
+async function updateDocumentTitle(id, title) {
+  const { error } = await supabase.from('documents').update({ title: title.trim() }).eq('id', id);
   return !error;
 }
 // Generated fresh on every download click — the bucket is private, so
