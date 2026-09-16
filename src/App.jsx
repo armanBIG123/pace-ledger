@@ -109,6 +109,20 @@ function fmtApptDateTime(a) {
   }
   return `${fmtDisplayDate(a.appointmentDate)} · ${fmtTime(a.appointmentTime)}`;
 }
+// A training posted at, say, 7pm ET needs to show as 6pm for someone in
+// Central time — these convert the stored UTC instant into whichever
+// calendar day and clock time it actually falls on for the person
+// looking at it, rather than repeating the raw stored values verbatim.
+// Falls back to the raw stored value for any training saved before this
+// existed (training_at will be null until the row is re-saved).
+function trainingLocalDate(t) {
+  return t.training_at ? fmtDate(new Date(t.training_at)) : t.training_date;
+}
+function trainingLocalTimeKey(t) {
+  if (!t.training_at) return (t.training_time || '00:00').slice(0, 5);
+  const d = new Date(t.training_at);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
 // The follow-up date/time saved on the ORIGINAL appointment — shown right
 // where the "Needs follow-up" status lives, not just on the separate
 // auto-created follow-up appointment.
@@ -2095,7 +2109,7 @@ function CalendarDay({ cell, appts, googleEvents, trainings, highlightTrainings,
   const items = [
     ...appts.map(a => ({ kind: 'appt', data: a, timeKey: a.appointmentTime || '00:00' })),
     ...googleEvents.map(e => ({ kind: 'google', data: e, timeKey: googleEventTimeKey(e) })),
-    ...trainings.map(t => ({ kind: 'training', data: t, timeKey: (t.training_time || '00:00').slice(0, 5) })),
+    ...trainings.map(t => ({ kind: 'training', data: t, timeKey: trainingLocalTimeKey(t) })),
   ].sort((a, b) => a.timeKey.localeCompare(b.timeKey));
   const visible = items.slice(0, 3);
   const extra = items.length - visible.length;
@@ -2198,7 +2212,7 @@ function CalendarBody({ user }) {
     if (personFilter !== 'all' && personFilter !== 'mine') return []; // Google events are always mine, not theirs
     return googleEvents.filter(e => (e.start || '').slice(0, 10) === dateStr);
   }
-  function trainingsForDay(dateStr) { return trainings.filter(t => t.training_date === dateStr); }
+  function trainingsForDay(dateStr) { return trainings.filter(t => trainingLocalDate(t) === dateStr); }
   function ownerName(userId) {
     if (user.role === 'advisor') return '';
     if (userId === user.id) return user.displayName;
@@ -2252,7 +2266,7 @@ function CalendarBody({ user }) {
           <div className="tr-notes-list" style={{ maxHeight: '60vh' }}>
             {dayModal.trainings.map(t => (
               <div key={t.id} className="tr-note-item tr-note-item-training">
-                <div className="tr-note-meta"><GraduationCap size={12} /> {fmtTime((t.training_time || '').slice(0, 5))} · Training{t.recurring_group_id ? ' · Weekly' : ''}</div>
+                <div className="tr-note-meta"><GraduationCap size={12} /> {fmtTime(trainingLocalTimeKey(t))} · Training{t.recurring_group_id ? ' · Weekly' : ''}</div>
                 <div><strong>{t.title}</strong></div>
                 {t.zoom_url && <div><a href={t.zoom_url} target="_blank" rel="noopener noreferrer" className="tr-note tr-link">Join Zoom</a></div>}
                 {t.notes && <div className="tr-note">{t.notes}</div>}
