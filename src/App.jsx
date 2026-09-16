@@ -2799,6 +2799,137 @@ function MilestonesBody({ user }) {
 // documents — shared PDF library, open to everyone; upload/delete is
 // super_admin only
 // ---------------------------------------------------------------------
+// Clickable link library — same super-admin-manages, everyone-views model
+// as PDF/PPTX Documents, just title+URL instead of a file.
+function ImportantLinksSection({ user }) {
+  const [links, setLinks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [newTitle, setNewTitle] = useState('');
+  const [newUrl, setNewUrl] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editUrl, setEditUrl] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setLinks(await fetchImportantLinks());
+    setLoading(false);
+  }, []);
+  useEffect(() => { refresh(); }, [refresh]);
+
+  // A link without a scheme (someone typing "success.fglife.com" instead
+  // of "https://success.fglife.com") would open as a broken relative path
+  // rather than a real external link — this quietly fixes that on save.
+  function normalizeUrl(u) {
+    const trimmed = u.trim();
+    return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  }
+
+  async function handleAdd() {
+    if (!newTitle.trim() || !newUrl.trim()) { setError('Give the link a title and a URL.'); return; }
+    setSaving(true);
+    setError('');
+    const res = await addImportantLink(newTitle, normalizeUrl(newUrl), user.id, user.displayName);
+    setSaving(false);
+    if (!res.ok) { setError(res.error || 'Could not save. Try again.'); return; }
+    setLinks(prev => [...prev, res.record]);
+    setNewTitle(''); setNewUrl(''); setShowAdd(false);
+  }
+  async function handleDelete(link) {
+    if (!window.confirm(`Remove "${link.title}"?`)) return;
+    const prev = links;
+    setLinks(links.filter(l => l.id !== link.id));
+    const ok = await deleteImportantLink(link.id);
+    if (!ok) setLinks(prev);
+  }
+  function startEdit(link) {
+    setEditingId(link.id);
+    setEditTitle(link.title);
+    setEditUrl(link.url);
+    setError('');
+  }
+  function cancelEdit() {
+    setEditingId(null);
+    setEditTitle(''); setEditUrl('');
+  }
+  async function saveEdit(link) {
+    if (!editTitle.trim() || !editUrl.trim()) { setError('Title and URL can\'t be empty.'); return; }
+    setSavingEdit(true);
+    setError('');
+    const normalized = normalizeUrl(editUrl);
+    const ok = await updateImportantLink(link.id, editTitle, normalized);
+    setSavingEdit(false);
+    if (!ok) { setError('Could not save. Try again.'); return; }
+    setLinks(prev => prev.map(l => l.id === link.id ? { ...l, title: editTitle.trim(), url: normalized } : l));
+    setEditingId(null);
+  }
+
+  return (
+    <>
+      <div className="tr-row-head">
+        <h2 className="tr-h2">Important Links</h2>
+        {user.role === 'super_admin' && (
+          <button className="tr-btn tr-btn-brass" onClick={() => setShowAdd(v => !v)}>
+            <Plus size={16} /> {showAdd ? 'Close' : 'Add link'}
+          </button>
+        )}
+      </div>
+      <p className="tr-subtitle">Quick access to the resources the whole team uses regularly.</p>
+      {error && <div className="tr-error">{error}</div>}
+      {showAdd && (
+        <div className="tr-card tr-form">
+          <div className="tr-form-grid">
+            <label className="tr-field tr-field-wide">
+              <span>Link text</span>
+              <input value={newTitle} onChange={e => setNewTitle(e.target.value)} placeholder="e.g. F&G Webinar Center" />
+            </label>
+            <label className="tr-field tr-field-wide">
+              <span>URL</span>
+              <input value={newUrl} onChange={e => setNewUrl(e.target.value)} placeholder="https://…" />
+            </label>
+          </div>
+          <div className="tr-form-actions">
+            <button type="button" className="tr-btn tr-btn-brass" onClick={handleAdd} disabled={saving}>{saving ? 'Saving…' : 'Add link'}</button>
+          </div>
+        </div>
+      )}
+      {loading ? <SkeletonCards count={3} /> : links.length === 0 ? (
+        <div className="tr-card"><p className="tr-empty">No links added yet.</p></div>
+      ) : (
+        <div className="tr-card">
+          <ul className="tr-links-list">
+            {links.map(link => (
+              <li key={link.id} className="tr-links-row">
+                {editingId === link.id ? (
+                  <div className="tr-links-edit-row">
+                    <input value={editTitle} onChange={e => setEditTitle(e.target.value)} placeholder="Link text" />
+                    <input value={editUrl} onChange={e => setEditUrl(e.target.value)} placeholder="https://…" />
+                    <button type="button" className="tr-btn tr-btn-sm tr-btn-brass" onClick={() => saveEdit(link)} disabled={savingEdit}>{savingEdit ? 'Saving…' : 'Save'}</button>
+                    <button type="button" className="tr-btn tr-btn-sm tr-btn-ghost" onClick={cancelEdit} disabled={savingEdit}>Cancel</button>
+                  </div>
+                ) : (
+                  <>
+                    <a href={link.url} target="_blank" rel="noopener noreferrer" className="tr-links-anchor">{link.title}</a>
+                    {user.role === 'super_admin' && (
+                      <div className="tr-links-actions">
+                        <button type="button" className="tr-icon-btn" onClick={() => startEdit(link)} title="Edit link"><Pencil size={14} /></button>
+                        <button type="button" className="tr-icon-btn" onClick={() => handleDelete(link)} title="Remove link"><Trash2 size={14} /></button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </>
+  );
+}
 function DocumentsBody({ user }) {
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -2893,8 +3024,15 @@ function DocumentsBody({ user }) {
           <span>PPTX Documents</span>
           <span className="tr-mono">{pptxDocs.length}</span>
         </button>
+        <button
+          type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'links' ? 'tr-sidebar-item-active' : ''}`}
+          onClick={() => switchView('links')}>
+          <span>Important Links</span>
+        </button>
       </nav>
       <div className="tr-appts-main">
+        {view === 'links' ? <ImportantLinksSection user={user} /> : (
+        <>
         <div className="tr-row-head">
           <h2 className="tr-h2"><FileText size={18} /> {view === 'pdf' ? 'PDF Documents' : 'PPTX Documents'}</h2>
           {user.role === 'super_admin' && (
@@ -2969,6 +3107,8 @@ function DocumentsBody({ user }) {
               </div>
             </div>
           ))
+        )}
+        </>
         )}
       </div>
     </div>
@@ -4065,6 +4205,30 @@ async function updateDocumentTitle(id, title) {
   const { error } = await supabase.from('documents').update({ title: title.trim() }).eq('id', id);
   return !error;
 }
+// ---------------------------------------------------------------------
+// important links — Documents > Important Links, same visibility model
+// as documents (everyone views, only super admins manage)
+// ---------------------------------------------------------------------
+async function fetchImportantLinks() {
+  const { data, error } = await supabase.from('important_links').select('*').order('created_at', { ascending: true });
+  if (error) { console.error(error); return []; }
+  return data;
+}
+async function addImportantLink(title, url, userId, userName) {
+  const { data, error } = await supabase.from('important_links').insert({
+    title: title.trim(), url: url.trim(), created_by: userId, created_by_name: userName,
+  }).select().single();
+  if (error) return { ok: false, error: error.message };
+  return { ok: true, record: data };
+}
+async function updateImportantLink(id, title, url) {
+  const { error } = await supabase.from('important_links').update({ title: title.trim(), url: url.trim() }).eq('id', id);
+  return !error;
+}
+async function deleteImportantLink(id) {
+  const { error } = await supabase.from('important_links').delete().eq('id', id);
+  return !error;
+}
 // Generated fresh on every download click — the bucket is private, so
 // this is the only way to actually retrieve a file, and it expires
 // quickly rather than being a permanent, shareable link.
@@ -4706,6 +4870,14 @@ const CSS = `
 .tr-req-month-sum { font-size: 13px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
 .tr-document-card { padding: 14px 18px; }
 .tr-document-icon { color: var(--brass-dark); flex-shrink: 0; }
+.tr-links-list { list-style: none; margin: 0; padding: 0; }
+.tr-links-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.tr-links-row:last-child { border-bottom: none; }
+.tr-links-anchor { color: var(--brass-dark); font-weight: 500; text-decoration: none; }
+.tr-links-anchor:hover { text-decoration: underline; }
+.tr-links-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.tr-links-edit-row { display: flex; gap: 8px; align-items: center; width: 100%; }
+.tr-links-edit-row input { flex: 1; min-width: 0; font: inherit; padding: 6px 9px; border-radius: 6px; border: 1px solid var(--line); }
 .tr-prospect-outcome-row { display: flex; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .tr-type-recruit { box-shadow: inset 3px 0 0 0 var(--type-recruit); }
 .tr-type-sale { box-shadow: inset 3px 0 0 0 var(--type-sale); }
