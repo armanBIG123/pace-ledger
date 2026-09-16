@@ -2745,6 +2745,7 @@ function MilestonesBody({ user }) {
 function DocumentsBody({ user }) {
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [view, setView] = useState('pdf'); // 'pdf' | 'pptx'
   const [showUpload, setShowUpload] = useState(false);
   const [title, setTitle] = useState('');
   const [file, setFile] = useState(null);
@@ -2759,12 +2760,24 @@ function DocumentsBody({ user }) {
   }, []);
   useEffect(() => { refresh(); }, [refresh]);
 
+  const pdfDocs = documents.filter(d => (d.file_type || 'pdf') === 'pdf');
+  const pptxDocs = documents.filter(d => d.file_type === 'pptx');
+  const activeDocs = view === 'pdf' ? pdfDocs : pptxDocs;
+
+  function switchView(v) {
+    setView(v);
+    setShowUpload(false);
+    setError('');
+    setTitle('');
+    setFile(null);
+  }
+
   async function handleUpload() {
-    if (!file) { setError('Choose a PDF to upload.'); return; }
+    if (!file) { setError(`Choose a ${view === 'pdf' ? 'PDF' : 'PPTX'} file to upload.`); return; }
     if (!title.trim()) { setError('Give the document a title.'); return; }
     setUploading(true);
     setError('');
-    const res = await uploadDocument(file, title, user.id, user.displayName);
+    const res = await uploadDocument(file, title, user.id, user.displayName, view);
     setUploading(false);
     if (!res.ok) { setError(res.error || 'Upload failed. Try again.'); return; }
     setDocuments(prev => [res.record, ...prev]);
@@ -2786,63 +2799,82 @@ function DocumentsBody({ user }) {
   }
 
   return (
-    <>
-      <div className="tr-row-head">
-        <h2 className="tr-h2"><FileText size={18} /> Documents</h2>
-        {user.role === 'super_admin' && (
-          <button className="tr-btn tr-btn-brass" onClick={() => setShowUpload(v => !v)}>
-            <Plus size={16} /> {showUpload ? 'Close' : 'Upload document'}
-          </button>
-        )}
-      </div>
-      <p className="tr-subtitle">Training and presentation materials the whole team can download and practice with.</p>
-      {error && <div className="tr-error">{error}</div>}
-      {showUpload && (
-        <div className="tr-card tr-form">
-          <div className="tr-form-grid">
-            <label className="tr-field tr-field-wide">
-              <span>Title</span>
-              <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. New Product Presentation" />
-            </label>
-            <label className="tr-field tr-field-wide">
-              <span>PDF file</span>
-              <input type="file" accept="application/pdf" onChange={e => setFile(e.target.files[0] || null)} />
-            </label>
-          </div>
-          <div className="tr-form-actions">
-            <button type="button" className="tr-btn tr-btn-brass" onClick={handleUpload} disabled={uploading}>{uploading ? 'Uploading…' : 'Upload'}</button>
-          </div>
+    <div className="tr-appts-shell">
+      <nav className="tr-appts-sidebar">
+        <button
+          type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'pdf' ? 'tr-sidebar-item-active' : ''}`}
+          onClick={() => switchView('pdf')}>
+          <span>PDF Documents</span>
+          <span className="tr-mono">{pdfDocs.length}</span>
+        </button>
+        <button
+          type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'pptx' ? 'tr-sidebar-item-active' : ''}`}
+          onClick={() => switchView('pptx')}>
+          <span>PPTX Documents</span>
+          <span className="tr-mono">{pptxDocs.length}</span>
+        </button>
+      </nav>
+      <div className="tr-appts-main">
+        <div className="tr-row-head">
+          <h2 className="tr-h2"><FileText size={18} /> {view === 'pdf' ? 'PDF Documents' : 'PPTX Documents'}</h2>
+          {user.role === 'super_admin' && (
+            <button className="tr-btn tr-btn-brass" onClick={() => setShowUpload(v => !v)}>
+              <Plus size={16} /> {showUpload ? 'Close' : 'Upload document'}
+            </button>
+          )}
         </div>
-      )}
-      {loading ? <SkeletonCards count={3} /> : documents.length === 0 ? (
-        <div className="tr-card"><p className="tr-empty">No documents uploaded yet.</p></div>
-      ) : (
-        documents.map(doc => (
-          <div key={doc.id} className="tr-card tr-document-card">
-            <div className="tr-policy-head">
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <FileText size={20} className="tr-document-icon" />
-                <div>
-                  <strong>{doc.title}</strong>
-                  <div className="tr-note">
-                    Uploaded by {doc.uploaded_by_name} · {new Date(doc.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                    {doc.file_size ? ` · ${formatFileSize(doc.file_size)}` : ''}
-                  </div>
-                </div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <button type="button" className="tr-btn tr-btn-sm tr-btn-ghost" onClick={() => handleDownload(doc)} disabled={downloadingId === doc.id}>
-                  <Download size={13} /> {downloadingId === doc.id ? 'Preparing…' : 'Download'}
-                </button>
-                {user.role === 'super_admin' && (
-                  <button type="button" className="tr-icon-btn" onClick={() => handleDelete(doc)} title="Delete document"><Trash2 size={14} /></button>
-                )}
-              </div>
+        <p className="tr-subtitle">Training and presentation materials the whole team can download and practice with.</p>
+        {error && <div className="tr-error">{error}</div>}
+        {showUpload && (
+          <div className="tr-card tr-form">
+            <div className="tr-form-grid">
+              <label className="tr-field tr-field-wide">
+                <span>Title</span>
+                <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. New Product Presentation" />
+              </label>
+              <label className="tr-field tr-field-wide">
+                <span>{view === 'pdf' ? 'PDF file' : 'PPTX file'}</span>
+                <input
+                  type="file"
+                  accept={view === 'pdf' ? 'application/pdf' : '.pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation'}
+                  onChange={e => setFile(e.target.files[0] || null)} />
+              </label>
+            </div>
+            <div className="tr-form-actions">
+              <button type="button" className="tr-btn tr-btn-brass" onClick={handleUpload} disabled={uploading}>{uploading ? 'Uploading…' : 'Upload'}</button>
             </div>
           </div>
-        ))
-      )}
-    </>
+        )}
+        {loading ? <SkeletonCards count={3} /> : activeDocs.length === 0 ? (
+          <div className="tr-card"><p className="tr-empty">No {view === 'pdf' ? 'PDF' : 'PPTX'} documents uploaded yet.</p></div>
+        ) : (
+          activeDocs.map(doc => (
+            <div key={doc.id} className="tr-card tr-document-card">
+              <div className="tr-policy-head">
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <FileText size={20} className="tr-document-icon" />
+                  <div>
+                    <strong>{doc.title}</strong>
+                    <div className="tr-note">
+                      Uploaded by {doc.uploaded_by_name} · {new Date(doc.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      {doc.file_size ? ` · ${formatFileSize(doc.file_size)}` : ''}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button type="button" className="tr-btn tr-btn-sm tr-btn-ghost" onClick={() => handleDownload(doc)} disabled={downloadingId === doc.id}>
+                    <Download size={13} /> {downloadingId === doc.id ? 'Preparing…' : 'Download'}
+                  </button>
+                  {user.role === 'super_admin' && (
+                    <button type="button" className="tr-icon-btn" onClick={() => handleDelete(doc)} title="Delete document"><Trash2 size={14} /></button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
   );
 }
 function SystemsBody({ user, onLogAppointment }) {
@@ -3799,12 +3831,12 @@ async function fetchDocuments() {
   if (error) { console.error(error); return []; }
   return data;
 }
-async function uploadDocument(file, title, userId, userName) {
+async function uploadDocument(file, title, userId, userName, fileType) {
   const filePath = `${crypto.randomUUID()}-${file.name}`;
   const { error: uploadErr } = await supabase.storage.from('documents').upload(filePath, file);
   if (uploadErr) return { ok: false, error: uploadErr.message };
   const { data, error: insertErr } = await supabase.from('documents').insert({
-    title: title.trim(), file_path: filePath, file_size: file.size,
+    title: title.trim(), file_path: filePath, file_size: file.size, file_type: fileType,
     uploaded_by: userId, uploaded_by_name: userName,
   }).select().single();
   if (insertErr) return { ok: false, error: insertErr.message };
