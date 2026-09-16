@@ -628,6 +628,25 @@ function computeTierProgress(person, allPeople, myAppointments, downlineAppointm
 
   return { nextTier: next, results, allMet: results.every(r => r.met) };
 }
+// For a manager checking their whole team at once, rather than one
+// person checking their own progress — runs the same engine per member,
+// in parallel, and returns just whoever's fully cleared their next tier.
+// Skipped entirely for anyone with no tier set or already at the top,
+// since there's nothing to compute for them.
+async function computeTeamPromotionReadiness(members, orgDirectory) {
+  const eligible = members.filter(m => m.hierarchy_tier && nextTierAfter(m.hierarchy_tier));
+  const results = await Promise.all(eligible.map(async m => {
+    const [myAppts, traineeAppts] = await Promise.all([
+      fetchMyAppointments(m.id),
+      fetchAppointmentsAsTrainee(m.id),
+    ]);
+    const downline = computeDownline(m.id, orgDirectory).filter(p => p.id !== m.id);
+    const downlineAppts = await fetchAppointmentsForUserIds(downline.map(p => p.id));
+    const progress = computeTierProgress(m, orgDirectory, myAppts, downlineAppts, traineeAppts);
+    return progress && progress.allMet ? { member: m, nextTier: progress.nextTier } : null;
+  }));
+  return results.filter(Boolean);
+}
 
 function prospectSaleScore(p) { return SALE_CHARACTERISTICS.filter(c => p[c.key]).length; }
 function prospectRecruitScore(p) { return RECRUIT_CHARACTERISTICS.filter(c => p[c.key]).length; }
@@ -2469,7 +2488,8 @@ function ProspectCard({ prospect, rank, onDelete, onToggleOutcome, onLogAppointm
   );
 }
 // ---------------------------------------------------------------------
-// milestones — career-ladder reference and (later) incentive tracking
+// milestones — career-ladder reference, licensing, and live promotion
+// progress tracking; Incentives is still a placeholder
 // ---------------------------------------------------------------------
 function isLicensed(profile) {
   return !!(profile?.npn?.trim() && profile?.fg_writing_number?.trim());
@@ -3466,6 +3486,7 @@ function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, membe
   const [weekMonday, setWeekMonday] = useState(weekStartOf(todayStr()));
   const [expanded, setExpanded] = useState(null);
   const [typeFilter, setTypeFilter] = useState('all');
+  const [promotionReady, setPromotionReady] = useState([]);
 
   function byType(list) {
     if (typeFilter === 'all') return list;
@@ -3486,6 +3507,23 @@ function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, membe
   }, [weekMonday, user.id, user.role]);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // Separate from the main refresh — promotion readiness has nothing to
+  // do with which week is being browsed, so it's keyed on the member
+  // list itself, not weekMonday, to avoid recomputing this relatively
+  // expensive check every time someone just flips between weeks.
+  useEffect(() => {
+    if (members.length === 0) { setPromotionReady([]); return; }
+    let cancelled = false;
+    fetchOrgDirectory().then(orgDirectory => {
+      if (cancelled) return;
+      computeTeamPromotionReadiness(members, orgDirectory).then(result => {
+        if (!cancelled) setPromotionReady(result);
+      });
+    });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [members]);
 
   // Same classification already used per-row below, just tallied up front
   // so managers get the answer without reading every row themselves.
@@ -3532,6 +3570,17 @@ function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, membe
             )}
             {' '}this week.
           </div>
+          {promotionReady.length > 0 && (
+            <div className="tr-health-line">
+              <span className="tr-type-badge tr-type-badge-both">🎉 Ready for promotion</span>{' '}
+              {promotionReady.map((r, i) => (
+                <span key={r.member.id}>
+                  {i > 0 && ', '}
+                  <strong>{r.member.display_name}</strong> → {r.nextTier.name} ({r.nextTier.key})
+                </span>
+              ))}
+            </div>
+          )}
           <div className="tr-card tr-summary-card">
           <div className="tr-table-wrap">
             <table className="tr-table tr-table-summary">
@@ -3838,7 +3887,7 @@ async function fetchAuditLog() {
   return data;
 }
 // ---------------------------------------------------------------------
-// documents — shared PDF library for training/practice materials
+// documents (data layer) — DocumentsBody itself lives earlier in the file
 // ---------------------------------------------------------------------
 async function fetchDocuments() {
   const { data, error } = await supabase.from('documents').select('*').order('created_at', { ascending: false });
