@@ -559,6 +559,18 @@ function inLastDays(dateStr, days) {
   if (!dateStr) return false;
   return new Date(dateStr).getTime() >= Date.now() - days * 24 * 60 * 60 * 1000;
 }
+// Same rolling-days check, but the window can never reach back further
+// than someone's most recent promotion — premium starts fresh at each
+// promotion, even if the plain rolling window would otherwise extend
+// into activity from their previous tier. Count-based requirements
+// (direct recruits, direct tier counts) deliberately don't use this —
+// those are cumulative and never reset.
+function inLastDaysSincePromotion(dateStr, days, tierChangedAt) {
+  if (!dateStr) return false;
+  const rollingStart = Date.now() - days * 24 * 60 * 60 * 1000;
+  const effectiveStart = tierChangedAt ? Math.max(rollingStart, new Date(tierChangedAt).getTime()) : rollingStart;
+  return new Date(dateStr).getTime() >= effectiveStart;
+}
 function sumPremiumWhere(appointments, datePredicate) {
   return appointments
     .filter(a => a.officiallySold && datePredicate(a.appointmentDate))
@@ -566,18 +578,25 @@ function sumPremiumWhere(appointments, datePredicate) {
 }
 // Real calendar months, not rolling 60-day windows — the current
 // (in-progress) month plus the 2 before it, each independently checked
-// against the target.
-function computeConsecutiveMonthsProgress(appointments, amountTarget) {
+// against the target. A month that falls entirely before the person's
+// most recent promotion is marked not "applicable" rather than shown as
+// a misleading $0 — that month's activity belonged to their previous
+// tier, not a failure to hit this one.
+function computeConsecutiveMonthsProgress(appointments, amountTarget, tierChangedAt) {
   const now = new Date();
   const months = [];
   for (let i = 2; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     const year = d.getFullYear(), month = d.getMonth();
-    const sum = sumPremiumWhere(appointments, dateStr => {
+    const monthEnd = new Date(year, month + 1, 1);
+    const applicable = !tierChangedAt || new Date(tierChangedAt).getTime() < monthEnd.getTime();
+    const sum = applicable ? sumPremiumWhere(appointments, dateStr => {
       const ad = new Date(dateStr);
-      return ad.getFullYear() === year && ad.getMonth() === month;
-    });
-    months.push({ year, month, label: d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }), sum, met: sum >= amountTarget, isCurrent: i === 0 });
+      const inMonth = ad.getFullYear() === year && ad.getMonth() === month;
+      const sincePromotion = !tierChangedAt || ad.getTime() >= new Date(tierChangedAt).getTime();
+      return inMonth && sincePromotion;
+    }) : 0;
+    months.push({ year, month, label: d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' }), sum, met: applicable && sum >= amountTarget, isCurrent: i === 0, applicable });
   }
   return months;
 }
@@ -594,6 +613,7 @@ function computeTierProgress(person, allPeople, myAppointments, downlineAppointm
   const next = nextTierAfter(person.hierarchy_tier);
   if (!next) return null;
   const directReports = allPeople.filter(p => p.manager_id === person.id);
+  const tierChangedAt = person.hierarchy_tier_changed_at;
 
   const results = next.requirements.map(req => {
     if (req.type === 'licensed') {
@@ -614,13 +634,15 @@ function computeTierProgress(person, allPeople, myAppointments, downlineAppointm
       return { ...req, kind: 'count', met: count >= req.count, current: count, target: req.count, label: `${req.count} direct ${tierName}${req.count === 1 ? '' : 's'}` };
     }
     if (req.type === 'personalPremium' || req.type === 'baseShopPremium') {
-      const source = req.type === 'personalPremium' ? myAppointments : downlineAppointments;
+      // Base Shop includes the person's own premium on top of their
+      // downline's — it's not downline-only.
+      const source = req.type === 'personalPremium' ? myAppointments : [...myAppointments, ...downlineAppointments];
       const baseLabel = req.type === 'personalPremium' ? 'Personal target premium' : 'Target premium base shop';
       if (next.window === 'rolling30') {
-        const sum = sumPremiumWhere(source, d => inLastDays(d, 30));
+        const sum = sumPremiumWhere(source, d => inLastDaysSincePromotion(d, 30, tierChangedAt));
         return { ...req, kind: 'money', met: sum >= req.amount, current: sum, target: req.amount, label: `${baseLabel} (last 30 days)` };
       }
-      const months = computeConsecutiveMonthsProgress(source, req.amount);
+      const months = computeConsecutiveMonthsProgress(source, req.amount, tierChangedAt);
       return { ...req, kind: 'money-consecutive', met: hasConsecutivePair(months), months, target: req.amount, label: baseLabel };
     }
     return { ...req, kind: 'status', met: false, label: 'Unknown requirement' };
@@ -2496,7 +2518,7 @@ function isLicensed(profile) {
   return !!(profile?.npn?.trim() && profile?.fg_writing_number?.trim());
 }
 async function fetchMyLicensing(userId) {
-  const { data, error } = await supabase.from('profiles').select('npn, fg_writing_number').eq('id', userId).single();
+  const { data, error } = await supabase.from('profiles').select('npn, fg_writing_number, hierarchy_tier_changed_at').eq('id', userId).single();
   if (error) { console.error(error); return { npn: '', fg_writing_number: '' }; }
   return data;
 }
@@ -2558,9 +2580,9 @@ function RequirementRow({ req }) {
         </div>
         <div className="tr-req-months">
           {req.months.map(m => (
-            <div key={`${m.year}-${m.month}`} className={`tr-req-month ${m.met ? 'tr-req-month-met' : ''}`}>
+            <div key={`${m.year}-${m.month}`} className={`tr-req-month ${m.met ? 'tr-req-month-met' : ''} ${m.applicable === false ? 'tr-req-month-na' : ''}`}>
               <span className="tr-req-month-label">{m.label}{m.isCurrent ? ' (so far)' : ''}</span>
-              <span className="tr-req-month-sum">${m.sum.toLocaleString()}</span>
+              <span className="tr-req-month-sum">{m.applicable === false ? 'Before promotion' : `$${m.sum.toLocaleString()}`}</span>
             </div>
           ))}
         </div>
@@ -4634,6 +4656,8 @@ const CSS = `
 .tr-req-months { display: flex; gap: 8px; margin-top: 4px; }
 .tr-req-month { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 8px 6px; border-radius: 6px; background: var(--paper-dim); border: 1px solid var(--line); }
 .tr-req-month-met { background: rgba(63,143,108,0.12); border-color: rgba(63,143,108,0.4); }
+.tr-req-month-na { opacity: 0.5; }
+.tr-req-month-na .tr-req-month-sum { font-size: 11px; font-weight: 400; font-style: italic; }
 .tr-req-month-label { font-size: 11px; color: var(--slate-light); }
 .tr-req-month-sum { font-size: 13px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
 .tr-document-card { padding: 14px 18px; }
