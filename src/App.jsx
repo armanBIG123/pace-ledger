@@ -630,10 +630,11 @@ function computeTierProgress(person, allPeople, myAppointments, downlineAppointm
 }
 // For a manager checking their whole team at once, rather than one
 // person checking their own progress — runs the same engine per member,
-// in parallel, and returns just whoever's fully cleared their next tier.
-// Skipped entirely for anyone with no tier set or already at the top,
-// since there's nothing to compute for them.
-async function computeTeamPromotionReadiness(members, orgDirectory) {
+// in parallel, and returns everyone's full progress toward their next
+// tier. Skips anyone with no tier set or already at the top, since
+// there's nothing to compute for them. Filter the result for allMet to
+// get just who's ready.
+async function computeTeamPromotionProgress(members, orgDirectory) {
   const eligible = members.filter(m => m.hierarchy_tier && nextTierAfter(m.hierarchy_tier));
   const results = await Promise.all(eligible.map(async m => {
     const [myAppts, traineeAppts] = await Promise.all([
@@ -643,9 +644,9 @@ async function computeTeamPromotionReadiness(members, orgDirectory) {
     const downline = computeDownline(m.id, orgDirectory).filter(p => p.id !== m.id);
     const downlineAppts = await fetchAppointmentsForUserIds(downline.map(p => p.id));
     const progress = computeTierProgress(m, orgDirectory, myAppts, downlineAppts, traineeAppts);
-    return progress && progress.allMet ? { member: m, nextTier: progress.nextTier } : null;
+    return { member: m, progress };
   }));
-  return results.filter(Boolean);
+  return results;
 }
 
 function prospectSaleScore(p) { return SALE_CHARACTERISTICS.filter(c => p[c.key]).length; }
@@ -3479,14 +3480,12 @@ function CoachingNotesPanel({ advisorId, weekOf, currentUser }) {
     </div>
   );
 }
-function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, memberLabel }) {
-  const [members, setMembers] = useState([]);
+function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, emptyMessage, memberLabel }) {
   const [weekAppts, setWeekAppts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loadingAppts, setLoadingAppts] = useState(true);
   const [weekMonday, setWeekMonday] = useState(weekStartOf(todayStr()));
   const [expanded, setExpanded] = useState(null);
   const [typeFilter, setTypeFilter] = useState('all');
-  const [promotionReady, setPromotionReady] = useState([]);
 
   function byType(list) {
     if (typeFilter === 'all') return list;
@@ -3495,35 +3494,15 @@ function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, membe
     return list;
   }
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    const [memberList, appts] = await Promise.all([
-      fetchMembers(user),
-      fetchAppointmentsForWeek(weekMonday),
-    ]);
-    setMembers(memberList);
-    setWeekAppts(appts);
-    setLoading(false);
-  }, [weekMonday, user.id, user.role]);
+  const refreshAppts = useCallback(async () => {
+    setLoadingAppts(true);
+    setWeekAppts(await fetchAppointmentsForWeek(weekMonday));
+    setLoadingAppts(false);
+  }, [weekMonday]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => { refreshAppts(); }, [refreshAppts]);
 
-  // Separate from the main refresh — promotion readiness has nothing to
-  // do with which week is being browsed, so it's keyed on the member
-  // list itself, not weekMonday, to avoid recomputing this relatively
-  // expensive check every time someone just flips between weeks.
-  useEffect(() => {
-    if (members.length === 0) { setPromotionReady([]); return; }
-    let cancelled = false;
-    fetchOrgDirectory().then(orgDirectory => {
-      if (cancelled) return;
-      computeTeamPromotionReadiness(members, orgDirectory).then(result => {
-        if (!cancelled) setPromotionReady(result);
-      });
-    });
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [members]);
+  const loading = loadingMembers || loadingAppts;
 
   // Same classification already used per-row below, just tallied up front
   // so managers get the answer without reading every row themselves.
@@ -3551,7 +3530,7 @@ function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, membe
       <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
       <div className="tr-row-head">
         <h2 className="tr-h2"><Icon size={18} /> {heading}</h2>
-        <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+        <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refreshAppts}>Refresh</button>
       </div>
       <div className="tr-typefilter-row">
         <span className="tr-typefilter-label">Show:</span>
@@ -3570,17 +3549,6 @@ function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, membe
             )}
             {' '}this week.
           </div>
-          {promotionReady.length > 0 && (
-            <div className="tr-health-line">
-              <span className="tr-type-badge tr-type-badge-both">🎉 Ready for promotion</span>{' '}
-              {promotionReady.map((r, i) => (
-                <span key={r.member.id}>
-                  {i > 0 && ', '}
-                  <strong>{r.member.display_name}</strong> → {r.nextTier.name} ({r.nextTier.key})
-                </span>
-              ))}
-            </div>
-          )}
           <div className="tr-card tr-summary-card">
           <div className="tr-table-wrap">
             <table className="tr-table tr-table-summary">
@@ -3632,6 +3600,127 @@ function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, membe
         </>
       )}
     </>
+  );
+}
+// Every eligible team member's live progress toward their next tier, in
+// one scannable table — not just who's already ready, but where
+// everyone currently stands, so a manager can see who's close too.
+// Expanding a row shows the exact same requirement breakdown their own
+// Milestones page would show them.
+function TeamPromotionSubView({ members, loadingMembers, memberLabel, emptyMessage }) {
+  const [loading, setLoading] = useState(true);
+  const [progressList, setProgressList] = useState([]);
+  const [expanded, setExpanded] = useState(null);
+
+  const refresh = useCallback(async () => {
+    if (members.length === 0) { setProgressList([]); setLoading(false); return; }
+    setLoading(true);
+    const orgDirectory = await fetchOrgDirectory();
+    setProgressList(await computeTeamPromotionProgress(members, orgDirectory));
+    setLoading(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [members]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const readyCount = progressList.filter(r => r.progress?.allMet).length;
+  const isLoading = loadingMembers || loading;
+
+  return (
+    <>
+      <div className="tr-row-head">
+        <h2 className="tr-h2">Promotion readiness</h2>
+        <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+      </div>
+      <p className="tr-subtitle">Live progress toward each person's next tier — the same numbers their own Milestones page shows them.</p>
+      {isLoading ? <SkeletonTable rows={5} cols={4} /> : members.length === 0 ? (
+        <div className="tr-card"><p className="tr-empty">{emptyMessage}</p></div>
+      ) : progressList.length === 0 ? (
+        <div className="tr-card"><p className="tr-empty">No one here has a hierarchy tier set yet, or everyone's already at the top of the ladder.</p></div>
+      ) : (
+        <>
+          {readyCount > 0 && (
+            <div className="tr-health-line">
+              <span className="tr-type-badge tr-type-badge-both">🎉 {readyCount} ready for promotion</span>
+            </div>
+          )}
+          <div className="tr-card tr-summary-card">
+            <div className="tr-table-wrap">
+              <table className="tr-table tr-table-summary">
+                <thead><tr><th>{memberLabel}</th><th>Current Tier</th><th>Next Tier</th><th>Progress</th></tr></thead>
+                <tbody>
+                  {progressList.map(({ member, progress }) => {
+                    const isOpen = expanded === member.id;
+                    const metCount = progress.results.filter(r => r.met).length;
+                    const totalCount = progress.results.length;
+                    return (
+                      <React.Fragment key={member.id}>
+                        <tr className="tr-clickable-row" onClick={() => setExpanded(isOpen ? null : member.id)}>
+                          <td>{member.display_name}</td>
+                          <td>{hierarchyTierLabel(member.hierarchy_tier)}</td>
+                          <td>{progress.nextTier.name} ({progress.nextTier.key})</td>
+                          <td>
+                            {progress.allMet ? (
+                              <span className="tr-type-badge tr-type-badge-both">✓ Ready!</span>
+                            ) : (
+                              <span className="tr-mono">{metCount} / {totalCount} met</span>
+                            )}
+                          </td>
+                        </tr>
+                        {isOpen && (
+                          <tr className="tr-expand-row"><td colSpan={4}>
+                            {progress.results.map((req, i) => <RequirementRow key={i} req={req} />)}
+                          </td></tr>
+                        )}
+                      </React.Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, memberLabel }) {
+  const [view, setView] = useState('pace'); // 'pace' | 'promotion'
+  const [members, setMembers] = useState([]);
+  const [loadingMembers, setLoadingMembers] = useState(true);
+
+  const refreshMembers = useCallback(async () => {
+    setLoadingMembers(true);
+    setMembers(await fetchMembers(user));
+    setLoadingMembers(false);
+  }, [user.id, user.role]);
+
+  useEffect(() => { refreshMembers(); }, [refreshMembers]);
+
+  return (
+    <div className="tr-appts-shell">
+      <nav className="tr-appts-sidebar">
+        <button
+          type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'pace' ? 'tr-sidebar-item-active' : ''}`}
+          onClick={() => setView('pace')}>
+          <span>Pace</span>
+        </button>
+        <button
+          type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'promotion' ? 'tr-sidebar-item-active' : ''}`}
+          onClick={() => setView('promotion')}>
+          <span>Promotion</span>
+        </button>
+      </nav>
+      <div className="tr-appts-main">
+        {view === 'pace' ? (
+          <TeamPaceSubView
+            user={user} members={members} loadingMembers={loadingMembers}
+            heading={heading} Icon={Icon} emptyMessage={emptyMessage} memberLabel={memberLabel} />
+        ) : (
+          <TeamPromotionSubView members={members} loadingMembers={loadingMembers} memberLabel={memberLabel} emptyMessage={emptyMessage} />
+        )}
+      </div>
+    </div>
   );
 }
 function TeamPaceBody({ user }) {
