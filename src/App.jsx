@@ -1553,8 +1553,8 @@ function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onS
   const [appointmentDate, setAppointmentDate] = useState(editing?.appointmentDate || '');
   const [appointmentTime, setAppointmentTime] = useState(editing?.appointmentTime || '');
   const [timezone, setTimezone] = useState(editing?.appointmentTimezone || detectTimezone());
-  const [presenterId, setPresenterId] = useState(editing?.presenterId || user.id);
-  const [traineeId, setTraineeId] = useState(editing?.traineeId || '');
+  const [presenterId, setPresenterId] = useState(editing?.presenterId || user.managerId || user.id);
+  const [traineeId, setTraineeId] = useState(editing?.traineeId || (!editing && user.managerId ? user.id : ''));
   const [orgDirectory, setOrgDirectory] = useState([]);
   const [client, setClient] = useState(editing?.client || prefillData?.client || '');
   const [notes, setNotes] = useState(editing?.notes || prefillData?.notes || '');
@@ -4155,7 +4155,7 @@ export default function App() {
   }
   if (profileLoading || !profile) return <Shell><Spinner label="Loading your account…" /></Shell>;
 
-  const user = { id: session.user.id, displayName: profile.display_name, role: profile.role, hierarchyTier: profile.hierarchy_tier };
+  const user = { id: session.user.id, displayName: profile.display_name, role: profile.role, hierarchyTier: profile.hierarchy_tier, managerId: profile.manager_id };
   return (
     <>
       <ConnectionBanner banner={connectionBanner} onDismiss={() => setConnectionBanner(null)} />
