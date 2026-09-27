@@ -402,6 +402,30 @@ export const CSS = `
 .tr-bizplan-summary-highlight .tr-mono { font-size: 20px; color: var(--brass-dark); }
 .tr-bizplan-reset-link { background: none; border: none; padding: 2px 0; margin: -4px 0 0; font-family: inherit; font-size: 12px; color: var(--brass-dark); text-decoration: underline; cursor: pointer; text-align: left; }
 
+/* client intake — public wizard + advisor tab */
+.tr-intake-page { min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 32px 16px 64px; }
+.tr-intake-narrow { width: 100%; max-width: 640px; }
+.tr-intake-topbar { display: flex; align-items: center; justify-content: space-between; width: 100%; max-width: 640px; margin-bottom: 18px; font-size: 13px; color: var(--slate-light); }
+.tr-intake-brand { display: flex; align-items: center; gap: 8px; font-family: 'Newsreader', serif; font-weight: 600; font-size: 17px; color: var(--ink); }
+.tr-intake-center { text-align: center; padding: 40px 12px; }
+.tr-intake-icon-badge { width: 56px; height: 56px; border-radius: 999px; background: rgba(63,143,108,0.14); color: var(--green); display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; }
+.tr-intake-entry { position: relative; border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; margin-bottom: 12px; background: var(--paper); }
+.tr-intake-entry-remove { position: absolute; top: 10px; right: 10px; background: none; border: none; color: var(--slate-light); cursor: pointer; padding: 2px; line-height: 0; }
+.tr-intake-entry-remove:hover { color: var(--rust); }
+.tr-intake-quickstart { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+.tr-intake-quickstart-chip { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 12px; border: 1px dashed var(--line); border-radius: 8px; background: transparent; font-family: inherit; font-size: 13px; color: var(--slate); cursor: pointer; text-align: left; }
+.tr-intake-quickstart-chip:hover { background: var(--paper-dim); }
+.tr-intake-card-select { display: block; width: 100%; text-align: left; border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; background: var(--paper); cursor: pointer; font-family: inherit; }
+.tr-intake-card-select strong { display: block; font-size: 14px; color: var(--ink); }
+.tr-intake-card-select span { font-size: 12.5px; color: var(--slate-light); }
+.tr-intake-card-select-active { border-color: var(--brass); background: rgba(201,162,75,0.08); }
+.tr-intake-summary-list { display: flex; flex-direction: column; gap: 10px; }
+.tr-intake-summary-row { display: flex; justify-content: space-between; align-items: center; font-size: 13.5px; color: var(--slate); }
+.tr-intake-steps-list { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
+.tr-intake-step-num { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 999px; background: var(--paper-dim); color: var(--slate); font-size: 11px; font-weight: 600; margin-right: 8px; flex-shrink: 0; }
+.tr-intake-link-row { display: flex; align-items: center; gap: 8px; }
+.tr-intake-link-box { flex: 1; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--paper-dim); color: var(--slate); overflow-x: auto; white-space: nowrap; }
+
 /* responsive */
 @media (max-width: 720px) {
   .tr-pace-grid { grid-template-columns: repeat(2, 1fr); }
