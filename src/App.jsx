@@ -1461,7 +1461,7 @@ function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onS
     const unchanged = editing && editing.appointmentDate === appointmentDate && editing.appointmentTime === appointmentTime && editing.presenterId === presenterId;
     if (!unchanged) {
       setChecking(true);
-      const result = await checkAppointmentConflict(presenterId, appointmentDate, appointmentTime, editing?.id);
+      const result = await checkAppointmentConflict(presenterId, appointmentDate, appointmentTime, timezone, editing?.id);
       setChecking(false);
       if (result.conflict) {
         const presenterName = presenterOptions.find(p => p.id === presenterId)?.display_name || 'This presenter';
@@ -1996,10 +1996,12 @@ function SchedulePostCard({ user, onPosted }) {
   const [date, setDate] = useState('');
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
+  const [timezone, setTimezone] = useState(detectTimezone());
   const [recurring, setRecurring] = useState(false);
   const [repeatUntil, setRepeatUntil] = useState('');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState('');
+  const timezoneOptions = timezoneOptionsWithDetected();
 
   async function submit() {
     if (!date || !startTime || !endTime) { setErr('Fill in the date, start time, and end time.'); return; }
@@ -2007,7 +2009,7 @@ function SchedulePostCard({ user, onPosted }) {
     if (recurring && (!repeatUntil || repeatUntil < date)) { setErr('Pick a "repeat until" date on or after the first blocked date.'); return; }
     setSaving(true); setErr('');
     const res = await createScheduleBlock({
-      userId: user.id, userName: user.displayName, date, startTime, endTime, label: label.trim(),
+      userId: user.id, userName: user.displayName, date, startTime, endTime, label: label.trim(), timezone,
       recurring, repeatUntil: recurring ? repeatUntil : null,
     });
     setSaving(false);
@@ -2041,6 +2043,12 @@ function SchedulePostCard({ user, onPosted }) {
             <label className="tr-field">
               <span>End time</span>
               <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} onClick={openPicker} />
+            </label>
+            <label className="tr-field">
+              <span>Time zone</span>
+              <select value={timezone} onChange={e => setTimezone(e.target.value)}>
+                {timezoneOptions.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+              </select>
             </label>
             <label className="tr-field tr-field-wide tr-checkbox-field">
               <input type="checkbox" checked={recurring} onChange={e => setRecurring(e.target.checked)} />
