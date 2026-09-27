@@ -1423,9 +1423,16 @@ function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onS
   //   without a manager hosting.
   const uplineOptions = computeUpline(user.id, orgDirectory);
   const downlineOptions = computeDownline(user.id, orgDirectory);
-  const zoomHostOptions = uplineOptions.filter(p => p.id !== user.id);
+  const uplineNonSelf = uplineOptions.filter(p => p.id !== user.id);
+  const uplineIds = new Set(uplineNonSelf.map(p => p.id));
+  // Deliberately not limited to your own upline: any manager anywhere in
+  // the org who's connected Zoom can be picked here too, so connecting
+  // Zoom gives every manager a shot at hosting appointments outside their
+  // own team, not just the ones already reporting to them.
+  const otherZoomManagers = orgDirectory.filter(p => p.id !== user.id && !uplineIds.has(p.id) && zoomManagers.some(z => z.id === p.id));
+  const zoomHostOptions = [...uplineNonSelf, ...otherZoomManagers];
   const lockedToZoomHost = !editing && !!zoomHostId;
-  const presenterOptions = editing ? uplineOptions : (lockedToZoomHost ? uplineOptions.filter(p => p.id === zoomHostId) : downlineOptions);
+  const presenterOptions = editing ? uplineOptions : (lockedToZoomHost ? zoomHostOptions.filter(p => p.id === zoomHostId) : downlineOptions);
   const traineeOptions = presenterId ? computeDownline(presenterId, orgDirectory).filter(p => p.id !== presenterId) : [];
 
   function handleZoomHostChange(id) {
@@ -1493,9 +1500,20 @@ function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onS
           <span>Which manager is presenting? (uses their connected Zoom to create the meeting — picking one sets them as Presenter below)</span>
           <select value={zoomHostId} onChange={e => handleZoomHostChange(e.target.value)}>
             <option value="">None — I'm presenting, or one of my downline is</option>
-            {zoomHostOptions.map(m => (
-              <option key={m.id} value={m.id}>{m.display_name}{zoomManagers.some(z => z.id === m.id) ? ' (Zoom connected)' : ''}</option>
-            ))}
+            {uplineNonSelf.length > 0 && (
+              <optgroup label="Your upline">
+                {uplineNonSelf.map(m => (
+                  <option key={m.id} value={m.id}>{m.display_name}{zoomManagers.some(z => z.id === m.id) ? ' (Zoom connected)' : ''}</option>
+                ))}
+              </optgroup>
+            )}
+            {otherZoomManagers.length > 0 && (
+              <optgroup label="Other managers with Zoom connected">
+                {otherZoomManagers.map(m => (
+                  <option key={m.id} value={m.id}>{m.display_name} (Zoom connected)</option>
+                ))}
+              </optgroup>
+            )}
           </select>
         </label>
       )}
