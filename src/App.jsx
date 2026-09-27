@@ -24,6 +24,8 @@ import {
   computeCommissionPerTransaction, computeTransactionsNeededPerYear, computeProspectsNeededPerYear,
   computeMonthlyProspects, computeDailyProspects,
 } from './businessPlan.js';
+import { createClientIntakeCandidate } from './clientIntake.js';
+import { ClientIntakePublicForm, ClientIntakeBody } from './ClientIntake.jsx';
 import { CSS } from './styles.js';
 
 const WEEKEND_TARGET = 8;
@@ -208,6 +210,7 @@ function rowToRecord(row) {
     zoomUrl: row.zoom_url || '',
     effectiveDate: row.effective_date || '',
     requirementsCompleted: row.requirements_completed || false,
+    clientIntakeRequested: row.client_intake_requested || false,
   };
 }
 // An appointment can now be logged as, and confirmed as, both a recruit
@@ -404,7 +407,7 @@ function deriveStatus(outcome, followUpScheduled) {
 async function saveFollowUp(id, data, followUpTimezone) {
   const status = deriveStatus(data.outcome, data.followUpScheduled);
   const scheduled = data.followUpScheduled === true;
-  const { error } = await supabase.from('appointments').update({
+  const updatePayload = {
     outcome: data.outcome || null,
     follow_up_scheduled: data.followUpScheduled,
     officially_recruited: !!data.officiallyRecruited,
@@ -417,7 +420,12 @@ async function saveFollowUp(id, data, followUpTimezone) {
     follow_up_appointment_date: scheduled ? (data.followUpDate || null) : null,
     follow_up_appointment_time: scheduled ? (data.followUpTime || null) : null,
     follow_up_appointment_timezone: scheduled ? (followUpTimezone || null) : null,
-  }).eq('id', id);
+  };
+  // Only ever flips this on — never overwrites an existing "yes" back to
+  // "no" if a follow-up is edited/re-saved later without touching this
+  // question, so the candidate record it created is never orphaned.
+  if (data.clientIntake === true) updatePayload.client_intake_requested = true;
+  const { error } = await supabase.from('appointments').update(updatePayload).eq('id', id);
   return !error;
 }
 // Creates the actual next appointment when someone says a follow-up was
@@ -1310,6 +1318,7 @@ function FollowUpModal({ appointment, onClose, onSave, saving }) {
   const [targetPremium, setTargetPremium] = useState(appointment.targetPremium != null ? String(appointment.targetPremium) : '');
   const [interestedTax, setInterestedTax] = useState(boolToYesNo(appointment.interestedTax));
   const [interestedInsurance, setInterestedInsurance] = useState(boolToYesNo(appointment.interestedInsurance));
+  const [clientIntake, setClientIntake] = useState(appointment.clientIntakeRequested ? 'yes' : '');
   const [err, setErr] = useState('');
 
   function submit() {
@@ -1328,6 +1337,7 @@ function FollowUpModal({ appointment, onClose, onSave, saving }) {
       targetPremium,
       interestedTax: yesNoToBool(interestedTax),
       interestedInsurance: yesNoToBool(interestedInsurance),
+      clientIntake: clientIntake === 'yes',
     });
   }
 
@@ -1363,6 +1373,19 @@ function FollowUpModal({ appointment, onClose, onSave, saving }) {
         )}
         <div className="tr-field"><span>Interested in tax strategies?</span><PillChoice options={YES_NO_OPTIONS} value={interestedTax} onChange={setInterestedTax} /></div>
         <div className="tr-field"><span>Interested in reviewing home/auto insurance?</span><PillChoice options={YES_NO_OPTIONS} value={interestedInsurance} onChange={setInterestedInsurance} /></div>
+        <div className="tr-field">
+          <span>Client intake?</span>
+          {appointment.clientIntakeRequested ? (
+            <p className="tr-empty" style={{ margin: 0 }}>Already added to your Client Intake tab.</p>
+          ) : (
+            <>
+              <PillChoice options={YES_NO_OPTIONS} value={clientIntake} onChange={setClientIntake} />
+              {clientIntake === 'yes' && (
+                <p className="tr-empty" style={{ margin: 0 }}>We'll add {appointment.client} to Client Intake and generate their link when you save.</p>
+              )}
+            </>
+          )}
+        </div>
       </div>
       {err && <div className="tr-error">{err}</div>}
       <div className="tr-form-actions">
@@ -3611,6 +3634,16 @@ function MyAppointmentsBody({ user, prefillData, onPrefillConsumed }) {
       const res = await insertFollowUpAppointment(user.id, original, data.followUpDate, data.followUpTime, followUpTimezone);
       if (res.ok) newAppt = res.record;
     }
+    // Only ever fires once per appointment — the idempotency check is
+    // against the ORIGINAL appointment's flag, not the freshly-saved one,
+    // so re-saving a follow-up (e.g. to change the outcome later) never
+    // creates a second candidate/link for the same client.
+    if (data.clientIntake === true && original && !original.clientIntakeRequested) {
+      await createClientIntakeCandidate({
+        advisorId: user.id, advisorName: user.displayName,
+        appointmentId: id, clientName: original.client,
+      });
+    }
     setFollowUpSaving(false);
 
     const status = deriveStatus(data.outcome, data.followUpScheduled);
@@ -3622,6 +3655,7 @@ function MyAppointmentsBody({ user, prefillData, onPrefillConsumed }) {
         followUpAppointmentTime: scheduled ? data.followUpTime : '',
         followUpAppointmentTimezone: scheduled ? followUpTimezone : '',
         followUpAppointmentAt: newAppt ? newAppt.appointmentAt : a.followUpAppointmentAt,
+        clientIntakeRequested: a.clientIntakeRequested || data.clientIntake === true,
       } : a);
       return newAppt ? [...updated, newAppt] : updated;
     });
@@ -3760,9 +3794,10 @@ function AdvisorView({ user }) {
     <Shell>
       <Header user={user} />
       <main className="tr-main">
-        <div className="tr-tabs" style={{ maxWidth: 820 }}>
+        <div className="tr-tabs" style={{ maxWidth: 940 }}>
           <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
           <button className={`tr-tab ${tab === 'bizplan' ? 'tr-tab-active' : ''}`} onClick={() => setTab('bizplan')}>Business Plan</button>
+          <button className={`tr-tab ${tab === 'intake' ? 'tr-tab-active' : ''}`} onClick={() => setTab('intake')}>Client Intake</button>
           <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
           <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Prospecting</button>
           <button className={`tr-tab ${tab === 'milestones' ? 'tr-tab-active' : ''}`} onClick={() => setTab('milestones')}>Milestones</button>
@@ -3770,6 +3805,7 @@ function AdvisorView({ user }) {
         </div>
         {tab === 'mine' && <MyAppointmentsBody user={user} prefillData={prefillData} onPrefillConsumed={() => setPrefillData(null)} />}
         {tab === 'bizplan' && <BusinessPlanBody user={user} />}
+        {tab === 'intake' && <ClientIntakeBody user={user} />}
         {tab === 'calendar' && <CalendarBody user={user} />}
         {tab === 'systems' && (
           <SystemsBody user={user} onLogAppointment={p => { setPrefillData(prospectToAppointmentPrefill(p)); setTab('mine'); }} />
@@ -4305,11 +4341,12 @@ function ManagerView({ user }) {
           <button className={`tr-tab-group ${group === 'mine' ? 'tr-tab-group-active' : ''}`} onClick={() => selectGroup('mine')}>My Work</button>
           <button className={`tr-tab-group ${group === 'team' ? 'tr-tab-group-active' : ''}`} onClick={() => selectGroup('team')}>Team</button>
         </div>
-        <div className="tr-tabs" style={{ maxWidth: group === 'mine' ? 820 : 900 }}>
+        <div className="tr-tabs" style={{ maxWidth: group === 'mine' ? 940 : 900 }}>
           {group === 'mine' ? (
             <>
               <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
               <button className={`tr-tab ${tab === 'bizplan' ? 'tr-tab-active' : ''}`} onClick={() => setTab('bizplan')}>Business Plan</button>
+              <button className={`tr-tab ${tab === 'intake' ? 'tr-tab-active' : ''}`} onClick={() => setTab('intake')}>Client Intake</button>
               <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
               <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Prospecting</button>
               <button className={`tr-tab ${tab === 'milestones' ? 'tr-tab-active' : ''}`} onClick={() => setTab('milestones')}>Milestones</button>
@@ -4325,6 +4362,7 @@ function ManagerView({ user }) {
         </div>
         {tab === 'mine' && <MyAppointmentsBody user={user} prefillData={prefillData} onPrefillConsumed={() => setPrefillData(null)} />}
         {tab === 'bizplan' && <BusinessPlanBody user={user} />}
+        {tab === 'intake' && <ClientIntakeBody user={user} />}
         {tab === 'calendar' && <CalendarBody user={user} />}
         {tab === 'systems' && (
           <SystemsBody user={user} onLogAppointment={p => { setPrefillData(prospectToAppointmentPrefill(p)); setTab('mine'); }} />
@@ -4601,11 +4639,12 @@ function AdminView({ user }) {
           <button className={`tr-tab-group ${group === 'mine' ? 'tr-tab-group-active' : ''}`} onClick={() => selectGroup('mine')}>My Work</button>
           <button className={`tr-tab-group ${group === 'team' ? 'tr-tab-group-active' : ''}`} onClick={() => selectGroup('team')}>Team &amp; Admin</button>
         </div>
-        <div className="tr-tabs" style={{ maxWidth: group === 'mine' ? 820 : 1140 }}>
+        <div className="tr-tabs" style={{ maxWidth: group === 'mine' ? 940 : 1140 }}>
           {group === 'mine' ? (
             <>
               <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
               <button className={`tr-tab ${tab === 'bizplan' ? 'tr-tab-active' : ''}`} onClick={() => setTab('bizplan')}>Business Plan</button>
+              <button className={`tr-tab ${tab === 'intake' ? 'tr-tab-active' : ''}`} onClick={() => setTab('intake')}>Client Intake</button>
               <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
               <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Prospecting</button>
               <button className={`tr-tab ${tab === 'milestones' ? 'tr-tab-active' : ''}`} onClick={() => setTab('milestones')}>Milestones</button>
@@ -4622,6 +4661,7 @@ function AdminView({ user }) {
         </div>
         {tab === 'mine' && <MyAppointmentsBody user={user} prefillData={prefillData} onPrefillConsumed={() => setPrefillData(null)} />}
         {tab === 'bizplan' && <BusinessPlanBody user={user} />}
+        {tab === 'intake' && <ClientIntakeBody user={user} />}
         {tab === 'calendar' && <CalendarBody user={user} />}
         {tab === 'systems' && (
           <SystemsBody user={user} onLogAppointment={p => { setPrefillData(prospectToAppointmentPrefill(p)); setTab('mine'); }} />
@@ -4641,6 +4681,14 @@ function AdminView({ user }) {
 // root — handles the Supabase session/profile lifecycle
 // ---------------------------------------------------------------------
 export default function App() {
+  // A client filling out their intake form has no account and no session —
+  // this link works whether or not anyone is signed in on this browser, so
+  // it's checked first and, if present, renders instead of the normal app.
+  // Read once from the URL present at mount; nothing in this app changes
+  // it via client-side navigation, so it's safe to branch before any hooks.
+  const intakeToken = new URLSearchParams(window.location.search).get('intake');
+  if (intakeToken) return <ClientIntakePublicForm token={intakeToken} />;
+
   const [session, setSession] = useState(undefined); // undefined = checking, null = logged out
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);
