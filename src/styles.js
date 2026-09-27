@@ -337,6 +337,11 @@ export const CSS = `
 .tr-cal-appt-training { border-left: 2px solid var(--brass); background: rgba(201,162,75,0.12); color: var(--brass-dark); font-weight: 600; display: flex; align-items: center; gap: 3px; }
 .tr-note-item-training { border-left: 3px solid var(--brass); }
 
+/* my schedule — manager availability blocks, distinct rust tone so a
+   blocked-out time is never mistaken for an actual appointment */
+.tr-cal-appt-unavailable { border-left: 2px solid var(--rust); background: rgba(184,80,61,0.12); color: var(--rust); font-weight: 600; display: flex; align-items: center; gap: 3px; }
+.tr-note-item-unavailable { border-left: 3px solid var(--rust); }
+
 /* toast banner */
 .tr-toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 200; padding: 12px 40px 12px 16px; border-radius: 8px; font-size: 13.5px; font-weight: 500; box-shadow: 0 4px 20px rgba(19,35,48,0.25); max-width: 90vw; }
 .tr-toast-success { background: #2E6E51; color: #fff; }
