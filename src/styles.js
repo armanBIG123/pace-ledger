@@ -391,6 +391,17 @@ export const CSS = `
 @media (prefers-reduced-motion: no-preference) { .tr-spin { animation: tr-rotate 0.9s linear infinite; } }
 @keyframes tr-rotate { to { transform: rotate(360deg); } }
 
+/* business plan — expenses worksheet + prospecting goal calculator */
+.tr-bizplan-step { padding: 16px 0; border-top: 1px solid var(--line); }
+.tr-bizplan-step:first-of-type { border-top: none; padding-top: 0; }
+.tr-bizplan-summary { margin-top: 16px; padding: 14px 16px; border-radius: 8px; background: var(--paper-dim); border: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }
+.tr-bizplan-summary-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 13.5px; color: var(--slate); }
+.tr-bizplan-summary-row .tr-mono { font-size: 15px; font-weight: 600; color: var(--ink); }
+.tr-bizplan-summary-highlight { padding-top: 10px; margin-top: 2px; border-top: 1px dashed var(--line); }
+.tr-bizplan-summary-highlight span:first-child { font-weight: 600; color: var(--ink); }
+.tr-bizplan-summary-highlight .tr-mono { font-size: 20px; color: var(--brass-dark); }
+.tr-bizplan-reset-link { background: none; border: none; padding: 2px 0; margin: -4px 0 0; font-family: inherit; font-size: 12px; color: var(--brass-dark); text-decoration: underline; cursor: pointer; text-align: left; }
+
 /* responsive */
 @media (max-width: 720px) {
   .tr-pace-grid { grid-template-columns: repeat(2, 1fr); }
