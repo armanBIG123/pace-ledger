@@ -1397,7 +1397,7 @@ function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onS
   const [notes, setNotes] = useState(editing?.notes || prefillData?.notes || '');
   const [typeRecruit, setTypeRecruit] = useState(editing ? isRecruitType(editing) : !!prefillData?.typeRecruit);
   const [typeSale, setTypeSale] = useState(editing ? isSaleType(editing) : !!prefillData?.typeSale);
-  const [zoomHostId, setZoomHostId] = useState('');
+  const [zoomHostId, setZoomHostId] = useState(!editing && user.managerId ? user.managerId : '');
   const [err, setErr] = useState('');
   const [checking, setChecking] = useState(false);
   const [zoomManagers, setZoomManagers] = useState([]);
@@ -1408,16 +1408,31 @@ function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onS
     fetchOrgDirectory().then(setOrgDirectory);
   }, []);
 
-  // Presenter options: the logged-in person, plus everyone above them in
-  // the reporting chain — covers both "I'm presenting alone" and "my
-  // manager is presenting and I'm being trained." Trainee options depend
-  // on WHO is selected as presenter, not who's logged in — someone
-  // training under their manager should see themselves as a valid
-  // trainee option, and a manager presenting should see their own
-  // downline, so this recomputes whenever the presenter selection changes.
-  const presenterOptions = computeUpline(user.id, orgDirectory);
+  // Who can present, and how it's picked, depends on whether a manager
+  // was chosen above via "Which manager is presenting?":
+  // - Editing an existing appointment leaves Presenter exactly as it's
+  //   always worked — freely pickable from your whole upline — since
+  //   this is a correction, not a fresh booking, and shouldn't re-trigger
+  //   any of the new-appointment Zoom/lock behavior below.
+  // - Creating a new appointment with a manager chosen there: Presenter
+  //   is locked to that manager — picking them there IS picking them as
+  //   presenter, so there's nothing left to choose here.
+  // - Creating a new appointment with "None" chosen there: Presenter is
+  //   free to pick, but only from you or your own downline — presenting
+  //   solo, or logging on behalf of someone under you who presented
+  //   without a manager hosting.
+  const uplineOptions = computeUpline(user.id, orgDirectory);
+  const downlineOptions = computeDownline(user.id, orgDirectory);
+  const zoomHostOptions = uplineOptions.filter(p => p.id !== user.id);
+  const lockedToZoomHost = !editing && !!zoomHostId;
+  const presenterOptions = editing ? uplineOptions : (lockedToZoomHost ? uplineOptions.filter(p => p.id === zoomHostId) : downlineOptions);
   const traineeOptions = presenterId ? computeDownline(presenterId, orgDirectory).filter(p => p.id !== presenterId) : [];
 
+  function handleZoomHostChange(id) {
+    setZoomHostId(id);
+    setPresenterId(id || user.id);
+    setTraineeId(''); // the old trainee pick may not be valid under a different presenter
+  }
   function handlePresenterChange(id) {
     setPresenterId(id);
     setTraineeId(''); // the old trainee pick may not be valid under a different presenter
@@ -1473,12 +1488,14 @@ function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onS
           This one needs to be rescheduled — saving will count it toward this week's batch as a new entry, and clear its old follow-up status.
         </div>
       )}
-      {!editing && zoomManagers.length > 0 && (
+      {!editing && zoomHostOptions.length > 0 && (
         <label className="tr-field tr-field-wide tr-form-section">
-          <span>Which manager is presenting? (uses their connected Zoom to create the meeting)</span>
-          <select value={zoomHostId} onChange={e => setZoomHostId(e.target.value)}>
-            <option value="">None</option>
-            {zoomManagers.map(m => <option key={m.id} value={m.id}>{m.display_name}</option>)}
+          <span>Which manager is presenting? (uses their connected Zoom to create the meeting — picking one sets them as Presenter below)</span>
+          <select value={zoomHostId} onChange={e => handleZoomHostChange(e.target.value)}>
+            <option value="">None — I'm presenting, or one of my downline is</option>
+            {zoomHostOptions.map(m => (
+              <option key={m.id} value={m.id}>{m.display_name}{zoomManagers.some(z => z.id === m.id) ? ' (Zoom connected)' : ''}</option>
+            ))}
           </select>
         </label>
       )}
@@ -1497,9 +1514,13 @@ function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onS
         </label>
         <label className="tr-field">
           <span>Presenter</span>
-          <select value={presenterId} onChange={e => handlePresenterChange(e.target.value)}>
-            {presenterOptions.map(p => <option key={p.id} value={p.id}>{p.display_name}{p.id === user.id ? ' (you)' : ''}</option>)}
-          </select>
+          {lockedToZoomHost ? (
+            <div className="tr-locked-value">{presenterOptions[0]?.display_name}</div>
+          ) : (
+            <select value={presenterId} onChange={e => handlePresenterChange(e.target.value)}>
+              {presenterOptions.map(p => <option key={p.id} value={p.id}>{p.display_name}{p.id === user.id ? ' (you)' : ''}</option>)}
+            </select>
+          )}
         </label>
         <label className="tr-field">
           <span>Client / recruit</span>
