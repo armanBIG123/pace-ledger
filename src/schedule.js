@@ -16,8 +16,8 @@ export async function fetchScheduleBlocksInRange(startDate, endDate) {
   if (error) { console.error(error); return []; }
   return data;
 }
-export async function createScheduleBlock({ userId, userName, date, startTime, endTime, label, recurring, repeatUntil }) {
-  const base = { user_id: userId, user_name: userName || null, start_time: startTime, end_time: endTime, label: label || null };
+export async function createScheduleBlock({ userId, userName, date, startTime, endTime, label, timezone, recurring, repeatUntil }) {
+  const base = { user_id: userId, user_name: userName || null, start_time: startTime, end_time: endTime, label: label || null, timezone: timezone || null };
   if (!recurring || !repeatUntil) {
     const { data, error } = await supabase.from('manager_availability_blocks').insert({ ...base, block_date: date }).select().single();
     if (error) return { ok: false, error: error.message };
@@ -52,9 +52,14 @@ export async function deleteScheduleBlockSeries(groupId, fromDate) {
 // Runs through a security-definer function rather than a direct query so
 // it works for any advisor checking any presenter in their upline,
 // without needing broad read access to that presenter's whole calendar.
-export async function checkAppointmentConflict(presenterId, date, time, excludeAppointmentId) {
+// Timezone matters here: the advisor booking and the presenter being
+// checked may be in different time zones (e.g. a 6:30pm Central booking
+// against a presenter who blocked 7:30pm Eastern — the same instant), so
+// the chosen time zone is passed through and compared as a true instant
+// on the database side rather than as raw wall-clock digits.
+export async function checkAppointmentConflict(presenterId, date, time, timezone, excludeAppointmentId) {
   const { data, error } = await supabase.rpc('check_appointment_conflict', {
-    p_presenter_id: presenterId, p_date: date, p_time: time,
+    p_presenter_id: presenterId, p_date: date, p_time: time, p_timezone: timezone || null,
     p_exclude_appointment_id: excludeAppointmentId || null,
   });
   if (error) { console.error(error); return { conflict: false }; } // fail open — never block saving over a network hiccup
