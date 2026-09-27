@@ -18,6 +18,12 @@ import {
   fetchScheduleBlocksInRange, createScheduleBlock, deleteScheduleBlock, deleteScheduleBlockSeries,
   checkAppointmentConflict,
 } from './schedule.js';
+import {
+  DEFAULT_BUSINESS_PLAN_FIELDS, rowToBusinessPlanFields, fetchBusinessPlan, saveBusinessPlan,
+  computeExpensesSubtotal, computeMonthlyGrossIncomeNeeded, computeAnnualGrossIncomeNeeded,
+  computeCommissionPerTransaction, computeTransactionsNeededPerYear, computeProspectsNeededPerYear,
+  computeMonthlyProspects, computeDailyProspects,
+} from './businessPlan.js';
 import { CSS } from './styles.js';
 
 const WEEKEND_TARGET = 8;
@@ -2305,6 +2311,200 @@ function CalendarBody({ user }) {
   );
 }
 
+// ---------------------------------------------------------------------
+// Business Plan — a personal living-expenses worksheet (Expenses) and a
+// prospecting-goal calculator built from it (Goals). Available to every
+// role; each person only ever sees and edits their own.
+// ---------------------------------------------------------------------
+const EXPENSE_FIELD_DEFS = [
+  ['mortgageRent', 'Mortgage Payment (Rent)'],
+  ['household', 'Household (heat, water, etc.)'],
+  ['food', 'Food (groceries, dining in and out)'],
+  ['car', 'Car expenses (payments, gas, etc.)'],
+  ['entertainment', 'Entertainment'],
+  ['childCare', 'Child Care'],
+  ['education', 'Education'],
+  ['investmentsSavings', 'Investments/Savings'],
+  ['otherExpenses', 'Other Living Expenses'],
+];
+function BusinessPlanBody({ user }) {
+  const [loading, setLoading] = useState(true);
+  const [view, setView] = useState('expenses'); // 'expenses' | 'goals'
+  const [fields, setFields] = useState(DEFAULT_BUSINESS_PLAN_FIELDS);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [justSaved, setJustSaved] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    fetchBusinessPlan(user.id).then(row => {
+      if (!alive) return;
+      if (row) setFields(rowToBusinessPlanFields(row));
+      setLoading(false);
+    });
+    return () => { alive = false; };
+  }, [user.id]);
+
+  function setField(key, value) {
+    setFields(prev => ({ ...prev, [key]: value }));
+    setDirty(true);
+    setJustSaved(false);
+  }
+  async function handleSave() {
+    setSaving(true);
+    const res = await saveBusinessPlan(user.id, fields);
+    setSaving(false);
+    if (res.ok) { setDirty(false); setJustSaved(true); }
+  }
+
+  const subtotal = computeExpensesSubtotal(fields);
+  const monthlyGrossIncomeNeeded = computeMonthlyGrossIncomeNeeded(subtotal);
+  const annualGrossIncomeNeeded = computeAnnualGrossIncomeNeeded(monthlyGrossIncomeNeeded);
+  const cpt = computeCommissionPerTransaction(fields.targetPremium, fields.commissionRate);
+  const usingCalculatedIncomeGoal = fields.incomeGoalOverride === '';
+  const incomeGoal = usingCalculatedIncomeGoal ? annualGrossIncomeNeeded : (Number(fields.incomeGoalOverride) || 0);
+  const tny = computeTransactionsNeededPerYear(incomeGoal, cpt);
+  const tpn = computeProspectsNeededPerYear(tny);
+  const monthlyProspects = computeMonthlyProspects(tpn);
+  const dailyProspects = computeDailyProspects(monthlyProspects);
+
+  if (loading) return <SkelBlock w="100%" h="220px" />;
+
+  return (
+    <div className="tr-appts-shell">
+      <nav className="tr-appts-sidebar">
+        <button type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'expenses' ? 'tr-sidebar-item-active' : ''}`} onClick={() => setView('expenses')}>
+          <span>Expenses</span>
+        </button>
+        <button type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'goals' ? 'tr-sidebar-item-active' : ''}`} onClick={() => setView('goals')}>
+          <span>Goals</span>
+        </button>
+      </nav>
+      <div className="tr-appts-main">
+        <div className="tr-card">
+          {view === 'expenses' ? (
+            <BusinessPlanExpensesPanel
+              fields={fields} setField={setField}
+              subtotal={subtotal} monthlyGrossIncomeNeeded={monthlyGrossIncomeNeeded} annualGrossIncomeNeeded={annualGrossIncomeNeeded} />
+          ) : (
+            <BusinessPlanGoalsPanel
+              fields={fields} setField={setField}
+              annualGrossIncomeNeeded={annualGrossIncomeNeeded} usingCalculatedIncomeGoal={usingCalculatedIncomeGoal}
+              cpt={cpt} tny={tny} tpn={tpn} monthlyProspects={monthlyProspects} dailyProspects={dailyProspects} />
+          )}
+          <div className="tr-form-actions" style={{ marginTop: 16 }}>
+            <button type="button" className="tr-btn tr-btn-brass" onClick={handleSave} disabled={saving || !dirty}>{saving ? 'Saving…' : 'Save'}</button>
+            {!dirty && justSaved && <span className="tr-empty" style={{ marginLeft: 10 }}>Saved</span>}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+function BusinessPlanExpensesPanel({ fields, setField, subtotal, monthlyGrossIncomeNeeded, annualGrossIncomeNeeded }) {
+  return (
+    <>
+      <h3 className="tr-h3">Living Expenses</h3>
+      <p className="tr-empty" style={{ marginTop: -6 }}>Fill in your typical monthly costs below.</p>
+      <div className="tr-form-grid">
+        {EXPENSE_FIELD_DEFS.map(([key, label]) => (
+          <label className="tr-field" key={key}>
+            <span>{label}</span>
+            <input type="number" min="0" step="1" inputMode="decimal" value={fields[key]} onChange={e => setField(key, e.target.value)} placeholder="0" />
+          </label>
+        ))}
+      </div>
+      <div className="tr-bizplan-summary">
+        <div className="tr-bizplan-summary-row">
+          <span>Subtotal (income needed after taxes)</span>
+          <span className="tr-mono">{fmtCurrency(subtotal)}</span>
+        </div>
+        <div className="tr-bizplan-summary-row">
+          <span>÷ 0.7 = Monthly gross income needed</span>
+          <span className="tr-mono">{fmtCurrency(monthlyGrossIncomeNeeded)}</span>
+        </div>
+        <div className="tr-bizplan-summary-row tr-bizplan-summary-highlight">
+          <span>× 12 = Annual gross income needed</span>
+          <span className="tr-mono">{fmtCurrency(annualGrossIncomeNeeded)}</span>
+        </div>
+      </div>
+    </>
+  );
+}
+function BusinessPlanGoalsPanel({ fields, setField, annualGrossIncomeNeeded, usingCalculatedIncomeGoal, cpt, tny, tpn, monthlyProspects, dailyProspects }) {
+  return (
+    <>
+      <h3 className="tr-h3">Transactions &amp; Prospecting Goals</h3>
+
+      <div className="tr-bizplan-step">
+        <h4 className="tr-h4">Step 1 · Average commission per transaction</h4>
+        <div className="tr-form-grid">
+          <label className="tr-field">
+            <span>Average target premium (TP)</span>
+            <input type="number" min="0" step="1" inputMode="decimal" value={fields.targetPremium} onChange={e => setField('targetPremium', e.target.value)} />
+          </label>
+          <label className="tr-field">
+            <span>Commission rate, % (CR)</span>
+            <input type="number" min="0" max="100" step="1" inputMode="decimal" value={fields.commissionRate} onChange={e => setField('commissionRate', e.target.value)} />
+          </label>
+        </div>
+        <div className="tr-bizplan-summary">
+          <div className="tr-bizplan-summary-row">
+            <span>TP × CR = Commission per transaction (CPT)</span>
+            <span className="tr-mono">{fmtCurrency(cpt)}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="tr-bizplan-step">
+        <h4 className="tr-h4">Step 2 · Income goal</h4>
+        <label className="tr-field tr-field-wide">
+          <span>Income goal (IG){usingCalculatedIncomeGoal ? ' — using your calculated annual gross income needed' : ''}</span>
+          <input
+            type="number" min="0" step="1" inputMode="decimal"
+            value={usingCalculatedIncomeGoal ? String(Math.round(annualGrossIncomeNeeded)) : fields.incomeGoalOverride}
+            onChange={e => setField('incomeGoalOverride', e.target.value)} />
+        </label>
+        {!usingCalculatedIncomeGoal && (
+          <button type="button" className="tr-bizplan-reset-link" onClick={() => setField('incomeGoalOverride', '')}>
+            Use calculated value ({fmtCurrency(annualGrossIncomeNeeded)})
+          </button>
+        )}
+        <div className="tr-bizplan-summary">
+          <div className="tr-bizplan-summary-row">
+            <span>IG ÷ CPT = Transactions needed per year (TNY)</span>
+            <span className="tr-mono">{tny.toFixed(1)}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="tr-bizplan-step">
+        <h4 className="tr-h4">Step 3 · Prospects needed</h4>
+        <div className="tr-bizplan-summary">
+          <div className="tr-bizplan-summary-row">
+            <span>TNY × 5 (prospect-to-sale ratio) = Total prospects needed per year (TPN)</span>
+            <span className="tr-mono">{Math.round(tpn)}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="tr-bizplan-step">
+        <h4 className="tr-h4">Step 4 · Break it down daily</h4>
+        <div className="tr-bizplan-summary">
+          <div className="tr-bizplan-summary-row">
+            <span>TPN ÷ 12 months = Monthly prospects needed</span>
+            <span className="tr-mono">{monthlyProspects.toFixed(1)}</span>
+          </div>
+          <div className="tr-bizplan-summary-row tr-bizplan-summary-highlight">
+            <span>÷ 30 days = Prospects needed each day</span>
+            <span className="tr-mono">{dailyProspects.toFixed(1)}</span>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
 function ProspectForm({ editing, onCancel, onSubmit, saving }) {
   const [firstName, setFirstName] = useState(editing?.firstName || '');
   const [lastName, setLastName] = useState(editing?.lastName || '');
@@ -3560,14 +3760,16 @@ function AdvisorView({ user }) {
     <Shell>
       <Header user={user} />
       <main className="tr-main">
-        <div className="tr-tabs" style={{ maxWidth: 700 }}>
+        <div className="tr-tabs" style={{ maxWidth: 820 }}>
           <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
+          <button className={`tr-tab ${tab === 'bizplan' ? 'tr-tab-active' : ''}`} onClick={() => setTab('bizplan')}>Business Plan</button>
           <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
           <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Prospecting</button>
           <button className={`tr-tab ${tab === 'milestones' ? 'tr-tab-active' : ''}`} onClick={() => setTab('milestones')}>Milestones</button>
           <button className={`tr-tab ${tab === 'documents' ? 'tr-tab-active' : ''}`} onClick={() => setTab('documents')}>Documents</button>
         </div>
         {tab === 'mine' && <MyAppointmentsBody user={user} prefillData={prefillData} onPrefillConsumed={() => setPrefillData(null)} />}
+        {tab === 'bizplan' && <BusinessPlanBody user={user} />}
         {tab === 'calendar' && <CalendarBody user={user} />}
         {tab === 'systems' && (
           <SystemsBody user={user} onLogAppointment={p => { setPrefillData(prospectToAppointmentPrefill(p)); setTab('mine'); }} />
@@ -4103,10 +4305,11 @@ function ManagerView({ user }) {
           <button className={`tr-tab-group ${group === 'mine' ? 'tr-tab-group-active' : ''}`} onClick={() => selectGroup('mine')}>My Work</button>
           <button className={`tr-tab-group ${group === 'team' ? 'tr-tab-group-active' : ''}`} onClick={() => selectGroup('team')}>Team</button>
         </div>
-        <div className="tr-tabs" style={{ maxWidth: group === 'mine' ? 700 : 900 }}>
+        <div className="tr-tabs" style={{ maxWidth: group === 'mine' ? 820 : 900 }}>
           {group === 'mine' ? (
             <>
               <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
+              <button className={`tr-tab ${tab === 'bizplan' ? 'tr-tab-active' : ''}`} onClick={() => setTab('bizplan')}>Business Plan</button>
               <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
               <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Prospecting</button>
               <button className={`tr-tab ${tab === 'milestones' ? 'tr-tab-active' : ''}`} onClick={() => setTab('milestones')}>Milestones</button>
@@ -4121,6 +4324,7 @@ function ManagerView({ user }) {
           )}
         </div>
         {tab === 'mine' && <MyAppointmentsBody user={user} prefillData={prefillData} onPrefillConsumed={() => setPrefillData(null)} />}
+        {tab === 'bizplan' && <BusinessPlanBody user={user} />}
         {tab === 'calendar' && <CalendarBody user={user} />}
         {tab === 'systems' && (
           <SystemsBody user={user} onLogAppointment={p => { setPrefillData(prospectToAppointmentPrefill(p)); setTab('mine'); }} />
@@ -4397,10 +4601,11 @@ function AdminView({ user }) {
           <button className={`tr-tab-group ${group === 'mine' ? 'tr-tab-group-active' : ''}`} onClick={() => selectGroup('mine')}>My Work</button>
           <button className={`tr-tab-group ${group === 'team' ? 'tr-tab-group-active' : ''}`} onClick={() => selectGroup('team')}>Team &amp; Admin</button>
         </div>
-        <div className="tr-tabs" style={{ maxWidth: group === 'mine' ? 700 : 1140 }}>
+        <div className="tr-tabs" style={{ maxWidth: group === 'mine' ? 820 : 1140 }}>
           {group === 'mine' ? (
             <>
               <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
+              <button className={`tr-tab ${tab === 'bizplan' ? 'tr-tab-active' : ''}`} onClick={() => setTab('bizplan')}>Business Plan</button>
               <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
               <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Prospecting</button>
               <button className={`tr-tab ${tab === 'milestones' ? 'tr-tab-active' : ''}`} onClick={() => setTab('milestones')}>Milestones</button>
@@ -4416,6 +4621,7 @@ function AdminView({ user }) {
           )}
         </div>
         {tab === 'mine' && <MyAppointmentsBody user={user} prefillData={prefillData} onPrefillConsumed={() => setPrefillData(null)} />}
+        {tab === 'bizplan' && <BusinessPlanBody user={user} />}
         {tab === 'calendar' && <CalendarBody user={user} />}
         {tab === 'systems' && (
           <SystemsBody user={user} onLogAppointment={p => { setPrefillData(prospectToAppointmentPrefill(p)); setTab('mine'); }} />
