@@ -398,12 +398,12 @@ function PublicShell({ children }) {
     </div>
   );
 }
-const STEP_LABELS = ['Personal', 'Income', 'Investment', 'Insurance', 'Expenses', 'Goals'];
 const STEP_TITLES = ['Personal & Family', 'Income Sources', 'Investment Accounts', 'Insurance & Annuities', 'Monthly Expenses', 'Goals & Concerns'];
 
 export function ClientIntakePublicForm({ token }) {
   const [phase, setPhase] = useState('loading'); // loading | not_found | landing | form | submitted | already_submitted
   const [clientName, setClientName] = useState('');
+  const [advisorName, setAdvisorName] = useState('');
   const [responses, setResponses] = useState(EMPTY_INTAKE_RESPONSES);
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -415,7 +415,12 @@ export function ClientIntakePublicForm({ token }) {
       if (!alive) return;
       if (!res.found) { setPhase('not_found'); return; }
       const incoming = res.responses || {};
-      setClientName(res.client_name || '');
+      // The lookup RPC returns camelCase keys (see get_client_intake_by_token
+      // in migration-client-intake.sql) — clientName was previously read as
+      // the snake_case client_name here, which the RPC never actually sends,
+      // so the landing page always fell back to "You" instead of the real name.
+      setClientName(res.clientName || '');
+      setAdvisorName(res.advisorName || '');
       setResponses({
         ...EMPTY_INTAKE_RESPONSES,
         ...incoming,
@@ -475,7 +480,9 @@ export function ClientIntakePublicForm({ token }) {
         <div className="tr-intake-center">
           <div className="tr-intake-icon-badge"><ShieldCheck size={28} /></div>
           <h2 className="tr-h2">Financial Information</h2>
-          <p className="tr-empty">Your advisor has requested some information to help plan your financial future.</p>
+          <p className="tr-empty">
+            {advisorName ? `${advisorName} has requested` : 'Your advisor has requested'} some information to help plan your financial future.
+          </p>
         </div>
         <div className="tr-card">
           <div className="tr-empty" style={{ margin: 0 }}>PREPARED FOR</div>
@@ -490,6 +497,9 @@ export function ClientIntakePublicForm({ token }) {
           <button type="button" className="tr-btn tr-btn-brass" onClick={() => setPhase('form')}>Get Started <ArrowRight size={15} /></button>
         </div>
         <p className="tr-empty" style={{ textAlign: 'center', marginTop: 10 }}>
+          Takes about 8–10 minutes. Answer what you can — anything else can be skipped, and your progress saves automatically as you go.
+        </p>
+        <p className="tr-empty" style={{ textAlign: 'center', marginTop: 6 }}>
           <ShieldCheck size={12} style={{ verticalAlign: 'middle', marginRight: 4 }} />Secure and encrypted
         </p>
       </PublicShell>
@@ -547,14 +557,18 @@ export function ClientIntakePublicForm({ token }) {
     <PublicShell>
       <div className="tr-intake-topbar">
         <div className="tr-intake-brand">PaceLedger</div>
-        <div>{saving ? 'Saving…' : 'Saved'} · Step {step + 1} of 6</div>
+        <div>{saving ? 'Saving…' : 'Saved'}</div>
       </div>
-      <div className="tr-tabs" style={{ maxWidth: 640, marginBottom: 18, flexWrap: 'wrap' }}>
-        {STEP_LABELS.map((label, i) => (
-          <span key={label} className={`tr-tab ${step === i ? 'tr-tab-active' : ''}`} style={{ cursor: 'default', opacity: i <= step ? 1 : 0.55 }}>{label}</span>
-        ))}
+      <div>
+        <div className="tr-intake-progress-label">
+          <span>Step {step + 1} of 6</span>
+          <strong>{STEP_TITLES[step]}</strong>
+        </div>
+        <div className="tr-intake-progress-track">
+          <div className="tr-intake-progress-fill" style={{ width: `${((step + 1) / 6) * 100}%` }} />
+        </div>
       </div>
-      <div className="tr-card">
+      <div className="tr-card" style={{ marginTop: 18 }}>
         {step === 0 && <IntakeStepPersonal data={responses.personal} setData={setPersonal} />}
         {step === 1 && <IntakeStepIncome items={responses.income} setItems={setIncome} />}
         {step === 2 && <IntakeStepInvestments items={responses.investments} setItems={setInvestments} />}
@@ -563,13 +577,15 @@ export function ClientIntakePublicForm({ token }) {
         {step === 5 && <IntakeStepGoals data={responses.goals} setData={setGoals} />}
         <div className="tr-form-actions" style={{ marginTop: 20 }}>
           {step > 0 && <button type="button" className="tr-btn tr-btn-ghost" onClick={goBack}>Back</button>}
-          {step < 5 && <button type="button" className="tr-btn tr-btn-ghost" onClick={goNext}>Skip</button>}
           {step < 5 ? (
             <button type="button" className="tr-btn tr-btn-brass" onClick={goNext} disabled={saving}>Next: {STEP_TITLES[step + 1]} <ArrowRight size={15} /></button>
           ) : (
             <button type="button" className="tr-btn tr-btn-brass" onClick={handleFinalSubmit} disabled={submitting}>{submitting ? 'Submitting…' : 'Review & Submit'}</button>
           )}
         </div>
+        {step < 5 && (
+          <button type="button" className="tr-intake-skip-link" onClick={goNext}>Skip this step for now</button>
+        )}
       </div>
     </PublicShell>
   );
