@@ -142,9 +142,10 @@ export const CSS = `
 .tr-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .tr-field { display: flex; flex-direction: column; gap: 5px; font-size: 13px; font-weight: 500; color: var(--slate); }
 .tr-field-wide { grid-column: 1 / -1; }
-.tr-field input, .tr-field select { font-family: inherit; font-size: 14px; padding: 9px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
+.tr-field input, .tr-field select, .tr-field textarea { font-family: inherit; font-size: 14px; padding: 9px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
 .tr-field select { padding-right: 28px; }
-.tr-field input:focus, .tr-field select:focus { border-color: var(--brass); }
+.tr-field textarea { resize: vertical; min-height: 88px; line-height: 1.5; }
+.tr-field input:focus, .tr-field select:focus, .tr-field textarea:focus { border-color: var(--brass); }
 .tr-badge { font-size: 12.5px; font-weight: 500; padding: 8px 10px; border-radius: 6px; border: 1px dashed var(--line); background: var(--paper); }
 .tr-badge-weekend { color: var(--brass-dark); border-color: rgba(201,162,75,0.5); background: rgba(201,162,75,0.08); }
 .tr-badge-weekday { color: #2E6E51; border-color: rgba(63,143,108,0.4); background: rgba(63,143,108,0.08); }
