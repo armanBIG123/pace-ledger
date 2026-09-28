@@ -2352,7 +2352,7 @@ const EXPENSE_FIELD_DEFS = [
 ];
 function BusinessPlanBody({ user }) {
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState('expenses'); // 'expenses' | 'goals'
+  const [view, setView] = useState('expenses'); // 'expenses' | 'goals' | 'marketing'
   const [fields, setFields] = useState(DEFAULT_BUSINESS_PLAN_FIELDS);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -2402,18 +2402,25 @@ function BusinessPlanBody({ user }) {
         <button type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'goals' ? 'tr-sidebar-item-active' : ''}`} onClick={() => setView('goals')}>
           <span>Goals</span>
         </button>
+        <button type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'marketing' ? 'tr-sidebar-item-active' : ''}`} onClick={() => setView('marketing')}>
+          <span>Marketing Plan</span>
+        </button>
       </nav>
       <div className="tr-appts-main">
         <div className="tr-card">
-          {view === 'expenses' ? (
+          {view === 'expenses' && (
             <BusinessPlanExpensesPanel
               fields={fields} setField={setField}
               subtotal={subtotal} monthlyGrossIncomeNeeded={monthlyGrossIncomeNeeded} annualGrossIncomeNeeded={annualGrossIncomeNeeded} />
-          ) : (
+          )}
+          {view === 'goals' && (
             <BusinessPlanGoalsPanel
               fields={fields} setField={setField}
               annualGrossIncomeNeeded={annualGrossIncomeNeeded} usingCalculatedIncomeGoal={usingCalculatedIncomeGoal}
               cpt={cpt} tny={tny} tpn={tpn} monthlyProspects={monthlyProspects} dailyProspects={dailyProspects} />
+          )}
+          {view === 'marketing' && (
+            <BusinessPlanMarketingPanel fields={fields} setField={setField} />
           )}
           <div className="tr-form-actions" style={{ marginTop: 16 }}>
             <button type="button" className="tr-btn tr-btn-brass" onClick={handleSave} disabled={saving || !dirty}>{saving ? 'Saving…' : 'Save'}</button>
@@ -2523,6 +2530,28 @@ function BusinessPlanGoalsPanel({ fields, setField, annualGrossIncomeNeeded, usi
             <span className="tr-mono">{dailyProspects.toFixed(1)}</span>
           </div>
         </div>
+      </div>
+    </>
+  );
+}
+function BusinessPlanMarketingPanel({ fields, setField }) {
+  return (
+    <>
+      <h3 className="tr-h3">Marketing Plan</h3>
+      <p className="tr-empty" style={{ marginTop: -6 }}>Three questions worth revisiting as your business changes.</p>
+      <div className="tr-form-grid">
+        <label className="tr-field tr-field-wide">
+          <span>Goals — what will be accomplished and when?</span>
+          <textarea rows={4} value={fields.marketingGoals} onChange={e => setField('marketingGoals', e.target.value)} placeholder="What will be accomplished, and by when?" />
+        </label>
+        <label className="tr-field tr-field-wide">
+          <span>Strategies — how will you reach your goals?</span>
+          <textarea rows={4} value={fields.marketingStrategies} onChange={e => setField('marketingStrategies', e.target.value)} placeholder="How will you reach the goals above?" />
+        </label>
+        <label className="tr-field tr-field-wide">
+          <span>Tactics — what will change and when?</span>
+          <textarea rows={4} value={fields.marketingTactics} onChange={e => setField('marketingTactics', e.target.value)} placeholder="What will change, and when?" />
+        </label>
       </div>
     </>
   );
