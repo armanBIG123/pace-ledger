@@ -12,6 +12,7 @@ export const DEFAULT_BUSINESS_PLAN_FIELDS = {
   mortgageRent: '', household: '', food: '', car: '', entertainment: '',
   childCare: '', education: '', investmentsSavings: '', otherExpenses: '',
   targetPremium: '3600', commissionRate: '50', incomeGoalOverride: '',
+  marketingGoals: '', marketingStrategies: '', marketingTactics: '',
 };
 
 export function rowToBusinessPlanFields(row) {
@@ -23,16 +24,21 @@ export function rowToBusinessPlanFields(row) {
     targetPremium: row.target_premium != null ? String(row.target_premium) : '3600',
     commissionRate: row.commission_rate != null ? String(row.commission_rate) : '50',
     incomeGoalOverride: s(row.income_goal_override),
+    marketingGoals: s(row.marketing_goals), marketingStrategies: s(row.marketing_strategies),
+    marketingTactics: s(row.marketing_tactics),
   };
 }
 function businessPlanFieldsToRow(f) {
   const num = v => (v === '' || v === null || v === undefined ? null : Number(v));
+  const txt = v => (v === '' || v === null || v === undefined ? null : String(v));
   return {
     mortgage_rent: num(f.mortgageRent), household: num(f.household), food: num(f.food), car: num(f.car),
     entertainment: num(f.entertainment), child_care: num(f.childCare), education: num(f.education),
     investments_savings: num(f.investmentsSavings), other_expenses: num(f.otherExpenses),
     target_premium: num(f.targetPremium) ?? 3600, commission_rate: num(f.commissionRate) ?? 50,
     income_goal_override: num(f.incomeGoalOverride),
+    marketing_goals: txt(f.marketingGoals), marketing_strategies: txt(f.marketingStrategies),
+    marketing_tactics: txt(f.marketingTactics),
   };
 }
 
