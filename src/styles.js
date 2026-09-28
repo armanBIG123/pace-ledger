@@ -401,6 +401,11 @@ export const CSS = `
 .tr-bizplan-summary-highlight { padding-top: 10px; margin-top: 2px; border-top: 1px dashed var(--line); }
 .tr-bizplan-summary-highlight span:first-child { font-weight: 600; color: var(--ink); }
 .tr-bizplan-summary-highlight .tr-mono { font-size: 20px; color: var(--brass-dark); }
+
+/* prospecting — memory jogger */
+.tr-jogger-cat-head { display: flex; align-items: center; justify-content: space-between; width: 100%; font-family: inherit; background: transparent; border: none; padding: 0; cursor: pointer; color: var(--slate-light); }
+.tr-jogger-cat-head:hover { color: var(--ink); }
+.tr-jogger-cat-head .tr-h4 { color: inherit; }
 .tr-bizplan-reset-link { background: none; border: none; padding: 2px 0; margin: -4px 0 0; font-family: inherit; font-size: 12px; color: var(--brass-dark); text-decoration: underline; cursor: pointer; text-align: left; }
 
 /* client intake — public wizard + advisor tab */
