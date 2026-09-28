@@ -431,6 +431,13 @@ export const CSS = `
 .tr-intake-step-num { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 999px; background: var(--paper-dim); color: var(--slate); font-size: 11px; font-weight: 600; margin-right: 8px; flex-shrink: 0; }
 .tr-intake-link-row { display: flex; align-items: center; gap: 8px; }
 .tr-intake-link-box { flex: 1; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--paper-dim); color: var(--slate); overflow-x: auto; white-space: nowrap; }
+.tr-intake-progress-label { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; font-weight: 500; color: var(--slate); margin-bottom: 7px; }
+.tr-intake-progress-label strong { color: var(--ink); }
+.tr-intake-progress-track { width: 100%; height: 6px; border-radius: 999px; background: var(--paper-dim); overflow: hidden; }
+.tr-intake-progress-fill { height: 100%; border-radius: 999px; background: var(--brass); transition: width .3s ease; }
+.tr-intake-skip-link { display: block; width: 100%; text-align: center; margin-top: 12px; background: none; border: none; font-family: inherit; font-size: 12.5px; color: var(--slate-light); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.tr-intake-skip-link:hover { color: var(--slate); }
+.tr-intake-hint-row { display: flex; align-items: center; justify-content: center; gap: 6px; font-size: 12px; color: var(--slate-light); margin-top: 10px; }
 
 /* responsive */
 @media (max-width: 720px) {
@@ -459,5 +466,7 @@ export const CSS = `
   .tr-policy-fields { gap: 12px; }
   .tr-skel-row { gap: 8px; overflow-x: hidden; }
   .tr-skel-row .tr-skel { flex-shrink: 1; min-width: 30px; }
+  .tr-intake-quickstart { grid-template-columns: 1fr; }
+  .tr-intake-page { padding: 20px 14px 48px; }
 }
 `;
