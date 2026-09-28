@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
-  LogIn, LogOut, Plus, Trash2, ChevronLeft, ChevronRight, Users,
+  LogIn, LogOut, Plus, Trash2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Users,
   CalendarDays, ShieldCheck, UserPlus, Loader2, Pencil, ClipboardCheck, TrendingUp, UserCog, DollarSign,
   Download, Search, X, GraduationCap, FileText, Ban
 } from 'lucide-react';
@@ -3324,10 +3324,79 @@ function DocumentsBody({ user }) {
     </div>
   );
 }
+// A curated subset of BIG's "Prospect List Worksheet - Memory Jogger"
+// handout — every category from the original, trimmed down to the
+// entries most likely to actually jog a name loose, so it reads as a
+// quick nudge rather than a wall of text to scroll through.
+const MEMORY_JOGGER_CATEGORIES = [
+  {
+    title: 'Family & Friends',
+    items: ['Best Friend', "Best Friend's Parents", 'Brother / Sister', 'Brother-in-law / Sister-in-law', 'Cousin', "Spouse's Best Friend", 'Aunt / Uncle', 'Parents'],
+  },
+  {
+    title: 'Who...',
+    items: [
+      'Is very ambitious', 'Is a consultant or trainer', 'Is in a high-profile job', 'Is a prominent business owner',
+      'Recently had children', 'Has influence with others', 'Wants more out of life', 'Missed last promotion',
+      'Will be / has been laid off', 'Needs a part-time job', 'Is looking for a new profession', 'Is known by everyone in town',
+    ],
+  },
+  {
+    title: 'Who do you know at...',
+    items: ['Church', 'Golf Club', 'Health Club', 'Hospital', 'Library', 'Past Jobs', 'Supermarket', 'Volunteer Group', 'Night School'],
+  },
+  {
+    title: 'Who owns or runs a...',
+    items: ['Convenience Store', 'Department Store', 'Restaurant', 'Hotel Business', 'Service Station', 'Hardware Store', 'Machine Shop', 'Eye Center'],
+  },
+  {
+    title: 'Who sold you your...',
+    items: ['Car / Truck', 'House', 'Car Insurance', 'Furniture', 'Computer', 'Business Machines', 'Office Supplies', 'Telephone System', 'Cable / Satellite TV', 'Jewelry'],
+  },
+  {
+    title: 'Do you know a...',
+    items: [
+      'Accountant', 'Business Owner', 'Company Executive', 'Contractor', 'Dentist', 'Doctor', 'Engineer', 'Nurse',
+      'Pharmacist', 'Real Estate Agent', 'Restaurant Owner', 'Teacher', 'Veterinarian', 'Chiropractor', 'Architect',
+    ],
+  },
+];
+function MemoryJoggerPanel() {
+  const [openCats, setOpenCats] = useState(() => new Set([0]));
+  function toggle(i) {
+    setOpenCats(prev => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i); else next.add(i);
+      return next;
+    });
+  }
+  return (
+    <div className="tr-card">
+      <h3 className="tr-h3">Memory Jogger</h3>
+      <p className="tr-empty" style={{ marginTop: -6 }}>Stuck on who to add next? Work down these — someone on the list almost always jogs a name loose.</p>
+      {MEMORY_JOGGER_CATEGORIES.map((cat, i) => {
+        const open = openCats.has(i);
+        return (
+          <div className="tr-bizplan-step" key={cat.title}>
+            <button type="button" className="tr-jogger-cat-head" onClick={() => toggle(i)}>
+              <h4 className="tr-h4" style={{ margin: 0 }}>{cat.title}</h4>
+              {open ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+            </button>
+            {open && (
+              <div className="tr-pillrow" style={{ marginTop: 10 }}>
+                {cat.items.map(item => <span className="tr-pill-btn" key={item}>{item}</span>)}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 function SystemsBody({ user, onLogAppointment }) {
   const [prospects, setProspects] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [systemsView, setSystemsView] = useState('list'); // 'prospect' | 'list' | 'recruit' | 'sold'
+  const [systemsView, setSystemsView] = useState('list'); // 'prospect' | 'list' | 'recruit' | 'sold' | 'jogger'
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [leaningFilter, setLeaningFilter] = useState('all'); // 'all' | 'sale' | 'recruit' | 'both'
@@ -3426,6 +3495,11 @@ function SystemsBody({ user, onLogAppointment }) {
           <span>Sold</span>
           <span className="tr-mono">{soldAll.length}</span>
         </button>
+        <button
+          type="button" className={`tr-sidebar-item tr-sidebar-item-week ${systemsView === 'jogger' ? 'tr-sidebar-item-active' : ''}`}
+          onClick={() => setSystemsView('jogger')}>
+          <span>Memory Jogger</span>
+        </button>
       </nav>
       <div className="tr-appts-main">
         {error && <div className="tr-error">{error}</div>}
@@ -3434,6 +3508,8 @@ function SystemsBody({ user, onLogAppointment }) {
             <h2 className="tr-h2">{editingProspect ? 'Edit prospect' : 'New prospect'}</h2>
             <ProspectForm editing={editingProspect} onCancel={() => { setEditingProspect(null); setSystemsView('list'); }} onSubmit={handleSubmit} saving={saving} />
           </>
+        ) : systemsView === 'jogger' ? (
+          <MemoryJoggerPanel />
         ) : (
           <>
             <div className="tr-row-head">
