@@ -36,7 +36,12 @@ const WEEKLY_TOTAL_TARGET = WEEKEND_TARGET + WEEKDAY_TARGET * 5; // 33
 // ---------------------------------------------------------------------
 // date helpers
 // ---------------------------------------------------------------------
-function fmtDate(d) { return d.toISOString().slice(0, 10); }
+// Calendar date in the viewer's own timezone. (This previously used
+// toISOString(), which is UTC — so after 7 PM Central "today" flipped to
+// tomorrow, and a Friday-evening log could land in the next week.)
+function fmtDate(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 // Adds minutes to a date+time pair, correctly rolling over into the next
 // day if needed (e.g. an 11:45 PM appointment + 30 min).
 function addMinutesToDateTime(dateStr, timeStr, minutesToAdd) {
@@ -138,6 +143,19 @@ function fmtApptDateTime(a) {
 // looking at it, rather than repeating the raw stored values verbatim.
 // Falls back to the raw stored value for any training saved before this
 // existed (training_at will be null until the row is re-saved).
+// Same idea for appointments on the Calendar: a 7:30 PM Eastern
+// appointment shows as 6:30 PM (and on the right day) for someone in
+// Central time. Falls back to the stored values for legacy rows.
+function apptLocalDate(a) {
+  if (!a.appointmentAt) return a.appointmentDate;
+  const d = new Date(a.appointmentAt);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function apptLocalTimeKey(a) {
+  if (!a.appointmentAt) return (a.appointmentTime || '00:00').slice(0, 5);
+  const d = new Date(a.appointmentAt);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
 function trainingLocalDate(t) {
   return t.training_at ? fmtDate(new Date(t.training_at)) : t.training_date;
 }
@@ -534,8 +552,14 @@ function daysAgoLabel(dateStr) {
 // proxy — a prospect still sitting active (unconverted) two-plus weeks
 // after being logged is a fair signal it needs a follow-up nudge.
 const STALE_PROSPECT_DAYS = 14;
-function isStaleProspect(p) {
+function normName(s) { return (s || '').trim().replace(/\s+/g, ' ').toLowerCase(); }
+function prospectNameKey(p) { return normName(`${p.firstName || ''} ${p.lastName || ''}`); }
+// A prospect only counts as stale if nothing has happened with them —
+// pass the set of client names you've logged appointments for and anyone
+// with an appointment on the books is no longer considered stale.
+function isStaleProspect(p, apptNames) {
   if (p.markedRecruited || p.markedSold) return false;
+  if (apptNames instanceof Set && apptNames.has(prospectNameKey(p))) return false;
   const days = Math.floor((Date.now() - new Date(p.createdAt).getTime()) / (1000 * 60 * 60 * 24));
   return days >= STALE_PROSPECT_DAYS;
 }
@@ -830,24 +854,6 @@ function WeekNav({ weekMonday, onShift, onToday }) {
     </div>
   );
 }
-function DashboardStrip({ todayCount, needsFollowUpCount, soldThisWeekCount, onJumpToToday, onJumpToFollowUp }) {
-  return (
-    <div className="tr-dash-strip">
-      <button type="button" className="tr-dash-stat" onClick={onJumpToToday}>
-        <span className="tr-dash-num">{todayCount}</span>
-        <span className="tr-dash-label">today</span>
-      </button>
-      <button type="button" className="tr-dash-stat" onClick={onJumpToFollowUp}>
-        <span className="tr-dash-num">{needsFollowUpCount}</span>
-        <span className="tr-dash-label">need follow-up</span>
-      </button>
-      <div className="tr-dash-stat tr-dash-stat-static">
-        <span className="tr-dash-num">{soldThisWeekCount}</span>
-        <span className="tr-dash-label">sold this week</span>
-      </div>
-    </div>
-  );
-}
 // Read-only for the advisor — they can see what their manager left for the
 // week they're currently viewing, but only a manager/admin can write one.
 function MyCoachingNotes({ userId, weekOf }) {
@@ -1025,7 +1031,9 @@ function TypeBadge({ appt }) {
   if (r) return <span className="tr-type-badge tr-type-badge-recruit"><UserPlus size={11} /> Recruit</span>;
   return <span className="tr-type-badge tr-type-badge-sale"><DollarSign size={11} /> Sale</span>;
 }
-function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty }) {
+function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty, hideSet }) {
+  // Only show the Trainee column when someone in this group actually has one.
+  const showTrainee = list.some(a => a.trainee);
   return (
     <div className="tr-card tr-appt-group">
       {title ? <h3 className="tr-h3">{title}</h3> : null}
@@ -1033,29 +1041,32 @@ function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty }) {
         <div className="tr-table-wrap">
           <table className="tr-table">
             <thead>
-              <tr><th>Set</th><th>Appointment</th><th>Presenter</th><th>Trainee</th><th>Client / recruit</th>{onDelete && <th></th>}</tr>
+              <tr>{!hideSet && <th>Set</th>}<th>Appointment</th><th>Client / recruit</th><th>Presenter</th>{showTrainee && <th>Trainee</th>}{onDelete && <th></th>}</tr>
             </thead>
             <tbody>
               {list.map(a => {
                 const typeClass = isRecruitType(a) && isSaleType(a) ? 'tr-type-both' : isRecruitType(a) ? 'tr-type-recruit' : isSaleType(a) ? 'tr-type-sale' : '';
                 return (
                   <tr key={a.id}>
-                    <td className={typeClass}>{a.dateSetLabel}</td>
-                    <td>{fmtApptDateTime(a)}</td>
-                    <td>{a.presenter}</td>
-                    <td>{a.trainee || '—'}</td>
+                    {!hideSet && <td className={typeClass}>{a.dateSetLabel}</td>}
+                    <td className={hideSet ? typeClass : ''}>{fmtApptDateTime(a)}</td>
                     <td>
-                      {a.client}
+                      <strong className="tr-appt-client">{a.client}</strong>
                       <TypeBadge appt={a} />
                       {a.status ? <span style={{ marginLeft: 6 }}><StatusChip status={a.status} /></span> : null}
                       {a.zoomUrl ? <div><a href={a.zoomUrl} target="_blank" rel="noopener noreferrer" className="tr-note tr-link">Join Zoom</a></div> : null}
                       {a.followUpAppointmentDate ? <div className="tr-note" style={{ marginTop: 2 }}>Follow-up: {fmtFollowUpDateTime(a)}</div> : null}
                       {a.notes ? <span className="tr-note"> — {a.notes}</span> : null}
                     </td>
+                    <td>{a.presenter}</td>
+                    {showTrainee && <td>{a.trainee || '—'}</td>}
                     {onDelete && (
                       <td style={{ whiteSpace: 'nowrap' }}>
-                        {onFollowUp && isPastAppointment(a) && (
-                          <button className="tr-icon-btn" onClick={() => onFollowUp(a)} title={a.followUpCompletedAt ? 'Edit follow-up' : 'Follow up'}>
+                        {onFollowUp && isPastAppointment(a) && !a.followUpCompletedAt && (
+                          <button className="tr-btn tr-btn-brass tr-btn-sm" style={{ marginRight: 4 }} onClick={() => onFollowUp(a)} title="Log how it went">Log outcome</button>
+                        )}
+                        {onFollowUp && isPastAppointment(a) && a.followUpCompletedAt && (
+                          <button className="tr-icon-btn" onClick={() => onFollowUp(a)} title="Edit outcome">
                             <ClipboardCheck size={14} />
                           </button>
                         )}
@@ -1417,7 +1428,7 @@ function TypeChoice({ recruit, sale, onToggleRecruit, onToggleSale }) {
 
 function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onSubmit, saving }) {
   const [dateSetOption, setDateSetOption] = useState(editing?.dateSetOption || defaultDateSetOption());
-  const [appointmentDate, setAppointmentDate] = useState(editing?.appointmentDate || '');
+  const [appointmentDate, setAppointmentDate] = useState(editing?.appointmentDate || prefillData?.appointmentDate || '');
   const [appointmentTime, setAppointmentTime] = useState(editing?.appointmentTime || '');
   const [timezone, setTimezone] = useState(editing?.appointmentTimezone || detectTimezone());
   const [presenterId, setPresenterId] = useState(editing?.presenterId || user.managerId || user.id);
@@ -1431,12 +1442,28 @@ function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onS
   const [err, setErr] = useState('');
   const [checking, setChecking] = useState(false);
   const [zoomManagers, setZoomManagers] = useState([]);
+  const [myProspects, setMyProspects] = useState([]);
   const timezoneOptions = timezoneOptionsWithDetected();
 
   useEffect(() => {
     fetchZoomConnectedManagers().then(setZoomManagers);
     fetchOrgDirectory().then(setOrgDirectory);
-  }, []);
+    // Suggest names from your prospect list as you type the client name.
+    fetchMyProspects(user.id).then(list => setMyProspects(list.filter(p => !p.markedRecruited && !p.markedSold)));
+  }, [user.id]);
+
+  function handleClientChange(value) {
+    setClient(value);
+    // Picking a known prospect fills in recruit/sale from how they scored,
+    // unless you've already chosen a type yourself.
+    const match = myProspects.find(p => prospectNameKey(p) === normName(value));
+    if (match && !typeRecruit && !typeSale) {
+      const leaning = prospectLeaningKey(match);
+      if (leaning === 'recruit' || leaning === 'both') setTypeRecruit(true);
+      if (leaning === 'sale' || leaning === 'both') setTypeSale(true);
+      if (!notes && match.notes) setNotes(match.notes);
+    }
+  }
 
   // Who can present, and how it's picked, depends on whether a manager
   // was chosen above via "Which manager is presenting?":
@@ -1514,7 +1541,9 @@ function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onS
     });
   }
   function handleKeyDown(e) {
-    if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA') { e.preventDefault(); submit(); }
+    // Enter in the client-name box is how you pick a prospect suggestion,
+    // so it never submits the form from there.
+    if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA' && !e.target.getAttribute('list')) { e.preventDefault(); submit(); }
   }
 
   return (
@@ -1572,7 +1601,10 @@ function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onS
         </label>
         <label className="tr-field">
           <span>Client / recruit</span>
-          <input value={client} onChange={e => setClient(e.target.value)} placeholder="Who is being presented to" />
+          <input value={client} onChange={e => handleClientChange(e.target.value)} placeholder="Who is being presented to" list="tr-prospect-name-options" autoComplete="off" />
+          <datalist id="tr-prospect-name-options">
+            {myProspects.map(p => <option key={p.id} value={`${p.firstName} ${p.lastName}`} />)}
+          </datalist>
         </label>
         <label className="tr-field">
           <span>Date set</span>
@@ -1882,15 +1914,13 @@ async function updateAppointmentZoomUrl(id, zoomUrl) {
 }
 function ZoomConnect({ status, connecting, onConnect, onDisconnect }) {
   return (
-    <div className="tr-card tr-google-card">
-      <div>
-        <strong>Zoom (auto-create meetings)</strong>
-        <div className="tr-note">
-          {status.connected
-            ? `Connected as ${status.zoomEmail || 'your Zoom account'} — a unique Zoom meeting is created automatically for every new appointment you log.`
-            : "Connect to automatically create a real Zoom meeting (with its own unique link) whenever you log a new appointment."}
-        </div>
-      </div>
+    <div className={`tr-connect-slim ${status.connected ? 'tr-connect-slim-on' : ''}`}>
+      <span className="tr-connect-dot" />
+      <span className="tr-connect-text">
+        {status.connected
+          ? <><strong>Zoom connected</strong> as {status.zoomEmail || 'your Zoom account'} — every new appointment gets its own meeting link.</>
+          : <><strong>Zoom not connected.</strong> Connect it and every appointment you log gets its own meeting link automatically.</>}
+      </span>
       {status.connected ? (
         <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onDisconnect}>Disconnect</button>
       ) : (
@@ -1904,13 +1934,13 @@ function ZoomConnect({ status, connecting, onConnect, onDisconnect }) {
 
 function GoogleCalendarConnect({ status, connecting, onConnect, onDisconnect }) {
   return (
-    <div className="tr-card tr-google-card">
-      <div>
-        <strong>Google Calendar</strong>
-        <div className="tr-note">
-          {status.connected ? `Connected as ${status.googleEmail || 'your Google account'}` : 'Connect to see your Google events here too.'}
-        </div>
-      </div>
+    <div className={`tr-connect-slim ${status.connected ? 'tr-connect-slim-on' : ''}`}>
+      <span className="tr-connect-dot" />
+      <span className="tr-connect-text">
+        {status.connected
+          ? <><strong>Google Calendar connected</strong> as {status.googleEmail || 'your Google account'}.</>
+          : <><strong>Google Calendar not connected.</strong> Connect it to see your Google events alongside your appointments.</>}
+      </span>
       {status.connected ? (
         <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onDisconnect}>Disconnect</button>
       ) : (
@@ -2100,26 +2130,29 @@ function SchedulePostCard({ user, onPosted }) {
     </div>
   );
 }
-function CalendarDay({ cell, appts, googleEvents, trainings, scheduleBlocks, highlightTrainings, ownerName, onOpen }) {
-  const isToday = cell.date === todayStr();
-  const items = [
-    ...appts.map(a => ({ kind: 'appt', data: a, timeKey: a.appointmentTime || '00:00' })),
+function calendarItems(appts, googleEvents, trainings, scheduleBlocks) {
+  return [
+    ...appts.map(a => ({ kind: 'appt', data: a, timeKey: apptLocalTimeKey(a) })),
     ...googleEvents.map(e => ({ kind: 'google', data: e, timeKey: googleEventTimeKey(e) })),
     ...trainings.map(t => ({ kind: 'training', data: t, timeKey: trainingLocalTimeKey(t) })),
     ...scheduleBlocks.map(b => ({ kind: 'block', data: b, timeKey: b.start_time.slice(0, 5) })),
   ].sort((a, b) => a.timeKey.localeCompare(b.timeKey));
+}
+function CalendarDay({ cell, appts, googleEvents, trainings, scheduleBlocks, highlightTrainings, ownerName, onOpen }) {
+  const isToday = cell.date === todayStr();
+  const items = calendarItems(appts, googleEvents, trainings, scheduleBlocks);
   const visible = items.slice(0, 3);
   const extra = items.length - visible.length;
   const isHighlighted = highlightTrainings && trainings.length > 0;
   return (
     <div
       className={`tr-cal-day ${cell.inMonth ? '' : 'tr-cal-day-out'} ${isToday ? 'tr-cal-day-today' : ''} ${isHighlighted ? 'tr-cal-day-training-highlight' : ''}`}
-      onClick={() => items.length > 0 && onOpen(cell.date, appts, googleEvents, trainings, scheduleBlocks)}>
-      <div className="tr-cal-daynum">{cell.dayNum}</div>
+      onClick={() => onOpen(cell.date, appts, googleEvents, trainings, scheduleBlocks)}>
+      <div className="tr-cal-daynum"><span>{cell.dayNum}</span></div>
       <div className="tr-cal-appts">
         {visible.map((item, i) => item.kind === 'appt' ? (
           <div key={item.data.id} className={`tr-cal-appt ${isRecruitType(item.data) && isSaleType(item.data) ? 'tr-cal-appt-both' : isRecruitType(item.data) ? 'tr-cal-appt-recruit' : isSaleType(item.data) ? 'tr-cal-appt-sale' : ''}`}>
-            {fmtTime(item.data.appointmentTime)} {item.data.client}
+            {fmtTime(item.timeKey)} {item.data.client}
           </div>
         ) : item.kind === 'training' ? (
           <div key={item.data.id} className="tr-cal-appt tr-cal-appt-training">
@@ -2139,8 +2172,10 @@ function CalendarDay({ cell, appts, googleEvents, trainings, scheduleBlocks, hig
     </div>
   );
 }
-function CalendarBody({ user }) {
+function CalendarBody({ user, onLogAppointment }) {
   const [monthStartStr, setMonthStartStr] = useState(monthStartOf(todayStr()));
+  // The month grid gets cramped on a phone, so phones start on the list.
+  const [calView, setCalView] = useState(() => (typeof window !== 'undefined' && window.innerWidth < 640 ? 'agenda' : 'month'));
   const [appts, setAppts] = useState([]);
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -2161,7 +2196,9 @@ function CalendarBody({ user }) {
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const tasks = [fetchAppointmentsInRange(rangeStart, rangeEnd), fetchGoogleConnectionStatus(), fetchTrainingsInRange(rangeStart, rangeEnd), fetchScheduleBlocksInRange(rangeStart, rangeEnd)];
+    // One extra day each side: appointments are placed by your local date,
+    // which can differ by a day from the stored date across timezones.
+    const tasks = [fetchAppointmentsInRange(fmtDate(addDays(parseDate(rangeStart), -1)), fmtDate(addDays(parseDate(rangeEnd), 1))), fetchGoogleConnectionStatus(), fetchTrainingsInRange(rangeStart, rangeEnd), fetchScheduleBlocksInRange(rangeStart, rangeEnd)];
     if (user.role !== 'advisor') tasks.push(fetchTeamMembers(user));
     const [apptList, status, trainingList, blockList, memberList] = await Promise.all(tasks);
     setAppts(apptList);
@@ -2221,7 +2258,7 @@ function CalendarBody({ user }) {
   }
 
   function apptsForDay(dateStr) {
-    let list = appts.filter(a => a.appointmentDate === dateStr);
+    let list = appts.filter(a => apptLocalDate(a) === dateStr);
     if (personFilter === 'mine') list = list.filter(a => a.userId === user.id);
     else if (personFilter !== 'all') list = list.filter(a => a.userId === personFilter);
     return list;
@@ -2249,6 +2286,10 @@ function CalendarBody({ user }) {
         <SchedulePostCard user={user} onPosted={b => setScheduleBlocks(prev => [...prev, b])} />
       )}
       <div className="tr-weeknav">
+        <div className="tr-seg" role="group" aria-label="Calendar view">
+          <button type="button" className={calView === 'month' ? 'tr-seg-on' : ''} onClick={() => setCalView('month')}>Month</button>
+          <button type="button" className={calView === 'agenda' ? 'tr-seg-on' : ''} onClick={() => setCalView('agenda')}>List</button>
+        </div>
         <button className="tr-icon-btn" onClick={() => setMonthStartStr(shiftMonth(monthStartStr, -1))} title="Previous month"><ChevronLeft size={18} /></button>
         <div className="tr-weeknav-label"><CalendarDays size={16} /><span>{monthLabel}</span></div>
         <button className="tr-icon-btn" onClick={() => setMonthStartStr(shiftMonth(monthStartStr, 1))} title="Next month"><ChevronRight size={18} /></button>
@@ -2269,7 +2310,40 @@ function CalendarBody({ user }) {
           </select>
         )}
       </div>
-      {loading ? <SkeletonCalendar /> : (
+      {loading ? <SkeletonCalendar /> : calView === 'agenda' ? (() => {
+        // List view: every day in this month that has something on it,
+        // starting from today when you're looking at the current month.
+        const today = todayStr();
+        const monthEnd = fmtDate(addDays(parseDate(shiftMonth(monthStartStr, 1)), -1));
+        const fromDate = today > monthStartStr && today <= monthEnd ? today : monthStartStr;
+        const days = cells.filter(c => c.inMonth && c.date >= fromDate).map(c => {
+          const dayAppts = apptsForDay(c.date), dayGoogle = googleForDay(c.date), dayTrainings = trainingsForDay(c.date), dayBlocks = scheduleBlocksForDay(c.date);
+          return { date: c.date, dayAppts, dayGoogle, dayTrainings, dayBlocks, items: calendarItems(dayAppts, dayGoogle, dayTrainings, dayBlocks) };
+        }).filter(d => d.items.length > 0);
+        return (
+          <div className="tr-card tr-agenda">
+            {days.length === 0 ? <p className="tr-empty" style={{ margin: 0 }}>Nothing on the calendar {fromDate === today ? 'for the rest of this month' : 'this month'}.</p> : days.map(d => (
+              <div key={d.date} className={`tr-agenda-day ${d.date === today ? 'tr-agenda-today' : ''}`}>
+                <button type="button" className="tr-agenda-date" onClick={() => setDayModal({ date: d.date, appts: d.dayAppts, googleEvents: d.dayGoogle, trainings: d.dayTrainings, blocks: d.dayBlocks })}>
+                  {d.date === today ? 'Today' : fmtDisplayDate(d.date)}
+                </button>
+                {d.items.map(item => (
+                  <div key={`${item.kind}-${item.data.id}`} className={`tr-agenda-item tr-agenda-${item.kind} ${item.kind === 'appt' ? (isRecruitType(item.data) && !isSaleType(item.data) ? 'tr-agenda-recruit' : 'tr-agenda-sale') : ''}`}>
+                    <span className="tr-agenda-time">{item.kind === 'google' && item.data.allDay ? 'All day' : fmtTime(item.timeKey)}</span>
+                    <span className="tr-agenda-what">
+                      {item.kind === 'appt' && <><strong>{item.data.client}</strong>{typeLabel(item.data) ? ` · ${typeLabel(item.data)}` : ''}{ownerName(item.data.userId) && item.data.userId !== user.id ? ` · ${ownerName(item.data.userId)}` : ''}</>}
+                      {item.kind === 'training' && <><GraduationCap size={12} /> <strong>{item.data.title}</strong> · Training</>}
+                      {item.kind === 'block' && <><Ban size={12} /> {item.data.user_name || 'Someone'} unavailable{item.data.label ? ` — ${item.data.label}` : ''}</>}
+                      {item.kind === 'google' && <>{item.data.title} <span className="tr-empty">· Google</span></>}
+                    </span>
+                    {(item.data.zoomUrl || item.data.zoom_url) && <a className="tr-btn tr-btn-ghost tr-btn-sm" href={item.data.zoomUrl || item.data.zoom_url} target="_blank" rel="noopener noreferrer">Join Zoom</a>}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        );
+      })() : (
         <div className="tr-card tr-cal-card">
           <div className="tr-cal-grid">
             {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => <div key={d} className="tr-cal-headcell">{d}</div>)}
@@ -2284,10 +2358,28 @@ function CalendarBody({ user }) {
           </div>
         </div>
       )}
+      <div className="tr-cal-legend">
+        <span><i className="tr-lg tr-lg-sale" /> Sale</span>
+        <span><i className="tr-lg tr-lg-recruit" /> Recruit</span>
+        <span><i className="tr-lg tr-lg-training" /> Training</span>
+        <span><i className="tr-lg tr-lg-block" /> Unavailable</span>
+        {googleStatus.connected && <span><i className="tr-lg tr-lg-google" /> Google</span>}
+        <span className="tr-cal-legend-hint">Click any day to see details{onLogAppointment ? ' or book an appointment' : ''}.</span>
+      </div>
       {dayModal && (
         <Modal onClose={() => setDayModal(null)}>
-          <h3 className="tr-h3">{fmtDisplayDate(dayModal.date)}</h3>
-          <div className="tr-notes-list" style={{ maxHeight: '60vh' }}>
+          <div className="tr-row-head">
+            <h3 className="tr-h3" style={{ margin: 0 }}>{fmtDisplayDate(dayModal.date)}</h3>
+            {onLogAppointment && dayModal.date >= todayStr() && (
+              <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={() => { const date = dayModal.date; setDayModal(null); onLogAppointment({ appointmentDate: date }); }}>
+                <Plus size={14} /> Log appointment this day
+              </button>
+            )}
+          </div>
+          {dayModal.appts.length + dayModal.trainings.length + dayModal.blocks.length + dayModal.googleEvents.length === 0 && (
+            <p className="tr-empty">Nothing scheduled.</p>
+          )}
+          <div className="tr-notes-list" style={{ maxHeight: '60vh', marginTop: 12 }}>
             {dayModal.trainings.map(t => (
               <div key={t.id} className="tr-note-item tr-note-item-training">
                 <div className="tr-note-meta"><GraduationCap size={12} /> {fmtTime(trainingLocalTimeKey(t))} · Training{t.recurring_group_id ? ' · Weekly' : ''}</div>
@@ -2356,29 +2448,54 @@ function BusinessPlanBody({ user }) {
   const [view, setView] = useState('expenses'); // 'expenses' | 'goals' | 'marketing'
   const [fields, setFields] = useState(DEFAULT_BUSINESS_PLAN_FIELDS);
   const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [justSaved, setJustSaved] = useState(false);
+  const [saveState, setSaveState] = useState('idle'); // idle | saving | saved | error
+  const [loadFailed, setLoadFailed] = useState(false);
+  // Latest edits, for flushing a pending autosave if you leave the tab
+  // before the debounce fires.
+  const pendingRef = useRef(null);
 
   useEffect(() => {
     let alive = true;
     fetchBusinessPlan(user.id).then(row => {
       if (!alive) return;
-      if (row) setFields(rowToBusinessPlanFields(row));
+      // Never autosave over a plan we failed to load — that would replace
+      // the real numbers with blanks.
+      if (row && row.loadError) setLoadFailed(true);
+      else if (row) setFields(rowToBusinessPlanFields(row));
       setLoading(false);
     });
     return () => { alive = false; };
   }, [user.id]);
 
+  // Autosave: a moment after you stop typing, everything is saved — no
+  // Save button to forget before switching tabs.
+  useEffect(() => {
+    if (!dirty) return undefined;
+    pendingRef.current = fields;
+    const t = setTimeout(async () => {
+      setSaveState('saving');
+      const res = await saveBusinessPlan(user.id, fields);
+      if (res.ok) {
+        if (pendingRef.current === fields) { pendingRef.current = null; setDirty(false); }
+        setSaveState('saved');
+      } else {
+        setSaveState('error');
+      }
+    }, 900);
+    return () => clearTimeout(t);
+  }, [fields, dirty, user.id]);
+  useEffect(() => () => {
+    if (pendingRef.current) saveBusinessPlan(user.id, pendingRef.current);
+  }, [user.id]);
+
   function setField(key, value) {
     setFields(prev => ({ ...prev, [key]: value }));
     setDirty(true);
-    setJustSaved(false);
   }
-  async function handleSave() {
-    setSaving(true);
+  async function handleRetrySave() {
+    setSaveState('saving');
     const res = await saveBusinessPlan(user.id, fields);
-    setSaving(false);
-    if (res.ok) { setDirty(false); setJustSaved(true); }
+    if (res.ok) { pendingRef.current = null; setDirty(false); setSaveState('saved'); } else setSaveState('error');
   }
 
   const subtotal = computeExpensesSubtotal(fields);
@@ -2393,6 +2510,13 @@ function BusinessPlanBody({ user }) {
   const dailyProspects = computeDailyProspects(monthlyProspects);
 
   if (loading) return <SkelBlock w="100%" h="220px" />;
+  if (loadFailed) {
+    return (
+      <div className="tr-card">
+        <p className="tr-error" style={{ margin: 0 }}>Couldn't load your Business Plan. Refresh the page to try again — nothing has been changed.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="tr-appts-shell">
@@ -2406,6 +2530,15 @@ function BusinessPlanBody({ user }) {
         <button type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'marketing' ? 'tr-sidebar-item-active' : ''}`} onClick={() => setView('marketing')}>
           <span>Marketing Plan</span>
         </button>
+        {tny > 0 && (
+          <div className="tr-bizplan-glance">
+            <div className="tr-sidebar-divider" style={{ padding: '6px 0 4px' }}>Your numbers</div>
+            <div><span>Income goal</span><strong>{fmtCurrency(incomeGoal)}</strong></div>
+            <div><span>Sales / month</span><strong>{(tny / 12).toFixed(1)}</strong></div>
+            <div><span>Prospects / week</span><strong>{(tpn / 52).toFixed(1)}</strong></div>
+            <div><span>Prospects / day</span><strong>{dailyProspects.toFixed(1)}</strong></div>
+          </div>
+        )}
       </nav>
       <div className="tr-appts-main">
         <div className="tr-card">
@@ -2423,9 +2556,10 @@ function BusinessPlanBody({ user }) {
           {view === 'marketing' && (
             <BusinessPlanMarketingPanel fields={fields} setField={setField} />
           )}
-          <div className="tr-form-actions" style={{ marginTop: 16 }}>
-            <button type="button" className="tr-btn tr-btn-brass" onClick={handleSave} disabled={saving || !dirty}>{saving ? 'Saving…' : 'Save'}</button>
-            {!dirty && justSaved && <span className="tr-empty" style={{ marginLeft: 10 }}>Saved</span>}
+          <div className="tr-autosave">
+            {saveState === 'error' ? (
+              <><span className="tr-autosave-error">Couldn't save your last change.</span> <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={handleRetrySave}>Try again</button></>
+            ) : dirty || saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'All changes saved' : 'Changes save automatically'}
           </div>
         </div>
       </div>
@@ -2436,12 +2570,12 @@ function BusinessPlanExpensesPanel({ fields, setField, subtotal, monthlyGrossInc
   return (
     <>
       <h3 className="tr-h3">Living Expenses</h3>
-      <p className="tr-empty" style={{ marginTop: -6 }}>Fill in your typical monthly costs below.</p>
+      <p className="tr-empty" style={{ margin: '-6px 0 14px' }}>Fill in your typical monthly costs. Everything below recalculates as you type.</p>
       <div className="tr-form-grid">
         {EXPENSE_FIELD_DEFS.map(([key, label]) => (
           <label className="tr-field" key={key}>
             <span>{label}</span>
-            <input type="number" min="0" step="1" inputMode="decimal" value={fields[key]} onChange={e => setField(key, e.target.value)} placeholder="0" />
+            <span className="tr-input-affix tr-input-affix-pre"><span>$</span><input type="number" min="0" step="1" inputMode="decimal" value={fields[key]} onChange={e => setField(key, e.target.value)} placeholder="0" /></span>
           </label>
         ))}
       </div>
@@ -2472,11 +2606,11 @@ function BusinessPlanGoalsPanel({ fields, setField, annualGrossIncomeNeeded, usi
         <div className="tr-form-grid">
           <label className="tr-field">
             <span>Average target premium (TP)</span>
-            <input type="number" min="0" step="1" inputMode="decimal" value={fields.targetPremium} onChange={e => setField('targetPremium', e.target.value)} />
+            <span className="tr-input-affix tr-input-affix-pre"><span>$</span><input type="number" min="0" step="1" inputMode="decimal" value={fields.targetPremium} onChange={e => setField('targetPremium', e.target.value)} /></span>
           </label>
           <label className="tr-field">
             <span>Commission rate, % (CR)</span>
-            <input type="number" min="0" max="100" step="1" inputMode="decimal" value={fields.commissionRate} onChange={e => setField('commissionRate', e.target.value)} />
+            <span className="tr-input-affix tr-input-affix-post"><input type="number" min="0" max="100" step="1" inputMode="decimal" value={fields.commissionRate} onChange={e => setField('commissionRate', e.target.value)} /><span>%</span></span>
           </label>
         </div>
         <div className="tr-bizplan-summary">
@@ -2491,10 +2625,10 @@ function BusinessPlanGoalsPanel({ fields, setField, annualGrossIncomeNeeded, usi
         <h4 className="tr-h4">Step 2 · Income goal</h4>
         <label className="tr-field tr-field-wide">
           <span>Income goal (IG){usingCalculatedIncomeGoal ? ' — using your calculated annual gross income needed' : ''}</span>
-          <input
+          <span className="tr-input-affix tr-input-affix-pre"><span>$</span><input
             type="number" min="0" step="1" inputMode="decimal"
             value={usingCalculatedIncomeGoal ? String(Math.round(annualGrossIncomeNeeded)) : fields.incomeGoalOverride}
-            onChange={e => setField('incomeGoalOverride', e.target.value)} />
+            onChange={e => setField('incomeGoalOverride', e.target.value)} /></span>
         </label>
         {!usingCalculatedIncomeGoal && (
           <button type="button" className="tr-bizplan-reset-link" onClick={() => setField('incomeGoalOverride', '')}>
@@ -2522,6 +2656,10 @@ function BusinessPlanGoalsPanel({ fields, setField, annualGrossIncomeNeeded, usi
       <div className="tr-bizplan-step">
         <h4 className="tr-h4">Step 4 · Break it down daily</h4>
         <div className="tr-bizplan-summary">
+          <div className="tr-bizplan-summary-row">
+            <span>TPN ÷ 52 weeks = Weekly prospects needed</span>
+            <span className="tr-mono">{(tpn / 52).toFixed(1)}</span>
+          </div>
           <div className="tr-bizplan-summary-row">
             <span>TPN ÷ 12 months = Monthly prospects needed</span>
             <span className="tr-mono">{monthlyProspects.toFixed(1)}</span>
@@ -2558,7 +2696,7 @@ function BusinessPlanMarketingPanel({ fields, setField }) {
   );
 }
 
-function ProspectForm({ editing, onCancel, onSubmit, saving }) {
+function ProspectForm({ editing, onCancel, onSubmit, saving, onOpenJogger }) {
   const [firstName, setFirstName] = useState(editing?.firstName || '');
   const [lastName, setLastName] = useState(editing?.lastName || '');
   const [age, setAge] = useState(editing?.age != null ? String(editing.age) : '');
@@ -2574,15 +2712,28 @@ function ProspectForm({ editing, onCancel, onSubmit, saving }) {
 
   function toggleChar(key) { setChars(prev => ({ ...prev, [key]: !prev[key] })); }
 
-  function submit() {
+  function submit(another = false) {
     if (!firstName.trim() || !lastName.trim()) { setErr("Enter the prospect's first and last name."); return; }
     setErr('');
-    onSubmit({ firstName, lastName, age, relationshipStrength, notes, source, ...chars });
+    onSubmit({ firstName, lastName, age, relationshipStrength, notes, source, ...chars }, { another });
   }
+  const liveScore = prospectTotalChecked({ age, ...chars });
+  const liveLeaning = prospectLeaningKey({ age, ...chars });
 
   return (
     <div className="tr-card tr-form">
-      <h3 className="tr-h3">{editing ? 'Edit prospect' : 'New prospect'}</h3>
+      <div className="tr-row-head">
+        <h3 className="tr-h3" style={{ margin: 0 }}>{editing ? 'Edit prospect' : 'New prospect'}</h3>
+        <div className="tr-prospect-live-score">
+          <span className="tr-mono">{liveScore}/9</span>
+          <span className={`tr-type-badge ${liveLeaning === 'sale' ? 'tr-type-badge-sale' : liveLeaning === 'recruit' ? 'tr-type-badge-recruit' : liveLeaning === 'both' ? 'tr-type-badge-both' : ''}`}>{LEANING_LABELS[liveLeaning]}</span>
+        </div>
+      </div>
+      {!editing && onOpenJogger && (
+        <p className="tr-empty" style={{ margin: '4px 0 12px' }}>
+          Stuck on who to add next? <button type="button" className="tr-ov-link" onClick={onOpenJogger}>Open the Memory Jogger</button>
+        </p>
+      )}
       <div className="tr-form-grid">
         <label className="tr-field">
           <span>First name</span>
@@ -2635,7 +2786,8 @@ function ProspectForm({ editing, onCancel, onSubmit, saving }) {
       {err && <div className="tr-error">{err}</div>}
       <div className="tr-form-actions">
         <button type="button" className="tr-btn tr-btn-ghost" onClick={onCancel}>Cancel</button>
-        <button type="button" className="tr-btn tr-btn-brass" onClick={submit} disabled={saving}>{saving ? 'Saving…' : editing ? 'Save changes' : 'Save prospect'}</button>
+        {!editing && <button type="button" className="tr-btn tr-btn-ghost" onClick={() => submit(true)} disabled={saving}>Save &amp; add another</button>}
+        <button type="button" className="tr-btn tr-btn-brass" onClick={() => submit(false)} disabled={saving}>{saving ? 'Saving…' : editing ? 'Save changes' : 'Save prospect'}</button>
       </div>
     </div>
   );
@@ -2669,33 +2821,48 @@ function ProspectFunnel({ prospects, title }) {
     </div>
   );
 }
-function ProspectCard({ prospect, rank, onDelete, onToggleOutcome, onLogAppointment, onEdit, readOnly }) {
+function ProspectCard({ prospect, rank, onDelete, onToggleOutcome, onLogAppointment, onEdit, readOnly, collapsible, apptNames, apptDate }) {
+  const [open, setOpen] = useState(!collapsible);
   const total = prospectTotalChecked(prospect);
   const leaning = prospectLeaningKey(prospect);
   const checkedChars = ALL_CHARACTERISTICS.filter(c => prospect[c.key]);
+  const stale = isStaleProspect(prospect, apptNames);
   return (
-    <div className="tr-card tr-prospect-card">
+    <div className={`tr-card tr-prospect-card ${collapsible ? 'tr-prospect-card-compact' : ''} ${collapsible && open ? 'tr-prospect-card-open' : ''}`}>
       <div className="tr-policy-head">
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+        <div
+          style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flex: '1 1 240px', minWidth: 0, cursor: collapsible ? 'pointer' : 'default' }}
+          onClick={collapsible ? () => setOpen(o => !o) : undefined}>
           {rank && <span className="tr-prospect-rank">#{rank}</span>}
-          <div>
+          <div style={{ minWidth: 0 }}>
             <strong>{prospect.firstName} {prospect.lastName}</strong>
             <div className="tr-note">
-              {prospect.age ? `${prospect.age} years old · ` : ''}Relationship: {prospect.relationshipStrength}/10
+              {prospect.age ? `${prospect.age} yrs · ` : ''}Relationship {prospect.relationshipStrength}/10 · {daysAgoLabel(prospect.createdAt).replace('Logged ', 'added ')}{prospect.source ? ` · ${prospect.source}` : ''}
             </div>
-            <div className="tr-note">{daysAgoLabel(prospect.createdAt)}{prospect.source ? ` · ${prospect.source}` : ''}</div>
           </div>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          {isStaleProspect(prospect) && <span className="tr-type-badge tr-type-badge-stale" title={`No update in ${STALE_PROSPECT_DAYS}+ days`}>Needs follow-up</span>}
+        <div className="tr-prospect-card-side">
+          {apptDate && <span className="tr-type-badge tr-type-badge-appt" title="An appointment is logged with this name">Appt {fmtDisplayDate(apptDate).replace(/^\w+, /, '')}</span>}
+          {stale && <span className="tr-type-badge tr-type-badge-stale" title={`Added ${STALE_PROSPECT_DAYS}+ days ago and no appointment logged yet`}>No activity {STALE_PROSPECT_DAYS}d+</span>}
           <span className={`tr-type-badge ${leaning === 'sale' ? 'tr-type-badge-sale' : leaning === 'recruit' ? 'tr-type-badge-recruit' : leaning === 'both' ? 'tr-type-badge-both' : ''}`}>
             {LEANING_LABELS[leaning]}
           </span>
           <span className="tr-mono">{total}/9</span>
-          {onEdit && <button type="button" className="tr-icon-btn" onClick={() => onEdit(prospect)} title="Edit prospect"><Pencil size={14} /></button>}
-          {onDelete && <button type="button" className="tr-icon-btn" onClick={() => onDelete(prospect.id)} title="Delete prospect"><Trash2 size={14} /></button>}
+          {collapsible && !readOnly && onLogAppointment && !open && (
+            <button type="button" className="tr-btn tr-btn-sm tr-btn-ghost" onClick={() => onLogAppointment(prospect)} title="Log an appointment for this prospect">
+              <CalendarDays size={13} /> Log appt
+            </button>
+          )}
+          {collapsible && (
+            <button type="button" className="tr-icon-btn" onClick={() => setOpen(o => !o)} title={open ? 'Collapse' : 'Show details'}>
+              {open ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+            </button>
+          )}
+          {(!collapsible || open) && onEdit && <button type="button" className="tr-icon-btn" onClick={() => onEdit(prospect)} title="Edit prospect"><Pencil size={14} /></button>}
+          {(!collapsible || open) && onDelete && <button type="button" className="tr-icon-btn" onClick={() => onDelete(prospect.id)} title="Delete prospect"><Trash2 size={14} /></button>}
         </div>
       </div>
+      {open && <>
       {checkedChars.length > 0 && (
         <div className="tr-prospect-char-pills">
           {checkedChars.map(c => <span key={c.key} className="tr-prospect-char-pill">{c.label}</span>)}
@@ -2721,6 +2888,7 @@ function ProspectCard({ prospect, rank, onDelete, onToggleOutcome, onLogAppointm
         </button>
       </div>
       )}
+      </>}
     </div>
   );
 }
@@ -3394,24 +3562,49 @@ function MemoryJoggerPanel() {
     </div>
   );
 }
-function SystemsBody({ user, onLogAppointment }) {
+function SystemsBody({ user, onLogAppointment, initialIntent, onIntentConsumed }) {
   const [prospects, setProspects] = useState([]);
+  const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [systemsView, setSystemsView] = useState('list'); // 'prospect' | 'list' | 'recruit' | 'sold' | 'jogger'
+  const [systemsView, setSystemsView] = useState(initialIntent === 'new' ? 'prospect' : 'list'); // 'prospect' | 'list' | 'recruit' | 'sold' | 'jogger'
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [flash, setFlash] = useState('');
   const [leaningFilter, setLeaningFilter] = useState('all'); // 'all' | 'sale' | 'recruit' | 'both'
+  const [sortBy, setSortBy] = useState('score'); // 'score' | 'newest' | 'oldest'
   const [searchQuery, setSearchQuery] = useState('');
   const [editingProspect, setEditingProspect] = useState(null);
+  const [formKey, setFormKey] = useState(0);
+  const [quickFirst, setQuickFirst] = useState('');
+  const [quickLast, setQuickLast] = useState('');
+
+  useEffect(() => { if (initialIntent) onIntentConsumed?.(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    setProspects(await fetchMyProspects(user.id));
+    const [p, a] = await Promise.all([fetchMyProspects(user.id), fetchMyAppointments(user.id)]);
+    setProspects(p);
+    setAppointments(a);
     setLoading(false);
   }, [user.id]);
   useEffect(() => { refresh(); }, [refresh]);
+  useEffect(() => {
+    if (!flash) return;
+    const t = setTimeout(() => setFlash(''), 4000);
+    return () => clearTimeout(t);
+  }, [flash]);
 
-  async function handleSubmit(form) {
+  // Most recent appointment per client name, so prospect cards can show
+  // "Appt Oct 5" once they've been booked.
+  const apptNames = new Set();
+  const latestApptByName = {};
+  appointments.forEach(a => {
+    const k = normName(a.client);
+    apptNames.add(k);
+    if (!latestApptByName[k] || a.appointmentDate > latestApptByName[k]) latestApptByName[k] = a.appointmentDate;
+  });
+
+  async function handleSubmit(form, { another } = {}) {
     setSaving(true);
     setError('');
     if (editingProspect) {
@@ -3427,7 +3620,23 @@ function SystemsBody({ user, onLogAppointment }) {
     setSaving(false);
     if (!res.ok) { setError(res.error || 'Could not save. Try again.'); return; }
     setProspects(prev => [res.record, ...prev]);
-    setSystemsView('list');
+    setFlash(`Saved ${res.record.firstName} ${res.record.lastName}.`);
+    if (another) { setFormKey(k => k + 1); window.scrollTo(0, 0); } else setSystemsView('list');
+  }
+  async function handleQuickAdd(e) {
+    e.preventDefault();
+    if (!quickFirst.trim() || !quickLast.trim()) { setError('Enter a first and last name to quick-add.'); return; }
+    setError('');
+    setSaving(true);
+    const blank = { firstName: quickFirst, lastName: quickLast, age: '', relationshipStrength: 5, notes: '', source: '' };
+    ALL_CHARACTERISTICS.forEach(c => { blank[c.key] = false; });
+    const res = await insertProspect(user.id, blank);
+    setSaving(false);
+    if (!res.ok) { setError(res.error || 'Could not save. Try again.'); return; }
+    setProspects(prev => [res.record, ...prev]);
+    setQuickFirst(''); setQuickLast('');
+    setSortBy('newest');
+    setFlash(`Added ${res.record.firstName} ${res.record.lastName} — open them and tap the pencil to score them.`);
   }
   function handleEdit(prospect) {
     setEditingProspect(prospect);
@@ -3448,8 +3657,11 @@ function SystemsBody({ user, onLogAppointment }) {
     if (!ok) setProspects(prev);
   }
 
-  // Best-to-worst — most of the 9 characteristics checked comes first.
-  const byChecked = (a, b) => prospectTotalChecked(b) - prospectTotalChecked(a);
+  const sorters = {
+    score: (a, b) => prospectTotalChecked(b) - prospectTotalChecked(a),
+    newest: (a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''),
+    oldest: (a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''),
+  };
   // List is purely for active prospecting — once marked recruited and/or
   // sold, a prospect moves out of List and lives in those tabs instead
   // (both, if marked as both).
@@ -3459,64 +3671,72 @@ function SystemsBody({ user, onLogAppointment }) {
     return list.filter(p => `${p.firstName} ${p.lastName}`.toLowerCase().includes(q));
   }
   const listAll = prospects.filter(p => !p.markedRecruited && !p.markedSold);
-  const staleCount = listAll.filter(isStaleProspect).length;
+  const staleCount = listAll.filter(p => isStaleProspect(p, apptNames)).length;
   const recruitedAll = prospects.filter(p => p.markedRecruited);
   const soldAll = prospects.filter(p => p.markedSold);
-  const listSorted = bySearch(listAll.filter(p => leaningFilter === 'all' || prospectLeaningKey(p) === leaningFilter)).sort(byChecked);
-  const recruitedProspects = bySearch(recruitedAll).sort(byChecked);
-  const soldProspects = bySearch(soldAll).sort(byChecked);
+  const listSorted = bySearch(listAll.filter(p => leaningFilter === 'all' || prospectLeaningKey(p) === leaningFilter)).sort(sorters[sortBy]);
+  const recruitedProspects = bySearch(recruitedAll).sort(sorters[sortBy]);
+  const soldProspects = bySearch(soldAll).sort(sorters[sortBy]);
 
   const activeList = systemsView === 'recruit' ? recruitedProspects : systemsView === 'sold' ? soldProspects : listSorted;
-  const activeTitle = systemsView === 'recruit' ? 'Recruited' : systemsView === 'sold' ? 'Sold' : 'Prospecting ability';
-  const activeEmpty = systemsView === 'recruit' ? 'No prospects marked recruited yet.' : systemsView === 'sold' ? 'No prospects marked sold yet.' : 'No prospects logged yet.';
+  const activeTitle = systemsView === 'recruit' ? 'Recruited' : systemsView === 'sold' ? 'Sold' : 'Prospect list';
+  const activeEmpty = systemsView === 'recruit' ? 'No prospects marked recruited yet.' : systemsView === 'sold' ? 'No prospects marked sold yet.'
+    : searchQuery || leaningFilter !== 'all' ? 'No prospects match this search or filter.' : 'No prospects yet — quick-add a name above, or use New prospect to score them as you go.';
+
+  const sideBtn = (v, label, color, count) => (
+    <button
+      type="button" className={`tr-sidebar-item tr-sidebar-item-${color} ${systemsView === v ? 'tr-sidebar-item-active' : ''}`}
+      onClick={() => { if (v === 'prospect') setEditingProspect(null); setSystemsView(v); }}>
+      <span>{label}</span>
+      {count !== undefined && <span className="tr-mono">{count}</span>}
+    </button>
+  );
 
   return (
     <div className="tr-appts-shell">
       <nav className="tr-appts-sidebar">
-        <button
-          type="button" className={`tr-sidebar-item tr-sidebar-item-week ${systemsView === 'prospect' ? 'tr-sidebar-item-active' : ''}`}
-          onClick={() => setSystemsView('prospect')}>
-          <span>Prospect</span>
-        </button>
-        <button
-          type="button" className={`tr-sidebar-item tr-sidebar-item-week ${systemsView === 'list' ? 'tr-sidebar-item-active' : ''}`}
-          onClick={() => setSystemsView('list')}>
-          <span>List</span>
-          <span className="tr-mono">{listAll.length}</span>
-        </button>
-        <button
-          type="button" className={`tr-sidebar-item tr-sidebar-item-recruit ${systemsView === 'recruit' ? 'tr-sidebar-item-active' : ''}`}
-          onClick={() => setSystemsView('recruit')}>
-          <span>Recruit</span>
-          <span className="tr-mono">{recruitedAll.length}</span>
-        </button>
-        <button
-          type="button" className={`tr-sidebar-item tr-sidebar-item-sale ${systemsView === 'sold' ? 'tr-sidebar-item-active' : ''}`}
-          onClick={() => setSystemsView('sold')}>
-          <span>Sold</span>
-          <span className="tr-mono">{soldAll.length}</span>
-        </button>
-        <button
-          type="button" className={`tr-sidebar-item tr-sidebar-item-week ${systemsView === 'jogger' ? 'tr-sidebar-item-active' : ''}`}
-          onClick={() => setSystemsView('jogger')}>
-          <span>Memory Jogger</span>
-        </button>
+        {sideBtn('prospect', '+ New prospect', 'week')}
+        {sideBtn('list', 'List', 'week', listAll.length)}
+        {sideBtn('recruit', 'Recruit', 'recruit', recruitedAll.length)}
+        {sideBtn('sold', 'Sold', 'sale', soldAll.length)}
+        <div className="tr-sidebar-divider">Tools</div>
+        {sideBtn('jogger', 'Memory Jogger', 'none')}
       </nav>
       <div className="tr-appts-main">
         {error && <div className="tr-error">{error}</div>}
+        {flash && <div className="tr-flash">{flash}</div>}
         {systemsView === 'prospect' ? (
-          <>
-            <h2 className="tr-h2">{editingProspect ? 'Edit prospect' : 'New prospect'}</h2>
-            <ProspectForm editing={editingProspect} onCancel={() => { setEditingProspect(null); setSystemsView('list'); }} onSubmit={handleSubmit} saving={saving} />
-          </>
+          <ProspectForm
+            key={`${editingProspect ? editingProspect.id : 'new'}-${formKey}`}
+            editing={editingProspect}
+            onCancel={() => { setEditingProspect(null); setSystemsView('list'); }}
+            onSubmit={handleSubmit} saving={saving}
+            onOpenJogger={() => setSystemsView('jogger')} />
         ) : systemsView === 'jogger' ? (
-          <MemoryJoggerPanel />
+          <>
+            <MemoryJoggerPanel />
+            <button type="button" className="tr-btn tr-btn-brass" style={{ alignSelf: 'flex-start' }} onClick={() => { setEditingProspect(null); setSystemsView('prospect'); }}>
+              <Plus size={16} /> Thought of someone? Add them
+            </button>
+          </>
         ) : (
           <>
             <div className="tr-row-head">
               <h2 className="tr-h2">{activeTitle}</h2>
               <button className="tr-btn tr-btn-brass" onClick={() => { setEditingProspect(null); setSystemsView('prospect'); }}><Plus size={16} /> New prospect</button>
             </div>
+            {systemsView === 'list' && (
+              <form className="tr-card tr-quickadd" onSubmit={handleQuickAdd}>
+                <span className="tr-quickadd-label">Quick add</span>
+                <input value={quickFirst} onChange={e => setQuickFirst(e.target.value)} placeholder="First name" aria-label="First name" />
+                <input value={quickLast} onChange={e => setQuickLast(e.target.value)} placeholder="Last name" aria-label="Last name" />
+                <button type="submit" className="tr-btn tr-btn-ghost tr-btn-sm" disabled={saving}><Plus size={14} /> Add</button>
+              </form>
+            )}
+            {systemsView === 'list' && <ProspectFunnel prospects={prospects} />}
+            {systemsView === 'list' && staleCount > 0 && (
+              <div className="tr-health-line"><span className="tr-health-bad">{staleCount} prospect{staleCount === 1 ? '' : 's'} with no activity</span> — added {STALE_PROSPECT_DAYS}+ days ago with no appointment logged yet.</div>
+            )}
             <div className="tr-search-row">
               <Search size={15} className="tr-search-icon" />
               <input
@@ -3525,11 +3745,12 @@ function SystemsBody({ user, onLogAppointment }) {
               {searchQuery && (
                 <button type="button" className="tr-icon-btn" onClick={() => setSearchQuery('')} title="Clear search"><X size={15} /></button>
               )}
+              <select className="tr-sort-select" value={sortBy} onChange={e => setSortBy(e.target.value)} aria-label="Sort prospects">
+                <option value="score">Best match first</option>
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+              </select>
             </div>
-            {systemsView === 'list' && <ProspectFunnel prospects={prospects} />}
-            {systemsView === 'list' && staleCount > 0 && (
-              <div className="tr-health-line"><span className="tr-health-bad">{staleCount} prospect{staleCount === 1 ? '' : 's'} need{staleCount === 1 ? 's' : ''} a follow-up</span> — no update in {STALE_PROSPECT_DAYS}+ days.</div>
-            )}
             {systemsView === 'list' && (
               <div className="tr-typefilter-row">
                 <span className="tr-typefilter-label">Show:</span>
@@ -3543,15 +3764,20 @@ function SystemsBody({ user, onLogAppointment }) {
                     </button>
                   ))}
                 </div>
-                <span className="tr-typefilter-note">Ranked best to worst by how many of the 9 characteristics are checked.</span>
+                {sortBy === 'score' && <span className="tr-typefilter-note">Ranked by how many of the 9 characteristics are checked. Click a name for details.</span>}
               </div>
             )}
             {loading ? <SkeletonCards count={3} /> : activeList.length === 0 ? (
               <div className="tr-card"><p className="tr-empty">{activeEmpty}</p></div>
             ) : (
-              activeList.map((p, i) => (
-                <ProspectCard key={p.id} prospect={p} rank={i + 1} onDelete={handleDelete} onToggleOutcome={handleToggleOutcome} onLogAppointment={onLogAppointment} onEdit={handleEdit} />
-              ))
+              <div className="tr-prospect-list">
+                {activeList.map((p, i) => (
+                  <ProspectCard
+                    key={p.id} prospect={p} rank={sortBy === 'score' ? i + 1 : null} collapsible
+                    apptNames={apptNames} apptDate={latestApptByName[prospectNameKey(p)]}
+                    onDelete={handleDelete} onToggleOutcome={handleToggleOutcome} onLogAppointment={onLogAppointment} onEdit={handleEdit} />
+                ))}
+              </div>
             )}
           </>
         )}
@@ -3634,8 +3860,7 @@ function MyAppointmentsBody({ user, prefillData, onPrefillConsumed }) {
         .filter(a => a.client.toLowerCase().includes(searchQuery.trim().toLowerCase()))
         .sort((a, b) => (b.appointmentDate + b.appointmentTime).localeCompare(a.appointmentDate + a.appointmentTime))
     : [];
-  const todayCount = appointments.filter(a => a.appointmentDate === todayStr()).length;
-  const needsFollowUpCount = appointments.filter(a => a.status === 'needs_follow_up').length;
+  const [showHistory, setShowHistory] = useState(false);
 
   function handleExportAppointments() {
     const rows = [['Date set', 'Appointment date', 'Time', 'Timezone', 'Presenter', 'Trainee', 'Client', 'Type', 'Status', 'Notes', 'Zoom link']];
@@ -3680,7 +3905,6 @@ function MyAppointmentsBody({ user, prefillData, onPrefillConsumed }) {
   const weekAppts = appointments
     .filter(a => a.weekOf === weekMonday && !a.isFollowUp)
     .sort((a, b) => (a.appointmentDate + a.appointmentTime).localeCompare(b.appointmentDate + b.appointmentTime));
-  const soldThisWeekCount = weekAppts.filter(a => a.officiallySold).length;
   const groups = DATE_SET_OPTIONS.map(opt => ({
     option: opt,
     list: weekAppts.filter(a => a.dateSetOption === opt.value),
@@ -3781,7 +4005,7 @@ function MyAppointmentsBody({ user, prefillData, onPrefillConsumed }) {
           onClick={() => setStatusView(null)}>
           <span>This week</span>
         </button>
-        <div className="tr-sidebar-divider">Needs attention</div>
+        <div className="tr-sidebar-divider">Past appointments by status</div>
         {STATUS_OPTIONS.map(opt => (
           <button
             key={opt.value || 'none'} type="button"
@@ -3807,6 +4031,16 @@ function MyAppointmentsBody({ user, prefillData, onPrefillConsumed }) {
       </nav>
 
       <div className="tr-appts-main">
+        <div className="tr-row-head">
+          <h2 className="tr-h2">My appointments</h2>
+          <button className="tr-btn tr-btn-brass" onClick={() => (showForm ? closeForm() : setShowForm(true))}>
+            {showForm ? <><X size={16} /> Close</> : <><Plus size={16} /> Log appointment</>}
+          </button>
+        </div>
+        {error && <div className="tr-error">{error}</div>}
+        {showForm && (
+          <AppointmentForm user={user} weekMonday={weekMonday} editing={editingAppt} prefillData={!editingAppt ? pendingPrefillData : null} onCancel={closeForm} onSubmit={handleFormSubmit} saving={saving} />
+        )}
         <div className="tr-search-row">
           <Search size={15} className="tr-search-icon" />
           <input
@@ -3836,40 +4070,50 @@ function MyAppointmentsBody({ user, prefillData, onPrefillConsumed }) {
           </>
         ) : statusView === null ? (
           <>
-            <DashboardStrip
-              todayCount={todayCount} needsFollowUpCount={needsFollowUpCount} soldThisWeekCount={soldThisWeekCount}
-              onJumpToToday={() => setWeekMonday(weekStartOf(todayStr()))}
-              onJumpToFollowUp={() => setStatusView('needs_follow_up')} />
             <MyCoachingNotes userId={user.id} weekOf={weekMonday} />
             <ZoomConnect status={zoomStatus} connecting={zoomConnecting} onConnect={handleZoomConnect} onDisconnect={handleZoomDisconnect} />
             <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
             <PaceStrip groups={groups.map(g => ({ option: g.option, count: g.list.length, list: g.list }))} />
-            <PaceTrend appointments={appointments} currentWeekMonday={weekMonday} />
-            <PersonalBests appointments={appointments} />
             {upcomingFollowUps.length > 0 && (
               <ApptGroup
                 title={`Upcoming follow-ups (${upcomingFollowUps.length})`}
                 list={byType(upcomingFollowUps)} onDelete={handleDelete} onFollowUp={setFollowUpTarget}
                 onEdit={openEdit} empty="" />
             )}
-            <div className="tr-row-head">
-              <h2 className="tr-h2">Your appointments this week</h2>
-              <button className="tr-btn tr-btn-brass" onClick={() => (showForm ? closeForm() : setShowForm(true))}>
-                <Plus size={16} /> {showForm ? 'Close' : 'Log appointment'}
-              </button>
-            </div>
-            {error && <div className="tr-error">{error}</div>}
-            {showForm && (
-              <AppointmentForm user={user} weekMonday={weekMonday} editing={editingAppt} prefillData={!editingAppt ? pendingPrefillData : null} onCancel={closeForm} onSubmit={handleFormSubmit} saving={saving} />
+            {loading ? <SkeletonRows count={5} /> : (() => {
+              // Batches with something in them get a full table; the empty
+              // ones collapse into a single line instead of a card each.
+              const withItems = groups.filter(g => byType(g.list).length > 0);
+              const emptyOnes = groups.filter(g => byType(g.list).length === 0);
+              return (
+                <>
+                  {withItems.length === 0 && (
+                    <div className="tr-card"><p className="tr-empty" style={{ margin: 0 }}>
+                      No {typeFilter === 'all' ? '' : `${typeFilter} `}appointments set for this week yet — log one above, or start from a prospect.
+                    </p></div>
+                  )}
+                  {withItems.map(g => (
+                    <ApptGroup
+                      key={g.option.value} hideSet
+                      title={`${g.option.batchLabel} (${g.list.length}/${g.option.target})`}
+                      list={byType(g.list)} onDelete={handleDelete} onFollowUp={setFollowUpTarget}
+                      onEdit={openEdit} empty="" />
+                  ))}
+                  {withItems.length > 0 && emptyOnes.length > 0 && (
+                    <p className="tr-empty tr-empty-batches">Nothing set yet: {emptyOnes.map(g => `${g.option.batchLabel} (0/${g.option.target})`).join(' · ')}</p>
+                  )}
+                </>
+              );
+            })()}
+            <button type="button" className="tr-ov-link" style={{ alignSelf: 'flex-start' }} onClick={() => setShowHistory(h => !h)}>
+              {showHistory ? 'Hide pace history' : 'Show pace history (last 6 weeks, streaks, best week)'}
+            </button>
+            {showHistory && (
+              <>
+                <PaceTrend appointments={appointments} currentWeekMonday={weekMonday} />
+                <PersonalBests appointments={appointments} />
+              </>
             )}
-            {loading ? <SkeletonRows count={5} /> : groups.map(g => (
-              <ApptGroup
-                key={g.option.value}
-                title={`${g.option.batchLabel} (${g.list.length}/${g.option.target})`}
-                list={byType(g.list)} onDelete={handleDelete} onFollowUp={setFollowUpTarget}
-                onEdit={openEdit}
-                empty={`No ${typeFilter === 'all' ? '' : typeFilter + ' '}appointments logged for ${g.option.label} yet.`} />
-            ))}
           </>
         ) : statusView === SOLD_PREMIUM_VIEW ? (
           <OpenRequirementsBody view="sold" user={user} />
@@ -3905,12 +4149,17 @@ function MyAppointmentsBody({ user, prefillData, onPrefillConsumed }) {
 function fmtNoteStamp(iso) {
   return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
-function FollowUpBody({ user, onScheduleNext }) {
+// One-tap note starters, so logging a touch takes a second.
+const QUICK_NOTE_TAGS = ['Called', 'Left voicemail', 'Texted', 'Emailed', 'Met in person', 'No answer'];
+function daysSince(iso) {
+  return Math.floor((Date.now() - new Date(iso).getTime()) / 864e5);
+}
+function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentConsumed }) {
   const [loading, setLoading] = useState(true);
   const [appointments, setAppointments] = useState([]);
   const [notes, setNotes] = useState([]);
   const [candidates, setCandidates] = useState([]);
-  const [view, setView] = useState('all'); // all | needs | nointake | sent | received
+  const [view, setView] = useState(['nolog', 'needs', 'reschedule'].includes(initialIntent) ? initialIntent : initialIntent === 'intake' ? 'nointake' : 'all'); // all | nolog | needs | reschedule | nointake | sent | received
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedId, setExpandedId] = useState(null);
   const [noteDrafts, setNoteDrafts] = useState({});
@@ -3918,6 +4167,7 @@ function FollowUpBody({ user, onScheduleNext }) {
   const [modalSaving, setModalSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
 
+  useEffect(() => { if (initialIntent) onIntentConsumed?.(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     let alive = true;
     Promise.all([fetchMyAppointments(user.id), fetchMyFollowUpNotes(user.id), fetchClientIntakeCandidates()]).then(([a, n, c]) => {
@@ -3940,8 +4190,17 @@ function FollowUpBody({ user, onScheduleNext }) {
   notes.forEach(n => { (notesByAppt[n.appointment_id] = notesByAppt[n.appointment_id] || []).push(n); });
 
   const intakeState = a => { const c = candByAppt[a.id]; return !c ? 'none' : c.status === 'submitted' ? 'received' : 'sent'; };
+  const matchesView = (a, v) => {
+    if (v === 'all') return true;
+    if (v === 'nolog') return !a.followUpCompletedAt;
+    if (v === 'needs') return a.status === 'needs_follow_up';
+    if (v === 'reschedule') return a.status === 'needs_reschedule';
+    return intakeState(a) === (v === 'nointake' ? 'none' : v);
+  };
   const counts = {
     all: past.length,
+    nolog: past.filter(a => matchesView(a, 'nolog')).length,
+    reschedule: past.filter(a => matchesView(a, 'reschedule')).length,
     needs: past.filter(a => a.status === 'needs_follow_up').length,
     nointake: past.filter(a => intakeState(a) === 'none').length,
     sent: past.filter(a => intakeState(a) === 'sent').length,
@@ -3949,7 +4208,7 @@ function FollowUpBody({ user, onScheduleNext }) {
   };
   const q = searchQuery.trim().toLowerCase();
   const list = past
-    .filter(a => view === 'all' || (view === 'needs' ? a.status === 'needs_follow_up' : intakeState(a) === (view === 'nointake' ? 'none' : view)))
+    .filter(a => matchesView(a, view))
     .filter(a => !q || a.client.toLowerCase().includes(q));
 
   async function handleSaveOutcome(id, data) {
@@ -3965,15 +4224,15 @@ function FollowUpBody({ user, onScheduleNext }) {
     }
     setModalTarget(null);
   }
-  async function handleAddNote(a) {
-    const text = (noteDrafts[a.id] || '').trim();
+  async function handleAddNote(a, preset) {
+    const text = (preset || noteDrafts[a.id] || '').trim();
     if (!text) return;
     setBusyId(a.id);
     const res = await addFollowUpNote({ appointmentId: a.id, authorId: user.id, authorName: user.displayName, note: text });
     setBusyId(null);
     if (!res.ok) return;
     setNotes(prev => [res.record, ...prev]);
-    setNoteDrafts(prev => ({ ...prev, [a.id]: '' }));
+    if (!preset) setNoteDrafts(prev => ({ ...prev, [a.id]: '' }));
   }
   async function handleDeleteNote(n) {
     if (!window.confirm('Delete this note?')) return;
@@ -4008,7 +4267,10 @@ function FollowUpBody({ user, onScheduleNext }) {
     <div className="tr-appts-shell">
       <nav className="tr-appts-sidebar">
         {navBtn('all', 'All past')}
+        <div className="tr-sidebar-divider">To do</div>
+        {navBtn('nolog', 'Outcome not logged', 'rust')}
         {navBtn('needs', 'Needs follow-up', 'amber')}
+        {navBtn('reschedule', 'Needs reschedule', 'violet')}
         <div className="tr-sidebar-divider">Client intake</div>
         {navBtn('nointake', 'Not started', 'none')}
         {navBtn('sent', 'Link sent', 'amber')}
@@ -4031,20 +4293,30 @@ function FollowUpBody({ user, onScheduleNext }) {
           const apptNotes = notesByAppt[a.id] || [];
           return (
             <div className="tr-card tr-fu-card" key={a.id}>
-              <button type="button" className="tr-fu-head" onClick={() => setExpandedId(open ? null : a.id)}>
+              <div
+                role="button" tabIndex={0} className="tr-fu-head" aria-expanded={open}
+                onClick={() => setExpandedId(open ? null : a.id)}
+                onKeyDown={e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); setExpandedId(open ? null : a.id); } }}>
                 <div>
                   <strong>{a.client}</strong>
                   {typeLabel(a) ? <span className="tr-empty"> · {typeLabel(a)}</span> : null}
                   <div className="tr-empty" style={{ margin: 0 }}>{fmtApptDateTime(a)}</div>
                   {a.followUpAppointmentDate && <div className="tr-empty" style={{ margin: 0 }}>Next: {fmtFollowUpDateTime(a)}</div>}
+                  {apptNotes.length > 0 && (
+                    <div className="tr-fu-lastnote">
+                      Last touch {daysSince(apptNotes[0].created_at) === 0 ? 'today' : `${daysSince(apptNotes[0].created_at)}d ago`}: {apptNotes[0].note}
+                    </div>
+                  )}
                 </div>
                 <div className="tr-fu-chips">
-                  {st && st.value ? <span className={`tr-status tr-status-${st.color}`}>{st.label}</span> : <span className="tr-status tr-status-none">Outcome not logged</span>}
+                  {a.followUpCompletedAt
+                    ? (st && st.value ? <span className={`tr-status tr-status-${st.color}`}>{st.label}</span> : null)
+                    : <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={e => { e.stopPropagation(); setModalTarget(a); }}>Log outcome</button>}
                   {istate !== 'none' && <span className={`tr-status ${istate === 'received' ? 'tr-status-green' : 'tr-status-amber'}`}>{istate === 'received' ? 'Intake received' : 'Intake sent'}</span>}
                   {apptNotes.length > 0 && <span className="tr-status tr-status-none">{apptNotes.length} note{apptNotes.length === 1 ? '' : 's'}</span>}
                   {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                 </div>
-              </button>
+              </div>
               {open && (
                 <div className="tr-fu-body">
                   <div className="tr-fu-section">
@@ -4073,6 +4345,11 @@ function FollowUpBody({ user, onScheduleNext }) {
 
                   <div className="tr-fu-section">
                     <h4 className="tr-h4">Follow-up notes</h4>
+                    <div className="tr-fu-quicktags">
+                      {QUICK_NOTE_TAGS.map(tag => (
+                        <button key={tag} type="button" className="tr-pill-btn" disabled={busyId === a.id} onClick={() => handleAddNote(a, tag)} title={`Log "${tag}" with today's date`}>+ {tag}</button>
+                      ))}
+                    </div>
                     <div className="tr-intake-link-row">
                       <input
                         className="tr-search-input" style={{ flex: 1 }} type="text" placeholder="Add a note — called, texted, wants intake, next steps…"
@@ -4112,6 +4389,10 @@ function FollowUpBody({ user, onScheduleNext }) {
 // pace-based productivity rating. Everything is computed from data the
 // other tabs already own; nothing new is stored.
 // ---------------------------------------------------------------------
+function greetingFor(d = new Date()) {
+  const h = d.getHours();
+  return h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening';
+}
 function OverviewBody({ user, onNavigate }) {
   const [loading, setLoading] = useState(true);
   const [appointments, setAppointments] = useState([]);
@@ -4124,7 +4405,7 @@ function OverviewBody({ user, onNavigate }) {
       if (!alive) return;
       setAppointments(a);
       setProspects(p);
-      setPlan(row ? rowToBusinessPlanFields(row) : null);
+      setPlan(row && !row.loadError ? rowToBusinessPlanFields(row) : null);
       setLoading(false);
     });
     return () => { alive = false; };
@@ -4132,17 +4413,38 @@ function OverviewBody({ user, onNavigate }) {
 
   if (loading) return <SkelBlock w="100%" h="260px" />;
 
+  const now = new Date();
   const today = todayStr();
   const weekStart = weekStartOf(today);
   const weekEnd = fmtDate(addDays(parseDate(weekStart), 6));
   const monthPrefix = today.slice(0, 7);
+  const firstName = (user.displayName || '').split(' ')[0];
 
-  // This week's appointments (held Sat–Fri), soonest first.
+  // This week's appointments (held Sat–Fri), soonest first, grouped by day.
   const weekAppts = appointments
-    .filter(a => a.appointmentDate >= weekStart && a.appointmentDate <= weekEnd)
-    .sort((a, b) => (a.appointmentDate + a.appointmentTime).localeCompare(b.appointmentDate + b.appointmentTime));
-  const todayCount = appointments.filter(a => a.appointmentDate === today).length;
+    .filter(a => apptLocalDate(a) >= weekStart && apptLocalDate(a) <= weekEnd)
+    .sort((a, b) => (apptLocalDate(a) + apptLocalTimeKey(a)).localeCompare(apptLocalDate(b) + apptLocalTimeKey(b)));
+  const byDay = [];
+  weekAppts.forEach(a => {
+    const d = apptLocalDate(a);
+    const last = byDay[byDay.length - 1];
+    if (last && last.date === d) last.items.push(a); else byDay.push({ date: d, items: [a] });
+  });
+  const todayCount = appointments.filter(a => apptLocalDate(a) === today).length;
+  const upcomingCount = weekAppts.filter(a => !isPastAppointment(a)).length;
+
+  // Things that need doing, each a one-click jump to where it gets done.
+  const pastNoOutcome = appointments.filter(a => isPastAppointment(a) && !a.followUpCompletedAt).length;
   const needsFollowUp = appointments.filter(a => a.status === 'needs_follow_up').length;
+  const needsReschedule = appointments.filter(a => a.status === 'needs_reschedule').length;
+  const apptNames = new Set(appointments.map(a => normName(a.client)));
+  const staleProspects = prospects.filter(p => isStaleProspect(p, apptNames)).length;
+  const attention = [
+    pastNoOutcome && { n: pastNoOutcome, text: `appointment${pastNoOutcome === 1 ? '' : 's'} with no outcome logged`, go: () => onNavigate('followup', 'nolog'), color: 'rust' },
+    needsFollowUp && { n: needsFollowUp, text: `client${needsFollowUp === 1 ? '' : 's'} waiting on a follow-up`, go: () => onNavigate('followup', 'needs'), color: 'amber' },
+    needsReschedule && { n: needsReschedule, text: `appointment${needsReschedule === 1 ? '' : 's'} to reschedule`, go: () => onNavigate('followup', 'reschedule'), color: 'violet' },
+    staleProspects && { n: staleProspects, text: `prospect${staleProspects === 1 ? '' : 's'} with no activity in ${STALE_PROSPECT_DAYS}+ days`, go: () => onNavigate('systems'), color: 'amber' },
+  ].filter(Boolean);
 
   // Productivity rating: appointments set this week vs. what the weekly
   // targets say should be set by today (weekend batch of 8, then 5 per
@@ -4156,6 +4458,7 @@ function OverviewBody({ user, onNavigate }) {
     : ratingPct >= 70 ? { label: 'Close to pace', cls: 'amber' }
     : { label: 'Behind pace', cls: 'rust' };
   const weekBarPct = Math.min(100, Math.round((setThisWeek / WEEKLY_TOTAL_TARGET) * 100));
+  const shortBy = Math.max(0, expectedByNow - setThisWeek);
 
   // Month goals from the Business Plan (same math as its Goals tab).
   let goals = null;
@@ -4164,15 +4467,31 @@ function OverviewBody({ user, onNavigate }) {
     const incomeGoal = plan.incomeGoalOverride === '' ? computeAnnualGrossIncomeNeeded(monthlyGross) : (Number(plan.incomeGoalOverride) || 0);
     const tny = computeTransactionsNeededPerYear(incomeGoal, computeCommissionPerTransaction(plan.targetPremium, plan.commissionRate));
     if (tny > 0) {
-      goals = { prospects: computeMonthlyProspects(computeProspectsNeededPerYear(tny)), sales: tny / 12 };
+      goals = { prospects: Math.ceil(computeMonthlyProspects(computeProspectsNeededPerYear(tny))), sales: Math.max(1, Math.ceil(tny / 12)) };
     }
   }
-  const prospectsThisMonth = prospects.filter(p => (p.createdAt || '').slice(0, 7) === monthPrefix).length;
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const daysLeft = daysInMonth - now.getDate();
+  const prospectsThisMonth = prospects.filter(p => p.createdAt && fmtDate(new Date(p.createdAt)).slice(0, 7) === monthPrefix).length;
   const salesThisMonth = appointments.filter(a => a.officiallySold && (a.appointmentDate || '').slice(0, 7) === monthPrefix).length;
   const pct = (done, goal) => (goal > 0 ? Math.min(100, Math.round((done / goal) * 100)) : 0);
+  const goalNote = (done, goal) => (done >= goal ? 'Goal reached for the month' : `${goal - done} more in the ${daysLeft === 0 ? 'last day' : `${daysLeft} day${daysLeft === 1 ? '' : 's'} left`}`);
 
   return (
     <div className="tr-ov">
+      <div className="tr-ov-hello">
+        <div>
+          <h2 className="tr-h2" style={{ margin: 0 }}>{greetingFor(now)}{firstName ? `, ${firstName}` : ''}</h2>
+          <p className="tr-empty" style={{ margin: '2px 0 0' }}>
+            {now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} · {todayCount === 0 ? 'no appointments today' : `${todayCount} appointment${todayCount === 1 ? '' : 's'} today`}
+          </p>
+        </div>
+        <div className="tr-ov-hello-actions">
+          <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => onNavigate('systems', 'new')}><Plus size={14} /> Add prospect</button>
+          <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={() => onNavigate('mine', 'new')}><Plus size={14} /> Log appointment</button>
+        </div>
+      </div>
+
       <div className="tr-ov-flow">
         <button type="button" onClick={() => onNavigate('systems')}><span>1</span> Prospect</button>
         <ChevronRight size={14} />
@@ -4180,14 +4499,21 @@ function OverviewBody({ user, onNavigate }) {
         <ChevronRight size={14} />
         <button type="button" onClick={() => onNavigate('followup')}><span>3</span> Follow up</button>
         <ChevronRight size={14} />
-        <button type="button" onClick={() => onNavigate('followup')}><span>4</span> Client intake</button>
+        <button type="button" onClick={() => onNavigate('followup', 'intake')}><span>4</span> Client intake</button>
       </div>
 
-      <div className="tr-dash-strip">
-        <div className="tr-dash-stat tr-dash-stat-static"><span className="tr-dash-num">{weekAppts.length}</span><span className="tr-dash-label">appointments this week</span></div>
-        <div className="tr-dash-stat tr-dash-stat-static"><span className="tr-dash-num">{todayCount}</span><span className="tr-dash-label">today</span></div>
-        <button type="button" className="tr-dash-stat" onClick={() => onNavigate('followup')}><span className="tr-dash-num">{needsFollowUp}</span><span className="tr-dash-label">need follow-up</span></button>
-      </div>
+      {attention.length > 0 && (
+        <div className="tr-card tr-ov-attention">
+          <h3 className="tr-h3">Needs your attention</h3>
+          {attention.map(item => (
+            <button type="button" key={item.text} className="tr-ov-attn-row" onClick={item.go}>
+              <span className={`tr-ov-attn-num tr-ov-attn-${item.color}`}>{item.n}</span>
+              <span className="tr-ov-attn-text">{item.text}</span>
+              <ChevronRight size={15} />
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="tr-ov-grid">
         <div className="tr-card">
@@ -4196,7 +4522,9 @@ function OverviewBody({ user, onNavigate }) {
             <span className={`tr-status tr-status-${rating.cls}`}>{rating.label}</span>
           </div>
           <div className="tr-ov-big">{ratingPct}%</div>
-          <p className="tr-empty" style={{ margin: '0 0 10px' }}>{setThisWeek} appointments set vs. {expectedByNow} expected by today.</p>
+          <p className="tr-empty" style={{ margin: '0 0 10px' }}>
+            {setThisWeek} appointment{setThisWeek === 1 ? '' : 's'} set vs. {expectedByNow} expected by today{shortBy > 0 ? ` — ${shortBy} to catch up` : ''}.
+          </p>
           <div className="tr-ov-bar"><div className="tr-ov-bar-fill" style={{ width: `${weekBarPct}%` }} /></div>
           <p className="tr-empty" style={{ margin: '6px 0 0' }}>{setThisWeek} of {WEEKLY_TOTAL_TARGET} for the week</p>
         </div>
@@ -4206,14 +4534,16 @@ function OverviewBody({ user, onNavigate }) {
           {goals ? (
             <>
               <div className="tr-ov-goal">
-                <div className="tr-ov-goal-head"><span>Prospects added</span><span className="tr-mono">{prospectsThisMonth} / {Math.ceil(goals.prospects)}</span></div>
+                <div className="tr-ov-goal-head"><span>Prospects added</span><span className="tr-mono">{prospectsThisMonth} / {goals.prospects}</span></div>
                 <div className="tr-ov-bar"><div className="tr-ov-bar-fill" style={{ width: `${pct(prospectsThisMonth, goals.prospects)}%` }} /></div>
+                <div className="tr-ov-goal-note">{goalNote(prospectsThisMonth, goals.prospects)}</div>
               </div>
               <div className="tr-ov-goal">
-                <div className="tr-ov-goal-head"><span>Sales closed</span><span className="tr-mono">{salesThisMonth} / {Math.max(1, Math.ceil(goals.sales))}</span></div>
+                <div className="tr-ov-goal-head"><span>Sales closed</span><span className="tr-mono">{salesThisMonth} / {goals.sales}</span></div>
                 <div className="tr-ov-bar"><div className="tr-ov-bar-fill tr-ov-bar-fill-alt" style={{ width: `${pct(salesThisMonth, goals.sales)}%` }} /></div>
+                <div className="tr-ov-goal-note">{goalNote(salesThisMonth, goals.sales)}</div>
               </div>
-              <p className="tr-empty" style={{ margin: '8px 0 0' }}>Targets come from your Business Plan.</p>
+              <button type="button" className="tr-ov-link" onClick={() => onNavigate('bizplan')}>Targets come from your Business Plan →</button>
             </>
           ) : (
             <>
@@ -4226,28 +4556,42 @@ function OverviewBody({ user, onNavigate }) {
 
       <div className="tr-card">
         <div className="tr-row-head">
-          <h3 className="tr-h3" style={{ margin: 0 }}>This week's appointments</h3>
+          <div>
+            <h3 className="tr-h3" style={{ margin: 0 }}>This week</h3>
+            <span className="tr-empty" style={{ margin: 0 }}>{weekLabel(weekStart)} · {upcomingCount} still to come</span>
+          </div>
           <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => onNavigate('mine')}>View all</button>
         </div>
-        {weekAppts.length === 0 ? (
+        {byDay.length === 0 ? (
           <p className="tr-empty">Nothing scheduled this week yet — start from a prospect and log an appointment.</p>
-        ) : (
-          <div className="tr-ov-list">
-            {weekAppts.map(a => {
+        ) : byDay.map(group => (
+          <div key={group.date} className={`tr-ov-day ${group.date === today ? 'tr-ov-day-today' : ''}`}>
+            <div className="tr-ov-day-label">{group.date === today ? 'Today' : fmtDisplayDate(group.date)}</div>
+            {group.items.map(a => {
               const st = STATUS_OPTIONS.find(o => o.value === a.status);
+              const past = isPastAppointment(a);
+              const time = a.appointmentAt
+                ? new Date(a.appointmentAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+                : fmtTime(a.appointmentTime);
               return (
-                <div className="tr-ov-row" key={a.id}>
-                  <div>
+                <div className={`tr-ov-row ${past ? 'tr-ov-row-past' : ''}`} key={a.id}>
+                  <span className="tr-ov-time">{time}</span>
+                  <div className="tr-ov-row-main">
                     <strong>{a.client}</strong>
                     {typeLabel(a) ? <span className="tr-empty"> · {typeLabel(a)}</span> : null}
-                    <div className="tr-empty" style={{ margin: 0 }}>{fmtApptDateTime(a)}</div>
+                    {a.presenter ? <div className="tr-empty" style={{ margin: 0 }}>with {a.presenter}</div> : null}
                   </div>
-                  {st && st.value ? <span className={`tr-status tr-status-${st.color}`}>{st.label}</span> : null}
+                  <div className="tr-ov-row-side">
+                    {!past && a.zoomUrl ? <a className="tr-btn tr-btn-ghost tr-btn-sm" href={a.zoomUrl} target="_blank" rel="noreferrer">Join Zoom</a> : null}
+                    {past && !a.followUpCompletedAt ? (
+                      <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={() => onNavigate('followup', 'nolog')}>Log outcome</button>
+                    ) : st && st.value ? <span className={`tr-status tr-status-${st.color}`}>{st.label}</span> : null}
+                  </div>
                 </div>
               );
             })}
           </div>
-        )}
+        ))}
       </div>
     </div>
   );
@@ -4255,6 +4599,15 @@ function OverviewBody({ user, onNavigate }) {
 function AdvisorView({ user }) {
   const [tab, setTab] = useState('overview');
   const [prefillData, setPrefillData] = useState(null);
+  // Lets one tab send you to a specific spot in another (e.g. Overview's
+  // "3 appointments with no outcome logged" opens Follow Up on that filter).
+  const [navIntent, setNavIntent] = useState(null);
+  function go(t, intent = null) {
+    if (t === 'mine' && intent === 'new') setPrefillData({});
+    setNavIntent(intent ? { tab: t, intent } : null);
+    setTab(t);
+  }
+  const intentFor = t => (navIntent && navIntent.tab === t ? navIntent.intent : null);
   return (
     <Shell>
       <Header user={user} />
@@ -4269,13 +4622,13 @@ function AdvisorView({ user }) {
           <button className={`tr-tab ${tab === 'milestones' ? 'tr-tab-active' : ''}`} onClick={() => setTab('milestones')}>Milestones</button>
           <button className={`tr-tab ${tab === 'documents' ? 'tr-tab-active' : ''}`} onClick={() => setTab('documents')}>Documents</button>
         </div>
-        {tab === 'overview' && <OverviewBody user={user} onNavigate={setTab} />}
+        {tab === 'overview' && <OverviewBody user={user} onNavigate={go} />}
         {tab === 'mine' && <MyAppointmentsBody user={user} prefillData={prefillData} onPrefillConsumed={() => setPrefillData(null)} />}
         {tab === 'bizplan' && <BusinessPlanBody user={user} />}
-        {tab === 'followup' && <FollowUpBody user={user} onScheduleNext={p => { setPrefillData(p); setTab('mine'); }} />}
-        {tab === 'calendar' && <CalendarBody user={user} />}
+        {tab === 'followup' && <FollowUpBody user={user} initialIntent={intentFor('followup')} onIntentConsumed={() => setNavIntent(null)} onScheduleNext={p => { setPrefillData(p); setTab('mine'); }} />}
+        {tab === 'calendar' && <CalendarBody user={user} onLogAppointment={p => { setPrefillData(p); setTab('mine'); }} />}
         {tab === 'systems' && (
-          <SystemsBody user={user} onLogAppointment={p => { setPrefillData(prospectToAppointmentPrefill(p)); setTab('mine'); }} />
+          <SystemsBody user={user} initialIntent={intentFor('systems')} onIntentConsumed={() => setNavIntent(null)} onLogAppointment={p => { setPrefillData(prospectToAppointmentPrefill(p)); setTab('mine'); }} />
         )}
         {tab === 'milestones' && <MilestonesBody user={user} />}
         {tab === 'documents' && <DocumentsBody user={user} />}
@@ -4450,7 +4803,7 @@ function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, emptyMe
                       {isOpen && (
                         <tr className="tr-expand-row"><td colSpan={DATE_SET_OPTIONS.length + 3}>
                           {DATE_SET_OPTIONS.map((opt, i) => (
-                            <ApptGroup key={opt.value} title={`${opt.batchLabel} (${counts[i]}/${opt.target})`} list={byType(groups[i])} empty="None logged." />
+                            <ApptGroup key={opt.value} hideSet title={`${opt.batchLabel} (${counts[i]}/${opt.target})`} list={byType(groups[i])} empty="None logged." />
                           ))}
                           {adv.id !== user.id && <CoachingNotesPanel advisorId={adv.id} weekOf={weekMonday} currentUser={user} />}
                         </td></tr>
@@ -4794,6 +5147,15 @@ function ManagerView({ user }) {
   const [group, setGroup] = useState('mine'); // 'mine' | 'team'
   const [tab, setTab] = useState('overview');
   const [prefillData, setPrefillData] = useState(null);
+  // Lets one tab send you to a specific spot in another (e.g. Overview's
+  // "3 appointments with no outcome logged" opens Follow Up on that filter).
+  const [navIntent, setNavIntent] = useState(null);
+  function go(t, intent = null) {
+    if (t === 'mine' && intent === 'new') setPrefillData({});
+    setNavIntent(intent ? { tab: t, intent } : null);
+    setTab(t);
+  }
+  const intentFor = t => (navIntent && navIntent.tab === t ? navIntent.intent : null);
 
   function selectGroup(g) {
     setGroup(g);
@@ -4828,13 +5190,13 @@ function ManagerView({ user }) {
             </>
           )}
         </div>
-        {tab === 'overview' && <OverviewBody user={user} onNavigate={setTab} />}
+        {tab === 'overview' && <OverviewBody user={user} onNavigate={go} />}
         {tab === 'mine' && <MyAppointmentsBody user={user} prefillData={prefillData} onPrefillConsumed={() => setPrefillData(null)} />}
         {tab === 'bizplan' && <BusinessPlanBody user={user} />}
-        {tab === 'followup' && <FollowUpBody user={user} onScheduleNext={p => { setPrefillData(p); setTab('mine'); }} />}
-        {tab === 'calendar' && <CalendarBody user={user} />}
+        {tab === 'followup' && <FollowUpBody user={user} initialIntent={intentFor('followup')} onIntentConsumed={() => setNavIntent(null)} onScheduleNext={p => { setPrefillData(p); setTab('mine'); }} />}
+        {tab === 'calendar' && <CalendarBody user={user} onLogAppointment={p => { setPrefillData(p); setTab('mine'); }} />}
         {tab === 'systems' && (
-          <SystemsBody user={user} onLogAppointment={p => { setPrefillData(prospectToAppointmentPrefill(p)); setTab('mine'); }} />
+          <SystemsBody user={user} initialIntent={intentFor('systems')} onIntentConsumed={() => setNavIntent(null)} onLogAppointment={p => { setPrefillData(prospectToAppointmentPrefill(p)); setTab('mine'); }} />
         )}
         {tab === 'milestones' && <MilestonesBody user={user} />}
         {tab === 'documents' && <DocumentsBody user={user} />}
@@ -5094,6 +5456,15 @@ function AdminView({ user }) {
   const [group, setGroup] = useState('mine'); // 'mine' | 'team'
   const [tab, setTab] = useState('overview');
   const [prefillData, setPrefillData] = useState(null);
+  // Lets one tab send you to a specific spot in another (e.g. Overview's
+  // "3 appointments with no outcome logged" opens Follow Up on that filter).
+  const [navIntent, setNavIntent] = useState(null);
+  function go(t, intent = null) {
+    if (t === 'mine' && intent === 'new') setPrefillData({});
+    setNavIntent(intent ? { tab: t, intent } : null);
+    setTab(t);
+  }
+  const intentFor = t => (navIntent && navIntent.tab === t ? navIntent.intent : null);
 
   function selectGroup(g) {
     setGroup(g);
@@ -5129,13 +5500,13 @@ function AdminView({ user }) {
             </>
           )}
         </div>
-        {tab === 'overview' && <OverviewBody user={user} onNavigate={setTab} />}
+        {tab === 'overview' && <OverviewBody user={user} onNavigate={go} />}
         {tab === 'mine' && <MyAppointmentsBody user={user} prefillData={prefillData} onPrefillConsumed={() => setPrefillData(null)} />}
         {tab === 'bizplan' && <BusinessPlanBody user={user} />}
-        {tab === 'followup' && <FollowUpBody user={user} onScheduleNext={p => { setPrefillData(p); setTab('mine'); }} />}
-        {tab === 'calendar' && <CalendarBody user={user} />}
+        {tab === 'followup' && <FollowUpBody user={user} initialIntent={intentFor('followup')} onIntentConsumed={() => setNavIntent(null)} onScheduleNext={p => { setPrefillData(p); setTab('mine'); }} />}
+        {tab === 'calendar' && <CalendarBody user={user} onLogAppointment={p => { setPrefillData(p); setTab('mine'); }} />}
         {tab === 'systems' && (
-          <SystemsBody user={user} onLogAppointment={p => { setPrefillData(prospectToAppointmentPrefill(p)); setTab('mine'); }} />
+          <SystemsBody user={user} initialIntent={intentFor('systems')} onIntentConsumed={() => setNavIntent(null)} onLogAppointment={p => { setPrefillData(prospectToAppointmentPrefill(p)); setTab('mine'); }} />
         )}
         {tab === 'milestones' && <MilestonesBody user={user} />}
         {tab === 'documents' && <DocumentsBody user={user} />}

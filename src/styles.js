@@ -314,7 +314,7 @@ export const CSS = `
 .tr-cal-card { padding: 0; overflow: hidden; }
 .tr-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
 .tr-cal-headcell { padding: 10px 6px; text-align: center; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--slate-light); border-bottom: 1px solid var(--line); }
-.tr-cal-day { min-width: 0; min-height: 92px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 6px; cursor: default; display: flex; flex-direction: column; gap: 3px; }
+.tr-cal-day { min-width: 0; min-height: 92px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 6px; cursor: pointer; display: flex; flex-direction: column; gap: 3px; }
 .tr-cal-day:nth-child(7n) { border-right: none; }
 .tr-cal-day-out { background: var(--paper); }
 .tr-cal-day-out .tr-cal-daynum { color: var(--slate-light); }
@@ -372,8 +372,10 @@ export const CSS = `
 .tr-auth-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
 .tr-auth-card { width: 100%; max-width: 400px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 28px 26px; box-shadow: 0 4px 24px rgba(19,35,48,0.08); }
 .tr-auth-sub { text-align: center; font-size: 13.5px; color: var(--slate-light); margin: 6px 0 18px; }
-.tr-tabs { display: flex; flex-wrap: wrap; background: var(--paper-dim); border-radius: 8px; padding: 3px; margin-bottom: 18px; }
-.tr-tab { flex: 1; padding: 8px; border: none; background: transparent; border-radius: 6px; font-family: inherit; font-size: 13.5px; font-weight: 500; color: var(--slate-light); cursor: pointer; }
+.tr-tabs { display: flex; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; background: var(--paper-dim); border-radius: 8px; padding: 3px; margin-bottom: 18px; }
+.tr-tabs::-webkit-scrollbar { display: none; }
+.tr-tab { flex: 1 1 auto; white-space: nowrap; padding: 8px 12px; border: none; background: transparent; border-radius: 6px; font-family: inherit; font-size: 13.5px; font-weight: 500; color: var(--slate-light); cursor: pointer; transition: color .15s, background .15s; }
+.tr-tab:hover { color: var(--ink); }
 .tr-tab-active { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(19,35,48,0.08); }
 .tr-tab-groups { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
 .tr-tab-group { font-family: inherit; font-size: 13px; font-weight: 600; padding: 7px 16px; border-radius: 999px; border: 1px solid var(--line); background: var(--paper); color: var(--slate); cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
@@ -407,6 +409,75 @@ export const CSS = `
 .tr-jogger-cat-head:hover { color: var(--ink); }
 .tr-jogger-cat-head .tr-h4 { color: inherit; }
 
+/* prospecting — compact list, quick add, flash */
+.tr-root input[type="range"] { accent-color: var(--brass); }
+.tr-root input[type="checkbox"] { accent-color: var(--brass); width: 16px; height: 16px; flex-shrink: 0; }
+.tr-flash { font-size: 13.5px; padding: 10px 14px; border-radius: 8px; background: rgba(63,143,108,0.12); color: #2E6E51; border: 1px solid rgba(63,143,108,0.25); }
+.tr-quickadd { display: flex; align-items: center; gap: 8px; padding: 10px 12px; }
+.tr-quickadd-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--slate-light); white-space: nowrap; }
+.tr-quickadd input { flex: 1; min-width: 0; font-family: inherit; font-size: 14px; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
+.tr-quickadd input:focus { border-color: var(--brass); outline: none; }
+.tr-sort-select { border: none !important; background: transparent !important; font-size: 13px !important; color: var(--slate) !important; padding: 2px 22px 2px 8px !important; border-left: 1px solid var(--line) !important; border-radius: 0 !important; min-height: 0 !important; }
+.tr-prospect-list { display: flex; flex-direction: column; gap: 8px; }
+.tr-prospect-card-compact { padding: 12px 16px; }
+.tr-prospect-card-compact .tr-prospect-rank { width: 26px; height: 26px; font-size: 12px; }
+.tr-prospect-card-open { border-color: var(--brass); }
+.tr-prospect-card-compact .tr-note { font-size: 12.5px; }
+.tr-prospect-card-side { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.tr-type-badge-appt { background: rgba(63,143,108,0.12); color: #2E6E51; }
+.tr-prospect-live-score { display: flex; align-items: center; gap: 8px; }
+
+/* my appointments — slim connect banner, collapsed empty batches */
+.tr-connect-slim { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 8px; border: 1px dashed var(--line); background: var(--paper); font-size: 13px; color: var(--slate); }
+.tr-connect-slim-on { border-style: solid; }
+.tr-connect-dot { width: 8px; height: 8px; border-radius: 999px; background: var(--slate-light); flex-shrink: 0; }
+.tr-connect-slim-on .tr-connect-dot { background: var(--green); }
+.tr-connect-text { flex: 1 1 240px; min-width: 0; }
+.tr-connect-text strong { color: var(--ink); font-weight: 600; }
+.tr-empty-batches { margin: -6px 0 0; font-size: 12.5px; }
+.tr-appt-client { color: var(--ink); font-weight: 600; }
+
+/* business plan — autosave, $/% affixes, numbers at a glance */
+.tr-autosave { margin-top: 16px; text-align: right; font-size: 12.5px; color: var(--slate-light); }
+.tr-autosave-error { color: var(--rust); font-weight: 500; }
+.tr-input-affix { position: relative; display: flex; }
+.tr-input-affix > input { width: 100%; }
+.tr-input-affix > span { position: absolute; top: 50%; transform: translateY(-50%); font-size: 14px; color: var(--slate-light); pointer-events: none; }
+.tr-input-affix-pre > span { left: 11px; }
+.tr-input-affix-pre > input { padding-left: 24px !important; }
+.tr-input-affix-post > span { right: 12px; }
+.tr-input-affix-post > input { padding-right: 28px !important; }
+.tr-bizplan-glance { margin-top: 10px; padding: 4px 12px 10px; border-radius: 8px; background: var(--paper); border: 1px solid var(--line); font-size: 12.5px; }
+.tr-bizplan-glance > div:not(.tr-sidebar-divider) { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; color: var(--slate-light); }
+.tr-bizplan-glance strong { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* calendar — view toggle, list view, legend, today marker */
+.tr-seg { display: inline-flex; background: var(--paper-dim); border-radius: 7px; padding: 2px; margin-right: 6px; }
+.tr-seg button { font-family: inherit; font-size: 12.5px; font-weight: 500; border: none; background: transparent; color: var(--slate-light); padding: 5px 11px; border-radius: 5px; cursor: pointer; }
+.tr-seg .tr-seg-on { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(19,35,48,0.08); }
+.tr-cal-day-today .tr-cal-daynum span { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 5px; border-radius: 999px; background: var(--brass); color: var(--ink); }
+.tr-cal-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; font-size: 12px; color: var(--slate-light); margin-top: -8px; }
+.tr-cal-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.tr-cal-legend-hint { margin-left: auto; }
+.tr-lg { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.tr-lg-sale { background: var(--type-sale); }
+.tr-lg-recruit { background: var(--type-recruit); }
+.tr-lg-training { background: var(--brass); }
+.tr-lg-block { background: var(--rust); }
+.tr-lg-google { background: var(--slate-light); }
+.tr-agenda { padding: 6px 20px 14px; }
+.tr-agenda-day { padding-top: 12px; }
+.tr-agenda-date { display: block; width: 100%; text-align: left; background: none; border: none; border-bottom: 1px solid var(--line); padding: 0 0 5px; font-family: inherit; font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--slate-light); cursor: pointer; }
+.tr-agenda-today .tr-agenda-date { color: var(--brass-dark); border-bottom-color: var(--brass); }
+.tr-agenda-item { display: flex; align-items: center; gap: 12px; padding: 8px 0 8px 10px; border-left: 3px solid var(--line); margin-top: 6px; font-size: 14px; }
+.tr-agenda-sale { border-left-color: var(--type-sale); }
+.tr-agenda-recruit { border-left-color: var(--type-recruit); }
+.tr-agenda-training { border-left-color: var(--brass); }
+.tr-agenda-block { border-left-color: var(--rust); color: var(--rust); }
+.tr-agenda-google { border-left-color: var(--slate-light); }
+.tr-agenda-time { width: 70px; flex-shrink: 0; font-size: 13px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.tr-agenda-what { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+
 /* follow up tab */
 .tr-fu-card { padding: 0; overflow: hidden; }
 .tr-fu-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; padding: 14px 18px; background: transparent; border: none; font-family: inherit; font-size: 14px; color: var(--ink); text-align: left; cursor: pointer; }
@@ -415,9 +486,13 @@ export const CSS = `
 .tr-fu-body { border-top: 1px solid var(--line); padding: 4px 18px 16px; }
 .tr-fu-section { padding: 14px 0; border-top: 1px solid var(--line); }
 .tr-fu-section:first-child { border-top: none; }
+.tr-fu-lastnote { font-size: 12.5px; color: var(--slate); margin-top: 3px; max-width: 520px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tr-fu-quicktags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.tr-fu-quicktags .tr-pill-btn { padding: 5px 11px; font-size: 12px; }
+.tr-fu-head > div:first-child { min-width: 0; }
 
 /* overview — landing page */
-.tr-ov { display: flex; flex-direction: column; gap: 16px; max-width: 860px; }
+.tr-ov { display: flex; flex-direction: column; gap: 16px; }
 .tr-ov .tr-dash-strip { margin-bottom: 0; }
 .tr-ov-flow { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; color: var(--slate-light); }
 .tr-ov-flow button { display: inline-flex; align-items: center; gap: 7px; font-family: inherit; font-size: 13px; font-weight: 500; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--paper); color: var(--slate); cursor: pointer; transition: border-color .15s; }
@@ -430,9 +505,30 @@ export const CSS = `
 .tr-ov-bar-fill-alt { background: var(--green); }
 .tr-ov-goal { margin-bottom: 14px; }
 .tr-ov-goal-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 13.5px; color: var(--slate); margin-bottom: 6px; }
-.tr-ov-list { display: flex; flex-direction: column; }
-.tr-ov-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 14px; }
-.tr-ov-row:first-child { border-top: none; }
+.tr-ov-hello { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.tr-ov-hello-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.tr-ov-attention { border-left: 3px solid var(--rust); }
+.tr-ov-attn-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 9px 4px; background: transparent; border: none; border-top: 1px solid var(--line); font-family: inherit; font-size: 14px; color: var(--slate); text-align: left; cursor: pointer; }
+.tr-ov-attn-row:first-of-type { border-top: none; }
+.tr-ov-attn-row:hover { background: var(--paper); color: var(--ink); }
+.tr-ov-attn-text { flex: 1; }
+.tr-ov-attn-num { min-width: 28px; height: 24px; padding: 0 7px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.tr-ov-attn-rust { background: rgba(184,80,61,0.12); color: var(--rust); }
+.tr-ov-attn-amber { background: rgba(217,142,59,0.14); color: #9C6423; }
+.tr-ov-attn-violet { background: rgba(124,95,166,0.14); color: var(--violet-dark); }
+.tr-ov-goal-note { font-size: 12px; color: var(--slate-light); margin-top: 5px; }
+.tr-ov-link { background: none; border: none; padding: 0; font-family: inherit; font-size: 12.5px; color: var(--brass-dark); cursor: pointer; }
+.tr-ov-link:hover { text-decoration: underline; }
+.tr-ov-day { margin-top: 12px; }
+.tr-ov-day-label { font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--slate-light); padding-bottom: 4px; border-bottom: 1px solid var(--line); }
+.tr-ov-day-today .tr-ov-day-label { color: var(--brass-dark); border-bottom-color: var(--brass); }
+.tr-ov-row { display: flex; align-items: center; gap: 14px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.tr-ov-day-label + .tr-ov-row { border-top: none; }
+.tr-ov-row-past .tr-ov-time, .tr-ov-row-past .tr-ov-row-main { opacity: 0.6; }
+.tr-root a.tr-btn { text-decoration: none; }
+.tr-ov-time { width: 72px; flex-shrink: 0; font-size: 13px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.tr-ov-row-main { flex: 1; min-width: 0; }
+.tr-ov-row-side { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .tr-bizplan-reset-link { background: none; border: none; padding: 2px 0; margin: -4px 0 0; font-family: inherit; font-size: 12px; color: var(--brass-dark); text-decoration: underline; cursor: pointer; text-align: left; }
 
 /* client intake — public wizard + advisor tab */
@@ -477,8 +573,7 @@ export const CSS = `
   .tr-header { padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 12px; }
   .tr-header-name { display: none; }
   .tr-main { padding: 18px 14px calc(48px + env(safe-area-inset-bottom, 0px)); }
-  .tr-tabs { flex-wrap: wrap; }
-  .tr-tabs .tr-tab { flex: 1 1 45%; }
+  .tr-tabs .tr-tab { flex: 0 0 auto; }
   .tr-appts-shell { flex-direction: column; }
   .tr-appts-sidebar { flex-direction: row; flex-wrap: wrap; min-width: 0; width: 100%; gap: 6px; }
   .tr-sidebar-divider { flex-basis: 100%; padding: 8px 4px 0; }
@@ -495,6 +590,15 @@ export const CSS = `
   .tr-skel-row .tr-skel { flex-shrink: 1; min-width: 30px; }
   .tr-intake-quickstart { grid-template-columns: 1fr; }
   .tr-ov-grid { grid-template-columns: 1fr; }
+  .tr-ov-row { flex-wrap: wrap; }
+  .tr-quickadd { flex-wrap: wrap; }
+  .tr-connect-slim { flex-wrap: wrap; }
+  .tr-bizplan-glance { width: 100%; }
+  .tr-cal-legend-hint { margin-left: 0; width: 100%; }
+  .tr-agenda { padding: 4px 14px 12px; }
+  .tr-quickadd-label { width: 100%; }
+  .tr-prospect-card-side { justify-content: flex-start; }
+  .tr-ov-row-side { width: 100%; padding-left: 86px; }
   .tr-fu-head { flex-direction: column; align-items: flex-start; }
   .tr-fu-chips { justify-content: flex-start; }
   .tr-intake-page { padding: 20px 14px 48px; }

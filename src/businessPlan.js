@@ -44,7 +44,10 @@ function businessPlanFieldsToRow(f) {
 
 export async function fetchBusinessPlan(userId) {
   const { data, error } = await supabase.from('business_plans').select('*').eq('user_id', userId).maybeSingle();
-  if (error) { console.error(error); return null; }
+  // null = no plan saved yet; { loadError: true } = the request failed, so
+  // callers can tell "empty" apart from "couldn't load" (and not autosave
+  // blanks over a real plan).
+  if (error) { console.error(error); return { loadError: true }; }
   return data;
 }
 // Upserts the whole row in one call — the form saves everything
