@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ShieldCheck, CheckCircle2, Copy, Trash2, ChevronDown, ChevronUp, ArrowRight, Plus, X } from 'lucide-react';
 import { CSS } from './styles.js';
 import {
-  buildIntakeLink, fetchClientIntakeCandidates, deleteClientIntakeCandidate,
+  buildIntakeLink,
   fetchClientIntakeByToken, saveClientIntakeProgress, submitClientIntakeFinal,
   US_STATE_OPTIONS, MARITAL_STATUS_OPTIONS, TAX_FILING_OPTIONS, INCOME_TYPE_OPTIONS, PAID_FREQUENCY_OPTIONS, INCOME_QUICKSTART,
   ACCOUNT_TYPE_OPTIONS, INVESTED_IN_OPTIONS, RISK_CATEGORY_OPTIONS, INVESTMENT_QUICKSTART,
@@ -660,127 +660,47 @@ function fmtIntakeDate(iso) {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-export function ClientIntakeBody({ user }) {
-  const [candidates, setCandidates] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [view, setView] = useState('links'); // 'links' | 'submitted'
-  const [expandedId, setExpandedId] = useState(null);
-  const [copiedId, setCopiedId] = useState(null);
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setCandidates(await fetchClientIntakeCandidates());
-    setLoading(false);
-  }, []);
-  useEffect(() => { refresh(); }, [refresh]);
-
-  async function handleCopyLink(candidate) {
-    const link = buildIntakeLink(candidate.token);
+// Per-client intake panel, shown inside a Follow Up card. Pending ->
+// copyable link; submitted -> the client's answers, expandable.
+export function ClientIntakeSection({ candidate, canManage, onRemove }) {
+  const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const link = buildIntakeLink(candidate.token);
+  async function handleCopy() {
     try {
       await navigator.clipboard.writeText(link);
-      setCopiedId(candidate.id);
-      setTimeout(() => setCopiedId(prev => (prev === candidate.id ? null : prev)), 2000);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
     } catch {
       window.prompt('Copy this link:', link);
     }
   }
-  async function handleDelete(candidate) {
-    if (!window.confirm(`Remove ${candidate.client_name} from Client Intake? This can't be undone.`)) return;
-    const ok = await deleteClientIntakeCandidate(candidate.id);
-    if (ok) setCandidates(prev => prev.filter(c => c.id !== candidate.id));
-  }
-
-  if (loading) return <p className="tr-empty">Loading…</p>;
-
-  const pending = candidates.filter(c => c.status !== 'submitted');
-  const submitted = candidates.filter(c => c.status === 'submitted');
-
+  const submitted = candidate.status === 'submitted';
   return (
-    <div className="tr-appts-shell">
-      <nav className="tr-appts-sidebar">
-        <button type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'links' ? 'tr-sidebar-item-active' : ''}`} onClick={() => setView('links')}>
-          <span>Links</span>
-          <span className="tr-mono">{pending.length}</span>
-        </button>
-        <button type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'submitted' ? 'tr-sidebar-item-active' : ''}`} onClick={() => setView('submitted')}>
-          <span>Submitted</span>
-          <span className="tr-mono">{submitted.length}</span>
-        </button>
-      </nav>
-      <div className="tr-appts-main">
-        <div className="tr-card">
-          {view === 'links' ? (
-            <>
-              <h3 className="tr-h3">Intake Links</h3>
-              <p className="tr-empty" style={{ marginTop: -6 }}>Share one of these with the client — answer "Client intake?" with Yes on a follow-up to add someone new.</p>
-              {pending.length === 0 ? (
-                <p className="tr-empty">Nobody waiting on a link right now.</p>
-              ) : (
-                <div className="tr-notes-list">
-                  {pending.map(c => {
-                    const canManage = user.id === c.advisor_id || user.role === 'super_admin';
-                    return (
-                      <div className="tr-note-item" key={c.id}>
-                        <div className="tr-row-head">
-                          <div>
-                            <strong>{c.client_name}</strong>
-                            {c.advisor_id !== user.id && c.advisor_name ? <span className="tr-empty"> · {c.advisor_name}</span> : null}
-                          </div>
-                          <span className="tr-status tr-status-amber">Pending</span>
-                        </div>
-                        <div className="tr-intake-link-row" style={{ marginTop: 8 }}>
-                          <span className="tr-intake-link-box">{buildIntakeLink(c.token)}</span>
-                          <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => handleCopyLink(c)}><Copy size={13} /> {copiedId === c.id ? 'Copied!' : 'Copy'}</button>
-                        </div>
-                        {canManage && (
-                          <div className="tr-form-actions" style={{ marginTop: 8, justifyContent: 'flex-start' }}>
-                            <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => handleDelete(c)}><Trash2 size={13} /> Remove</button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </>
-          ) : (
-            <>
-              <h3 className="tr-h3">Submitted Responses</h3>
-              <p className="tr-empty" style={{ marginTop: -6 }}>Everything a client has sent back, ready to review.</p>
-              {submitted.length === 0 ? (
-                <p className="tr-empty">Nothing submitted yet.</p>
-              ) : (
-                <div className="tr-notes-list">
-                  {submitted.map(c => {
-                    const canManage = user.id === c.advisor_id || user.role === 'super_admin';
-                    const expanded = expandedId === c.id;
-                    return (
-                      <div className="tr-note-item" key={c.id}>
-                        <div className="tr-row-head">
-                          <div>
-                            <strong>{c.client_name}</strong>
-                            {c.advisor_id !== user.id && c.advisor_name ? <span className="tr-empty"> · {c.advisor_name}</span> : null}
-                          </div>
-                          <span className="tr-status tr-status-green">Submitted {fmtIntakeDate(c.submitted_at)}</span>
-                        </div>
-                        <div className="tr-form-actions" style={{ marginTop: 8, justifyContent: 'flex-start' }}>
-                          <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setExpandedId(expanded ? null : c.id)}>
-                            {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />} {expanded ? 'Hide details' : 'View submitted info'}
-                          </button>
-                          {canManage && (
-                            <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => handleDelete(c)}><Trash2 size={13} /> Remove</button>
-                          )}
-                        </div>
-                        {expanded && <IntakeResponsesView responses={c.responses} />}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </>
-          )}
-        </div>
+    <div>
+      <div className="tr-row-head">
+        <h4 className="tr-h4" style={{ margin: 0 }}>Client intake</h4>
+        <span className={`tr-status ${submitted ? 'tr-status-green' : 'tr-status-amber'}`}>
+          {submitted ? `Received ${fmtIntakeDate(candidate.submitted_at)}` : 'Link sent — waiting on client'}
+        </span>
       </div>
+      {!submitted && (
+        <div className="tr-intake-link-row" style={{ marginTop: 8 }}>
+          <span className="tr-intake-link-box">{link}</span>
+          <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={handleCopy}><Copy size={13} /> {copied ? 'Copied!' : 'Copy'}</button>
+        </div>
+      )}
+      <div className="tr-form-actions" style={{ marginTop: 8, justifyContent: 'flex-start' }}>
+        {submitted && (
+          <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setExpanded(e => !e)}>
+            {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />} {expanded ? 'Hide answers' : 'View submitted info'}
+          </button>
+        )}
+        {canManage && (
+          <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onRemove}><Trash2 size={13} /> Remove intake</button>
+        )}
+      </div>
+      {submitted && expanded && <IntakeResponsesView responses={candidate.responses} />}
     </div>
   );
 }

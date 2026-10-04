@@ -407,6 +407,15 @@ export const CSS = `
 .tr-jogger-cat-head:hover { color: var(--ink); }
 .tr-jogger-cat-head .tr-h4 { color: inherit; }
 
+/* follow up tab */
+.tr-fu-card { padding: 0; overflow: hidden; }
+.tr-fu-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; padding: 14px 18px; background: transparent; border: none; font-family: inherit; font-size: 14px; color: var(--ink); text-align: left; cursor: pointer; }
+.tr-fu-head:hover { background: var(--paper-dim); }
+.tr-fu-chips { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 6px; color: var(--slate-light); }
+.tr-fu-body { border-top: 1px solid var(--line); padding: 4px 18px 16px; }
+.tr-fu-section { padding: 14px 0; border-top: 1px solid var(--line); }
+.tr-fu-section:first-child { border-top: none; }
+
 /* overview — landing page */
 .tr-ov { display: flex; flex-direction: column; gap: 16px; max-width: 860px; }
 .tr-ov .tr-dash-strip { margin-bottom: 0; }
@@ -486,6 +495,8 @@ export const CSS = `
   .tr-skel-row .tr-skel { flex-shrink: 1; min-width: 30px; }
   .tr-intake-quickstart { grid-template-columns: 1fr; }
   .tr-ov-grid { grid-template-columns: 1fr; }
+  .tr-fu-head { flex-direction: column; align-items: flex-start; }
+  .tr-fu-chips { justify-content: flex-start; }
   .tr-intake-page { padding: 20px 14px 48px; }
 }
 `;
