@@ -406,6 +406,24 @@ export const CSS = `
 .tr-jogger-cat-head { display: flex; align-items: center; justify-content: space-between; width: 100%; font-family: inherit; background: transparent; border: none; padding: 0; cursor: pointer; color: var(--slate-light); }
 .tr-jogger-cat-head:hover { color: var(--ink); }
 .tr-jogger-cat-head .tr-h4 { color: inherit; }
+
+/* overview — landing page */
+.tr-ov { display: flex; flex-direction: column; gap: 16px; max-width: 860px; }
+.tr-ov .tr-dash-strip { margin-bottom: 0; }
+.tr-ov-flow { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; color: var(--slate-light); }
+.tr-ov-flow button { display: inline-flex; align-items: center; gap: 7px; font-family: inherit; font-size: 13px; font-weight: 500; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--paper); color: var(--slate); cursor: pointer; transition: border-color .15s; }
+.tr-ov-flow button:hover { border-color: var(--brass); }
+.tr-ov-flow button span { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 999px; background: var(--paper-dim); font-size: 11px; font-weight: 600; }
+.tr-ov-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.tr-ov-big { font-size: 40px; font-weight: 700; line-height: 1.1; color: var(--ink); font-variant-numeric: tabular-nums; margin: 10px 0 2px; }
+.tr-ov-bar { width: 100%; height: 8px; border-radius: 999px; background: var(--paper-dim); overflow: hidden; }
+.tr-ov-bar-fill { height: 100%; border-radius: 999px; background: var(--brass); transition: width .3s ease; }
+.tr-ov-bar-fill-alt { background: var(--green); }
+.tr-ov-goal { margin-bottom: 14px; }
+.tr-ov-goal-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 13.5px; color: var(--slate); margin-bottom: 6px; }
+.tr-ov-list { display: flex; flex-direction: column; }
+.tr-ov-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.tr-ov-row:first-child { border-top: none; }
 .tr-bizplan-reset-link { background: none; border: none; padding: 2px 0; margin: -4px 0 0; font-family: inherit; font-size: 12px; color: var(--brass-dark); text-decoration: underline; cursor: pointer; text-align: left; }
 
 /* client intake — public wizard + advisor tab */
@@ -467,6 +485,7 @@ export const CSS = `
   .tr-skel-row { gap: 8px; overflow-x: hidden; }
   .tr-skel-row .tr-skel { flex-shrink: 1; min-width: 30px; }
   .tr-intake-quickstart { grid-template-columns: 1fr; }
+  .tr-ov-grid { grid-template-columns: 1fr; }
   .tr-intake-page { padding: 20px 14px 48px; }
 }
 `;

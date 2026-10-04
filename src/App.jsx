@@ -3892,22 +3892,170 @@ function MyAppointmentsBody({ user, prefillData, onPrefillConsumed }) {
     </div>
   );
 }
+// ---------------------------------------------------------------------
+// Overview — the landing page. Shows this tracking week's appointments,
+// the month's goals (derived from the person's own Business Plan), and a
+// pace-based productivity rating. Everything is computed from data the
+// other tabs already own; nothing new is stored.
+// ---------------------------------------------------------------------
+function OverviewBody({ user, onNavigate }) {
+  const [loading, setLoading] = useState(true);
+  const [appointments, setAppointments] = useState([]);
+  const [prospects, setProspects] = useState([]);
+  const [plan, setPlan] = useState(null);
+
+  useEffect(() => {
+    let alive = true;
+    Promise.all([fetchMyAppointments(user.id), fetchMyProspects(user.id), fetchBusinessPlan(user.id)]).then(([a, p, row]) => {
+      if (!alive) return;
+      setAppointments(a);
+      setProspects(p);
+      setPlan(row ? rowToBusinessPlanFields(row) : null);
+      setLoading(false);
+    });
+    return () => { alive = false; };
+  }, [user.id]);
+
+  if (loading) return <SkelBlock w="100%" h="260px" />;
+
+  const today = todayStr();
+  const weekStart = weekStartOf(today);
+  const weekEnd = fmtDate(addDays(parseDate(weekStart), 6));
+  const monthPrefix = today.slice(0, 7);
+
+  // This week's appointments (held Sat–Fri), soonest first.
+  const weekAppts = appointments
+    .filter(a => a.appointmentDate >= weekStart && a.appointmentDate <= weekEnd)
+    .sort((a, b) => (a.appointmentDate + a.appointmentTime).localeCompare(b.appointmentDate + b.appointmentTime));
+  const todayCount = appointments.filter(a => a.appointmentDate === today).length;
+  const needsFollowUp = appointments.filter(a => a.status === 'needs_follow_up').length;
+
+  // Productivity rating: appointments set this week vs. what the weekly
+  // targets say should be set by today (weekend batch of 8, then 5 per
+  // weekday). Follow-up appointments auto-created from another one don't
+  // count, same as the Pace views.
+  const setThisWeek = appointments.filter(a => a.weekOf === weekStart && !a.isFollowUp).length;
+  const todayIdx = DATE_SET_OPTIONS.findIndex(o => o.value === defaultDateSetOption());
+  const expectedByNow = DATE_SET_OPTIONS.slice(0, todayIdx + 1).reduce((s, o) => s + o.target, 0);
+  const ratingPct = expectedByNow > 0 ? Math.round((setThisWeek / expectedByNow) * 100) : 0;
+  const rating = ratingPct >= 100 ? { label: 'On pace', cls: 'green' }
+    : ratingPct >= 70 ? { label: 'Close to pace', cls: 'amber' }
+    : { label: 'Behind pace', cls: 'rust' };
+  const weekBarPct = Math.min(100, Math.round((setThisWeek / WEEKLY_TOTAL_TARGET) * 100));
+
+  // Month goals from the Business Plan (same math as its Goals tab).
+  let goals = null;
+  if (plan) {
+    const monthlyGross = computeMonthlyGrossIncomeNeeded(computeExpensesSubtotal(plan));
+    const incomeGoal = plan.incomeGoalOverride === '' ? computeAnnualGrossIncomeNeeded(monthlyGross) : (Number(plan.incomeGoalOverride) || 0);
+    const tny = computeTransactionsNeededPerYear(incomeGoal, computeCommissionPerTransaction(plan.targetPremium, plan.commissionRate));
+    if (tny > 0) {
+      goals = { prospects: computeMonthlyProspects(computeProspectsNeededPerYear(tny)), sales: tny / 12 };
+    }
+  }
+  const prospectsThisMonth = prospects.filter(p => (p.createdAt || '').slice(0, 7) === monthPrefix).length;
+  const salesThisMonth = appointments.filter(a => a.officiallySold && (a.appointmentDate || '').slice(0, 7) === monthPrefix).length;
+  const pct = (done, goal) => (goal > 0 ? Math.min(100, Math.round((done / goal) * 100)) : 0);
+
+  return (
+    <div className="tr-ov">
+      <div className="tr-ov-flow">
+        <button type="button" onClick={() => onNavigate('systems')}><span>1</span> Prospect</button>
+        <ChevronRight size={14} />
+        <button type="button" onClick={() => onNavigate('mine')}><span>2</span> Log appointment</button>
+        <ChevronRight size={14} />
+        <button type="button" onClick={() => onNavigate('mine')}><span>3</span> Follow up</button>
+        <ChevronRight size={14} />
+        <button type="button" onClick={() => onNavigate('intake')}><span>4</span> Client intake</button>
+      </div>
+
+      <div className="tr-dash-strip">
+        <div className="tr-dash-stat tr-dash-stat-static"><span className="tr-dash-num">{weekAppts.length}</span><span className="tr-dash-label">appointments this week</span></div>
+        <div className="tr-dash-stat tr-dash-stat-static"><span className="tr-dash-num">{todayCount}</span><span className="tr-dash-label">today</span></div>
+        <button type="button" className="tr-dash-stat" onClick={() => onNavigate('mine')}><span className="tr-dash-num">{needsFollowUp}</span><span className="tr-dash-label">need follow-up</span></button>
+      </div>
+
+      <div className="tr-ov-grid">
+        <div className="tr-card">
+          <div className="tr-row-head">
+            <h3 className="tr-h3" style={{ margin: 0 }}>Productivity</h3>
+            <span className={`tr-status tr-status-${rating.cls}`}>{rating.label}</span>
+          </div>
+          <div className="tr-ov-big">{ratingPct}%</div>
+          <p className="tr-empty" style={{ margin: '0 0 10px' }}>{setThisWeek} appointments set vs. {expectedByNow} expected by today.</p>
+          <div className="tr-ov-bar"><div className="tr-ov-bar-fill" style={{ width: `${weekBarPct}%` }} /></div>
+          <p className="tr-empty" style={{ margin: '6px 0 0' }}>{setThisWeek} of {WEEKLY_TOTAL_TARGET} for the week</p>
+        </div>
+
+        <div className="tr-card">
+          <h3 className="tr-h3">This month's goals</h3>
+          {goals ? (
+            <>
+              <div className="tr-ov-goal">
+                <div className="tr-ov-goal-head"><span>Prospects added</span><span className="tr-mono">{prospectsThisMonth} / {Math.ceil(goals.prospects)}</span></div>
+                <div className="tr-ov-bar"><div className="tr-ov-bar-fill" style={{ width: `${pct(prospectsThisMonth, goals.prospects)}%` }} /></div>
+              </div>
+              <div className="tr-ov-goal">
+                <div className="tr-ov-goal-head"><span>Sales closed</span><span className="tr-mono">{salesThisMonth} / {Math.max(1, Math.ceil(goals.sales))}</span></div>
+                <div className="tr-ov-bar"><div className="tr-ov-bar-fill tr-ov-bar-fill-alt" style={{ width: `${pct(salesThisMonth, goals.sales)}%` }} /></div>
+              </div>
+              <p className="tr-empty" style={{ margin: '8px 0 0' }}>Targets come from your Business Plan.</p>
+            </>
+          ) : (
+            <>
+              <p className="tr-empty">Fill in your Business Plan expenses to get monthly prospecting and sales targets here.</p>
+              <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => onNavigate('bizplan')}>Open Business Plan</button>
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="tr-card">
+        <div className="tr-row-head">
+          <h3 className="tr-h3" style={{ margin: 0 }}>This week's appointments</h3>
+          <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => onNavigate('mine')}>View all</button>
+        </div>
+        {weekAppts.length === 0 ? (
+          <p className="tr-empty">Nothing scheduled this week yet — start from a prospect and log an appointment.</p>
+        ) : (
+          <div className="tr-ov-list">
+            {weekAppts.map(a => {
+              const st = STATUS_OPTIONS.find(o => o.value === a.status);
+              return (
+                <div className="tr-ov-row" key={a.id}>
+                  <div>
+                    <strong>{a.client}</strong>
+                    {typeLabel(a) ? <span className="tr-empty"> · {typeLabel(a)}</span> : null}
+                    <div className="tr-empty" style={{ margin: 0 }}>{fmtApptDateTime(a)}</div>
+                  </div>
+                  {st && st.value ? <span className={`tr-status tr-status-${st.color}`}>{st.label}</span> : null}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 function AdvisorView({ user }) {
-  const [tab, setTab] = useState('mine');
+  const [tab, setTab] = useState('overview');
   const [prefillData, setPrefillData] = useState(null);
   return (
     <Shell>
       <Header user={user} />
       <main className="tr-main">
-        <div className="tr-tabs" style={{ maxWidth: 940 }}>
-          <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
-          <button className={`tr-tab ${tab === 'bizplan' ? 'tr-tab-active' : ''}`} onClick={() => setTab('bizplan')}>Business Plan</button>
-          <button className={`tr-tab ${tab === 'intake' ? 'tr-tab-active' : ''}`} onClick={() => setTab('intake')}>Client Intake</button>
-          <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
+        <div className="tr-tabs" style={{ maxWidth: 1060 }}>
+          <button className={`tr-tab ${tab === 'overview' ? 'tr-tab-active' : ''}`} onClick={() => setTab('overview')}>Overview</button>
           <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Prospecting</button>
+          <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
+          <button className={`tr-tab ${tab === 'intake' ? 'tr-tab-active' : ''}`} onClick={() => setTab('intake')}>Client Intake</button>
+          <button className={`tr-tab ${tab === 'bizplan' ? 'tr-tab-active' : ''}`} onClick={() => setTab('bizplan')}>Business Plan</button>
+          <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
           <button className={`tr-tab ${tab === 'milestones' ? 'tr-tab-active' : ''}`} onClick={() => setTab('milestones')}>Milestones</button>
           <button className={`tr-tab ${tab === 'documents' ? 'tr-tab-active' : ''}`} onClick={() => setTab('documents')}>Documents</button>
         </div>
+        {tab === 'overview' && <OverviewBody user={user} onNavigate={setTab} />}
         {tab === 'mine' && <MyAppointmentsBody user={user} prefillData={prefillData} onPrefillConsumed={() => setPrefillData(null)} />}
         {tab === 'bizplan' && <BusinessPlanBody user={user} />}
         {tab === 'intake' && <ClientIntakeBody user={user} />}
@@ -4430,12 +4578,12 @@ function TrackProductionBody({ user }) {
 
 function ManagerView({ user }) {
   const [group, setGroup] = useState('mine'); // 'mine' | 'team'
-  const [tab, setTab] = useState('mine');
+  const [tab, setTab] = useState('overview');
   const [prefillData, setPrefillData] = useState(null);
 
   function selectGroup(g) {
     setGroup(g);
-    setTab(g === 'mine' ? 'mine' : 'teamsystems');
+    setTab(g === 'mine' ? 'overview' : 'teamsystems');
   }
 
   return (
@@ -4446,14 +4594,15 @@ function ManagerView({ user }) {
           <button className={`tr-tab-group ${group === 'mine' ? 'tr-tab-group-active' : ''}`} onClick={() => selectGroup('mine')}>My Work</button>
           <button className={`tr-tab-group ${group === 'team' ? 'tr-tab-group-active' : ''}`} onClick={() => selectGroup('team')}>Team</button>
         </div>
-        <div className="tr-tabs" style={{ maxWidth: group === 'mine' ? 940 : 900 }}>
+        <div className="tr-tabs" style={{ maxWidth: group === 'mine' ? 1060 : 900 }}>
           {group === 'mine' ? (
             <>
-              <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
-              <button className={`tr-tab ${tab === 'bizplan' ? 'tr-tab-active' : ''}`} onClick={() => setTab('bizplan')}>Business Plan</button>
-              <button className={`tr-tab ${tab === 'intake' ? 'tr-tab-active' : ''}`} onClick={() => setTab('intake')}>Client Intake</button>
-              <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
+              <button className={`tr-tab ${tab === 'overview' ? 'tr-tab-active' : ''}`} onClick={() => setTab('overview')}>Overview</button>
               <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Prospecting</button>
+              <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
+              <button className={`tr-tab ${tab === 'intake' ? 'tr-tab-active' : ''}`} onClick={() => setTab('intake')}>Client Intake</button>
+              <button className={`tr-tab ${tab === 'bizplan' ? 'tr-tab-active' : ''}`} onClick={() => setTab('bizplan')}>Business Plan</button>
+              <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
               <button className={`tr-tab ${tab === 'milestones' ? 'tr-tab-active' : ''}`} onClick={() => setTab('milestones')}>Milestones</button>
               <button className={`tr-tab ${tab === 'documents' ? 'tr-tab-active' : ''}`} onClick={() => setTab('documents')}>Documents</button>
             </>
@@ -4465,6 +4614,7 @@ function ManagerView({ user }) {
             </>
           )}
         </div>
+        {tab === 'overview' && <OverviewBody user={user} onNavigate={setTab} />}
         {tab === 'mine' && <MyAppointmentsBody user={user} prefillData={prefillData} onPrefillConsumed={() => setPrefillData(null)} />}
         {tab === 'bizplan' && <BusinessPlanBody user={user} />}
         {tab === 'intake' && <ClientIntakeBody user={user} />}
@@ -4728,12 +4878,12 @@ function AuditLogView() {
 }
 function AdminView({ user }) {
   const [group, setGroup] = useState('mine'); // 'mine' | 'team'
-  const [tab, setTab] = useState('mine');
+  const [tab, setTab] = useState('overview');
   const [prefillData, setPrefillData] = useState(null);
 
   function selectGroup(g) {
     setGroup(g);
-    setTab(g === 'mine' ? 'mine' : 'teamsystems');
+    setTab(g === 'mine' ? 'overview' : 'teamsystems');
   }
 
   return (
@@ -4744,14 +4894,15 @@ function AdminView({ user }) {
           <button className={`tr-tab-group ${group === 'mine' ? 'tr-tab-group-active' : ''}`} onClick={() => selectGroup('mine')}>My Work</button>
           <button className={`tr-tab-group ${group === 'team' ? 'tr-tab-group-active' : ''}`} onClick={() => selectGroup('team')}>Team &amp; Admin</button>
         </div>
-        <div className="tr-tabs" style={{ maxWidth: group === 'mine' ? 940 : 1140 }}>
+        <div className="tr-tabs" style={{ maxWidth: group === 'mine' ? 1060 : 1140 }}>
           {group === 'mine' ? (
             <>
-              <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
-              <button className={`tr-tab ${tab === 'bizplan' ? 'tr-tab-active' : ''}`} onClick={() => setTab('bizplan')}>Business Plan</button>
-              <button className={`tr-tab ${tab === 'intake' ? 'tr-tab-active' : ''}`} onClick={() => setTab('intake')}>Client Intake</button>
-              <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
+              <button className={`tr-tab ${tab === 'overview' ? 'tr-tab-active' : ''}`} onClick={() => setTab('overview')}>Overview</button>
               <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Prospecting</button>
+              <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
+              <button className={`tr-tab ${tab === 'intake' ? 'tr-tab-active' : ''}`} onClick={() => setTab('intake')}>Client Intake</button>
+              <button className={`tr-tab ${tab === 'bizplan' ? 'tr-tab-active' : ''}`} onClick={() => setTab('bizplan')}>Business Plan</button>
+              <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
               <button className={`tr-tab ${tab === 'milestones' ? 'tr-tab-active' : ''}`} onClick={() => setTab('milestones')}>Milestones</button>
               <button className={`tr-tab ${tab === 'documents' ? 'tr-tab-active' : ''}`} onClick={() => setTab('documents')}>Documents</button>
             </>
@@ -4764,6 +4915,7 @@ function AdminView({ user }) {
             </>
           )}
         </div>
+        {tab === 'overview' && <OverviewBody user={user} onNavigate={setTab} />}
         {tab === 'mine' && <MyAppointmentsBody user={user} prefillData={prefillData} onPrefillConsumed={() => setPrefillData(null)} />}
         {tab === 'bizplan' && <BusinessPlanBody user={user} />}
         {tab === 'intake' && <ClientIntakeBody user={user} />}
