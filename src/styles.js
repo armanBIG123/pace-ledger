@@ -497,6 +497,10 @@ export const CSS = `
 .tr-invite-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--slate-light); margin-bottom: 2px; }
 .tr-invite-box .tr-checkbox-field span { word-break: break-word; }
 
+/* recruit sign-up link landing */
+.tr-join-box { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 8px; background: rgba(201,162,75,0.10); border: 1px solid rgba(201,162,75,0.35); font-size: 14px; color: var(--ink); }
+.tr-join-box .tr-link-btn { align-self: flex-start; }
+
 /* follow up tab */
 .tr-fu-card { padding: 0; overflow: hidden; }
 .tr-fu-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; padding: 14px 18px; background: transparent; border: none; font-family: inherit; font-size: 14px; color: var(--ink); text-align: left; cursor: pointer; }

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   LogIn, LogOut, Plus, Trash2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Users,
   CalendarDays, ShieldCheck, UserPlus, Loader2, Pencil, ClipboardCheck, TrendingUp, UserCog, DollarSign,
-  Download, Search, X, GraduationCap, FileText, Ban, LayoutDashboard, Menu, Award, Calendar
+  Download, Search, X, GraduationCap, FileText, Ban, LayoutDashboard, Menu, Award, Calendar, Copy
 } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
 import {
@@ -1114,11 +1114,31 @@ function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty, hideSet }
 // ---------------------------------------------------------------------
 // auth
 // ---------------------------------------------------------------------
+// ---------------------------------------------------------------------
+// Recruit sign-up links — big-pace-ledger.com/?join=<upline id>&name=<name>
+// opens Create account with the recruit's direct upline (and that
+// person's manager) already filled in. Nothing new is stored: the sign-up
+// screen already reads the public org directory to build the team tree.
+// ---------------------------------------------------------------------
+function buildRecruitSignupLink(uplineId, name) {
+  const q = new URLSearchParams({ join: uplineId });
+  if (name) q.set('name', name);
+  return `${window.location.origin}${window.location.pathname}?${q.toString()}`;
+}
+function readJoinParams() {
+  const p = new URLSearchParams(window.location.search);
+  return { joinId: p.get('join') || '', joinName: p.get('name') || '' };
+}
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch { window.prompt('Copy this:', text); return false; }
+}
 function AuthScreen() {
-  const [mode, setMode] = useState('login');
+  const [{ joinId, joinName }] = useState(readJoinParams);
+  const [mode, setMode] = useState(joinId ? 'signup' : 'login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [displayName, setDisplayName] = useState('');
+  const [displayName, setDisplayName] = useState(joinName);
+  const [joinUnlocked, setJoinUnlocked] = useState(false);
   const [managerId, setManagerId] = useState('');
   const [uplineId, setUplineId] = useState('');
   const [managers, setManagers] = useState([]);
@@ -1137,6 +1157,19 @@ function AuthScreen() {
   // under them), rather than the whole org.
   const uplineOptions = managerId ? computeDownline(managerId, orgDirectory) : [];
 
+  // Arrived from a recruit sign-up link: pre-fill the upline (whoever sent
+  // the link) and the nearest manager above them, so the recruit lands in
+  // exactly the right spot in the tree without picking anything.
+  const joinPerson = joinId ? orgDirectory.find(p => p.id === joinId) : null;
+  const joinChain = joinPerson ? computeUpline(joinId, orgDirectory) : [];
+  const joinManager = joinChain.find(p => managers.some(m => m.id === p.id)) || null;
+  const joinLocked = !!joinPerson && !joinUnlocked && mode === 'signup';
+  useEffect(() => {
+    if (!joinPerson || joinUnlocked) return;
+    setManagerId(joinManager ? joinManager.id : '');
+    setUplineId(joinPerson.id);
+  }, [joinPerson?.id, joinManager?.id, joinUnlocked]); // eslint-disable-line react-hooks/exhaustive-deps
+
   function handleManagerSelect(id) {
     setManagerId(id);
     setUplineId(''); // the old upline pick may not be valid under a different manager
@@ -1151,8 +1184,8 @@ function AuthScreen() {
       if (mode === 'signup') {
         if (!displayName.trim()) { setError('Enter your full name.'); setBusy(false); return; }
         if (password.length < 6) { setError('Password needs to be at least 6 characters.'); setBusy(false); return; }
-        if (managers.length > 0 && !managerId) { setError('Please select your manager.'); setBusy(false); return; }
-        if (managerId && !uplineId) { setError('Please select who your direct upline is.'); setBusy(false); return; }
+        if (!joinLocked && managers.length > 0 && !managerId) { setError('Please select your manager.'); setBusy(false); return; }
+        if (!joinLocked && managerId && !uplineId) { setError('Please select who your direct upline is.'); setBusy(false); return; }
         const { data, error: signErr } = await supabase.auth.signUp({
           email: mail,
           password,
@@ -1160,7 +1193,7 @@ function AuthScreen() {
           // you report to" — that's what actually gets stored as
           // manager_id, not the broader top-level manager selection that
           // was only used to scope which upline options to show.
-          options: { data: { display_name: displayName.trim(), manager_id: uplineId || managerId || '' } },
+          options: { data: { display_name: displayName.trim(), manager_id: (joinLocked ? joinPerson.id : (uplineId || managerId)) || '' } },
         });
         if (signErr) { setError(signErr.message); setBusy(false); return; }
         if (!data.session) {
@@ -1196,7 +1229,7 @@ function AuthScreen() {
       <div className="tr-auth-wrap">
         <div className="tr-auth-card" onKeyDown={handleKeyDown}>
           <div className="tr-brand tr-brand-center"><ShieldCheck size={22} /> <span>Pace<em>Ledger</em></span></div>
-          <p className="tr-auth-sub">Appointment-setting pace tracking for advisors and managers.</p>
+          <p className="tr-auth-sub">{joinPerson ? 'Create your account to get started.' : 'Appointment-setting pace tracking for advisors and managers.'}</p>
           <div className="tr-tabs">
             <button className={`tr-tab ${mode === 'login' ? 'tr-tab-active' : ''}`} onClick={() => { setMode('login'); setError(''); setNotice(''); }}>Log in</button>
             <button className={`tr-tab ${mode === 'signup' ? 'tr-tab-active' : ''}`} onClick={() => { setMode('signup'); setError(''); setNotice(''); }}>Create account</button>
@@ -1219,7 +1252,16 @@ function AuthScreen() {
             {mode === 'login' && (
               <button type="button" className="tr-link-btn" onClick={forgotPassword} disabled={busy}>Forgot password?</button>
             )}
-            {mode === 'signup' && managers.length > 0 && (
+            {joinLocked && (
+              <div className="tr-join-box">
+                <div>You're joining <strong>{joinPerson.display_name}</strong>'s team{joinManager && joinManager.id !== joinPerson.id ? <> under <strong>{joinManager.display_name}</strong></> : null}.</div>
+                <button type="button" className="tr-link-btn" onClick={() => setJoinUnlocked(true)}>Not right? Choose manually</button>
+              </div>
+            )}
+            {joinId && !joinPerson && orgDirectory.length > 0 && mode === 'signup' && (
+              <div className="tr-badge tr-badge-weekday">This sign-up link isn't valid anymore — pick your manager below.</div>
+            )}
+            {mode === 'signup' && !joinLocked && managers.length > 0 && (
               <label className="tr-field">
                 <span>Your manager</span>
                 <select value={managerId} onChange={e => handleManagerSelect(e.target.value)}>
@@ -1228,7 +1270,7 @@ function AuthScreen() {
                 </select>
               </label>
             )}
-            {mode === 'signup' && managerId && (
+            {mode === 'signup' && !joinLocked && managerId && (
               <label className="tr-field">
                 <span>Your direct upline (who recruited you)</span>
                 <select value={uplineId} onChange={e => setUplineId(e.target.value)}>
@@ -4311,6 +4353,41 @@ const QUICK_NOTE_TAGS = ['Called', 'Left voicemail', 'Texted', 'Emailed', 'Met i
 function daysSince(iso) {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 864e5);
 }
+// Recruit sign-up link for one recruit — pre-fills their name and puts
+// them directly under the advisor sending it.
+function RecruitSignupSection({ user, recruitName, joined }) {
+  const [copied, setCopied] = useState('');
+  const link = buildRecruitSignupLink(user.id, recruitName);
+  const first = (recruitName || '').trim().split(' ')[0];
+  const message = `Hey ${first || 'there'}! Here's your link to create your PaceLedger account — it's already set up to put you on my team: ${link}`;
+  async function copy(kind) {
+    await copyText(kind === 'link' ? link : message);
+    setCopied(kind);
+    setTimeout(() => setCopied(''), 2000);
+  }
+  return (
+    <div>
+      <div className="tr-row-head">
+        <h4 className="tr-h4" style={{ margin: 0 }}>Recruit sign-up</h4>
+        {joined
+          ? <span className="tr-status tr-status-green">Signed up</span>
+          : <span className="tr-status tr-status-none">Not signed up yet</span>}
+      </div>
+      {!joined && (
+        <>
+          <p className="tr-empty" style={{ margin: '6px 0 0' }}>Their PaceLedger sign-up link — it puts them directly under you, with your team already set.</p>
+          <div className="tr-intake-link-row" style={{ marginTop: 8 }}>
+            <span className="tr-intake-link-box">{link}</span>
+            <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => copy('link')}><Copy size={13} /> {copied === 'link' ? 'Copied!' : 'Copy link'}</button>
+          </div>
+          <div className="tr-form-actions" style={{ marginTop: 8, justifyContent: 'flex-start' }}>
+            <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => copy('message')}>{copied === 'message' ? 'Copied!' : 'Copy as a text message'}</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentConsumed }) {
   const [loading, setLoading] = useState(true);
   const [appointments, setAppointments] = useState([]);
@@ -4323,12 +4400,14 @@ function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentConsumed })
   const [modalTarget, setModalTarget] = useState(null);
   const [modalSaving, setModalSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
+  const [orgDirectory, setOrgDirectory] = useState([]);
 
   useEffect(() => { if (initialIntent) onIntentConsumed?.(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     let alive = true;
-    Promise.all([fetchMyAppointments(user.id), fetchMyFollowUpNotes(user.id), fetchClientIntakeCandidates()]).then(([a, n, c]) => {
+    Promise.all([fetchMyAppointments(user.id), fetchMyFollowUpNotes(user.id), fetchClientIntakeCandidates(), fetchOrgDirectory()]).then(([a, n, c, org]) => {
       if (!alive) return;
+      setOrgDirectory(org);
       setAppointments(a);
       setNotes(n);
       setCandidates(c.filter(x => x.advisor_id === user.id));
@@ -4347,8 +4426,14 @@ function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentConsumed })
   notes.forEach(n => { (notesByAppt[n.appointment_id] = notesByAppt[n.appointment_id] || []).push(n); });
 
   const intakeState = a => { const c = candByAppt[a.id]; return !c ? 'none' : c.status === 'submitted' ? 'received' : 'sent'; };
+  // A recruit counts as signed up once someone with their name has joined
+  // directly under you.
+  const myRecruitNames = new Set(orgDirectory.filter(p => p.manager_id === user.id).map(p => normName(p.display_name)));
+  const recruitJoined = a => myRecruitNames.has(normName(a.client));
   const matchesView = (a, v) => {
     if (v === 'all') return true;
+    if (v === 'recruit_open') return isRecruitType(a) && !recruitJoined(a);
+    if (v === 'recruit_joined') return isRecruitType(a) && recruitJoined(a);
     if (v === 'nolog') return !a.followUpCompletedAt;
     if (v === 'needs') return a.status === 'needs_follow_up';
     if (v === 'reschedule') return a.status === 'needs_reschedule';
@@ -4358,6 +4443,8 @@ function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentConsumed })
     all: past.length,
     nolog: past.filter(a => matchesView(a, 'nolog')).length,
     reschedule: past.filter(a => matchesView(a, 'reschedule')).length,
+    recruit_open: past.filter(a => matchesView(a, 'recruit_open')).length,
+    recruit_joined: past.filter(a => matchesView(a, 'recruit_joined')).length,
     needs: past.filter(a => a.status === 'needs_follow_up').length,
     nointake: past.filter(a => intakeState(a) === 'none').length,
     sent: past.filter(a => intakeState(a) === 'sent').length,
@@ -4432,6 +4519,9 @@ function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentConsumed })
         {navBtn('nointake', 'Not started', 'none')}
         {navBtn('sent', 'Link sent', 'amber')}
         {navBtn('received', 'Received', 'green')}
+        <div className="tr-sidebar-divider">Recruits</div>
+        {navBtn('recruit_open', 'Not signed up yet', 'recruit')}
+        {navBtn('recruit_joined', 'Signed up', 'green')}
       </nav>
       <div className="tr-appts-main">
         <div className="tr-search-row">
@@ -4489,6 +4579,12 @@ function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentConsumed })
                       </button>
                     </div>
                   </div>
+
+                  {isRecruitType(a) && (
+                    <div className="tr-fu-section">
+                      <RecruitSignupSection user={user} recruitName={a.client} joined={recruitJoined(a)} />
+                    </div>
+                  )}
 
                   <div className="tr-fu-section">
                     {cand ? (
