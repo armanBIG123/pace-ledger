@@ -490,6 +490,13 @@ export const CSS = `
 .tr-sheet-item-on { background: var(--paper-dim); }
 .tr-sheet-item-on svg:first-child { color: var(--brass-dark); }
 
+/* contact info + meeting invites */
+.tr-contact-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 10px; }
+.tr-contact-detail { font-size: 12.5px; color: var(--slate-light); margin-left: 4px; word-break: break-all; }
+.tr-invite-box { margin-top: 14px; padding: 12px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--paper); display: flex; flex-direction: column; gap: 6px; }
+.tr-invite-title { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: var(--slate-light); margin-bottom: 2px; }
+.tr-invite-box .tr-checkbox-field span { word-break: break-word; }
+
 /* follow up tab */
 .tr-fu-card { padding: 0; overflow: hidden; }
 .tr-fu-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; padding: 14px 18px; background: transparent; border: none; font-family: inherit; font-size: 14px; color: var(--ink); text-align: left; cursor: pointer; }

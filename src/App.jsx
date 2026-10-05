@@ -230,6 +230,10 @@ function rowToRecord(row) {
     effectiveDate: row.effective_date || '',
     requirementsCompleted: row.requirements_completed || false,
     clientIntakeRequested: row.client_intake_requested || false,
+    clientEmail: row.client_email || '',
+    inviteeEmails: row.invitee_emails || [],
+    inviteMethod: row.invite_method || '',
+    inviteSentAt: row.invite_sent_at || null,
   };
 }
 // An appointment can now be logged as, and confirmed as, both a recruit
@@ -464,6 +468,7 @@ async function insertFollowUpAppointment(userId, original, followUpDate, followU
     presenter: original.presenter,
     trainee: original.trainee || null,
     client_name: original.client,
+    client_email: original.clientEmail || null,
     notes: `Follow-up to appointment on ${fmtDisplayDate(original.appointmentDate)}`,
     presentation_type: original.presentationType || null,
     presentation_type_secondary: original.presentationTypeSecondary || null,
@@ -538,6 +543,7 @@ function prospectToAppointmentPrefill(p) {
   return {
     client: `${p.firstName} ${p.lastName}`,
     notes: p.notes || '',
+    clientEmail: p.email || '',
     typeRecruit: leaning === 'recruit' || leaning === 'both',
     typeSale: leaning === 'sale' || leaning === 'both',
   };
@@ -569,6 +575,7 @@ function rowToProspect(row) {
     firstName: row.first_name, lastName: row.last_name,
     age: row.age, relationshipStrength: row.relationship_strength,
     notes: row.notes || '', createdAt: row.created_at, source: row.source || '',
+    email: row.email || '',
     markedSold: row.marked_sold || false, markedRecruited: row.marked_recruited || false,
   };
   ALL_CHARACTERISTICS.forEach(c => { rec[c.key] = !!row[c.dbCol]; });
@@ -596,6 +603,7 @@ async function insertProspect(userId, form) {
     relationship_strength: form.relationshipStrength,
     notes: form.notes.trim() || null,
     source: form.source || null,
+    email: (form.email || '').trim() || null,
   };
   ALL_CHARACTERISTICS.forEach(c => { payload[c.dbCol] = !!form[c.key]; });
   const { data, error } = await supabase.from('prospects').insert(payload).select().single();
@@ -610,6 +618,7 @@ async function updateProspect(id, form) {
     relationship_strength: form.relationshipStrength,
     notes: form.notes.trim() || null,
     source: form.source || null,
+    email: (form.email || '').trim() || null,
   };
   ALL_CHARACTERISTICS.forEach(c => { payload[c.dbCol] = !!form[c.key]; });
   const { data, error } = await supabase.from('prospects').update(payload).eq('id', id).select().single();
@@ -673,6 +682,7 @@ async function insertAppointment(userId, form) {
     trainee: form.trainee.trim() || null,
     trainee_id: form.traineeId || null,
     client_name: form.client.trim(),
+    client_email: (form.clientEmail || '').trim() || null,
     notes: form.notes.trim() || null,
     presentation_type: form.presentationType || null,
     presentation_type_secondary: form.presentationTypeSecondary || null,
@@ -699,6 +709,7 @@ async function updateAppointment(id, form, isReschedule) {
     trainee: form.trainee.trim() || null,
     trainee_id: form.traineeId || null,
     client_name: form.client.trim(),
+    client_email: (form.clientEmail || '').trim() || null,
     notes: form.notes.trim() || null,
     presentation_type: form.presentationType || null,
     presentation_type_secondary: form.presentationTypeSecondary || null,
@@ -719,6 +730,20 @@ async function updateAppointment(id, form, isReschedule) {
   const { data, error } = await supabase.from('appointments').update(payload).eq('id', id).select().single();
   if (error) return { ok: false, error: error.message };
   return { ok: true, record: rowToRecord(data) };
+}
+function inviteFailureMessage(code, isUpdate = false) {
+  if (code === 'too_soon') return "Saved. An invite for this appointment was just sent, so another wasn't sent — wait a minute and try again.";
+  if (code === 'daily_limit') return "Saved, but you've hit today's limit for emailed invites. Try again tomorrow.";
+  if (code === 'email_not_configured') return isUpdate
+    ? "Saved, but the updated invite wasn't emailed — PaceLedger's email sending isn't set up yet."
+    : "Saved, but the invite wasn't emailed — connect Google Calendar (Calendar tab), or ask your admin to finish PaceLedger's email setup.";
+  return "Saved, but the invite couldn't be emailed. You can try again by editing the appointment and checking \"Email an updated invite\".";
+}
+// Records who the Zoom link was sent to, and how ('google' or 'email').
+async function markInviteSent(id, emails, method) {
+  const { error } = await supabase.from('appointments')
+    .update({ invitee_emails: emails, invite_method: method, invite_sent_at: new Date().toISOString() }).eq('id', id);
+  return !error;
 }
 async function deleteAppointmentRow(id) {
   const { error } = await supabase.from('appointments').delete().eq('id', id);
@@ -1056,6 +1081,7 @@ function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty, hideSet }
                       {a.status ? <span style={{ marginLeft: 6 }}><StatusChip status={a.status} /></span> : null}
                       {a.zoomUrl ? <div><a href={a.zoomUrl} target="_blank" rel="noopener noreferrer" className="tr-note tr-link">Join Zoom</a></div> : null}
                       {a.followUpAppointmentDate ? <div className="tr-note" style={{ marginTop: 2 }}>Follow-up: {fmtFollowUpDateTime(a)}</div> : null}
+                      {a.inviteSentAt ? <div className="tr-note" style={{ marginTop: 2 }} title={(a.inviteeEmails || []).join(', ')}>Invite sent to {(a.inviteeEmails || []).length} {(a.inviteeEmails || []).length === 1 ? 'person' : 'people'}{a.inviteMethod === 'google' ? ' (Google)' : ''}</div> : null}
                       {a.notes ? <span className="tr-note"> — {a.notes}</span> : null}
                     </td>
                     <td className="td-presenter"><span className="tr-mobile-only">with </span>{a.presenter}</td>
@@ -1436,6 +1462,12 @@ function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onS
   const [orgDirectory, setOrgDirectory] = useState([]);
   const [client, setClient] = useState(editing?.client || prefillData?.client || '');
   const [notes, setNotes] = useState(editing?.notes || prefillData?.notes || '');
+  const [clientEmail, setClientEmail] = useState(editing?.clientEmail || prefillData?.clientEmail || '');
+  // Who gets the Zoom link emailed when a NEW appointment is saved.
+  const [inviteClient, setInviteClient] = useState(true);
+  const [inviteMe, setInviteMe] = useState(true);
+  const [extraEmails, setExtraEmails] = useState('');
+  const [sendUpdate, setSendUpdate] = useState(false);
   const [typeRecruit, setTypeRecruit] = useState(editing ? isRecruitType(editing) : !!prefillData?.typeRecruit);
   const [typeSale, setTypeSale] = useState(editing ? isSaleType(editing) : !!prefillData?.typeSale);
   const [zoomHostId, setZoomHostId] = useState(!editing && user.managerId ? user.managerId : '');
@@ -1462,6 +1494,9 @@ function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onS
       if (leaning === 'recruit' || leaning === 'both') setTypeRecruit(true);
       if (leaning === 'sale' || leaning === 'both') setTypeSale(true);
       if (!notes && match.notes) setNotes(match.notes);
+    }
+    if (match) {
+      if (!clientEmail && match.email) setClientEmail(match.email);
     }
   }
 
@@ -1509,6 +1544,11 @@ function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onS
       setErr('Fill in the appointment date/time, presenter, client/recruit, and whether it\'s a recruit and/or sale.');
       return;
     }
+    if (clientEmail.trim() && !isValidEmail(clientEmail)) { setErr("The client's email address doesn't look right."); return; }
+    const inviteBoxOpen = !editing || sendUpdate;
+    const extras = inviteBoxOpen ? extraEmails.split(/[\s,;]+/).map(e => e.trim()).filter(Boolean) : [];
+    const badExtra = extras.find(e => !isValidEmail(e));
+    if (badExtra) { setErr(`"${badExtra}" doesn't look like an email address.`); return; }
     setErr('');
     // Stop a double-booking before it's ever saved: does the presenter
     // already have an appointment at this exact date/time, or have they
@@ -1534,10 +1574,16 @@ function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onS
     else if (typeSale) { presentationType = 'sale'; }
     const presenterName = presenterOptions.find(p => p.id === presenterId)?.display_name || user.displayName || '';
     const traineeName = traineeId ? (traineeOptions.find(p => p.id === traineeId)?.display_name || '') : '';
+    const inviteEmails = editing && !sendUpdate ? [] : [...new Set([
+      ...(inviteClient && clientEmail.trim() ? [clientEmail.trim()] : []),
+      ...(inviteMe && user.email ? [user.email] : []),
+      ...extras,
+    ].map(e => e.toLowerCase()))].slice(0, 8);
     onSubmit({
       dateSetOption, appointmentDate, appointmentTime, timezone,
       presenter: presenterName, presenterId, trainee: traineeName, traineeId,
-      client, notes, presentationType, presentationTypeSecondary, zoomHostId: zoomHostId || null,
+      client, clientEmail, notes, presentationType, presentationTypeSecondary, zoomHostId: zoomHostId || null,
+      inviteEmails,
     });
   }
   function handleKeyDown(e) {
@@ -1607,6 +1653,10 @@ function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onS
           </datalist>
         </label>
         <label className="tr-field">
+          <span>Client email (optional)</span>
+          <input type="email" inputMode="email" autoComplete="off" autoCapitalize="none" value={clientEmail} onChange={e => setClientEmail(e.target.value)} placeholder="name@example.com" />
+        </label>
+        <label className="tr-field">
           <span>Date set</span>
           <select value={dateSetOption} onChange={e => setDateSetOption(e.target.value)}>
             {DATE_SET_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -1638,6 +1688,34 @@ function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onS
           <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Anything else worth noting" />
         </label>
       </div>
+      {editing && (
+        <label className="tr-checkbox-field" style={{ marginTop: 12 }}>
+          <input type="checkbox" checked={sendUpdate} onChange={e => setSendUpdate(e.target.checked)} />
+          <span>Email an updated invite (new time / Zoom link){editing.inviteSentAt ? ` — last sent ${new Date(editing.inviteSentAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}</span>
+        </label>
+      )}
+      {(!editing || sendUpdate) && (
+        <div className="tr-invite-box">
+          <div className="tr-invite-title">{editing ? 'Send the updated invite to' : 'Email the meeting invite to'}</div>
+          <p className="tr-empty" style={{ margin: '0 0 4px', fontSize: 12.5 }}>
+            {editing && editing.inviteMethod === 'google'
+              ? 'The first invite came from Google Calendar; this update is emailed separately by PaceLedger.'
+              : 'Includes the Zoom link whenever a meeting is created. Sent from your Google Calendar if it’s connected, otherwise by PaceLedger.'}
+          </p>
+          <label className="tr-checkbox-field">
+            <input type="checkbox" checked={inviteClient && !!clientEmail.trim()} disabled={!clientEmail.trim()} onChange={e => setInviteClient(e.target.checked)} />
+            <span>The client{clientEmail.trim() ? ` (${clientEmail.trim()})` : ' — add their email above'}</span>
+          </label>
+          <label className="tr-checkbox-field">
+            <input type="checkbox" checked={inviteMe} onChange={e => setInviteMe(e.target.checked)} />
+            <span>Me{user.email ? ` (${user.email})` : ''}</span>
+          </label>
+          <label className="tr-field" style={{ marginTop: 6 }}>
+            <span>Anyone else? (optional — separate emails with commas)</span>
+            <input type="text" inputMode="email" autoComplete="off" autoCapitalize="none" value={extraEmails} onChange={e => setExtraEmails(e.target.value)} placeholder="spouse@example.com, manager@example.com" />
+          </label>
+        </div>
+      )}
       {err && <div className="tr-error">{err}</div>}
       <div className="tr-form-actions">
         <button type="button" className="tr-btn tr-btn-ghost" onClick={onCancel}>Cancel</button>
@@ -1852,7 +1930,7 @@ async function fetchGoogleEvents(startDate, endDate) {
 // if a presenting manager's Zoom was used — that manager's calendar too,
 // as two independent events. Best-effort: failures here never block the
 // appointment itself from being saved.
-async function pushAppointmentToGoogleCalendar({ title, startDateTime, endDateTime, timezone, managerHostId }) {
+async function pushAppointmentToGoogleCalendar({ title, description, location, attendees, startDateTime, endDateTime, timezone, managerHostId }) {
   const { data: sessionData } = await supabase.auth.getSession();
   if (!sessionData.session) return { ownPushed: false, managerPushed: false };
   try {
@@ -1863,12 +1941,33 @@ async function pushAppointmentToGoogleCalendar({ title, startDateTime, endDateTi
         Authorization: `Bearer ${sessionData.session.access_token}`,
         apikey: supabase.supabaseKey,
       },
-      body: JSON.stringify({ title, startDateTime, endDateTime, timezone, managerHostId: managerHostId || null }),
+      body: JSON.stringify({ title, description, location, attendees: attendees || [], startDateTime, endDateTime, timezone, managerHostId: managerHostId || null }),
     });
     if (!res.ok) return { ownPushed: false, managerPushed: false };
     return await res.json();
   } catch {
     return { ownPushed: false, managerPushed: false };
+  }
+}
+// Fallback when Google Calendar isn't connected: PaceLedger emails the
+// meeting details (and Zoom link) itself — see send-appointment-invite.
+async function sendAppointmentInviteEmail(appointmentId, emails, updated = false) {
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (!sessionData.session) return { sent: false, error: 'not_signed_in' };
+  try {
+    const res = await fetch(`${supabase.supabaseUrl}/functions/v1/send-appointment-invite`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${sessionData.session.access_token}`,
+        apikey: supabase.supabaseKey,
+      },
+      body: JSON.stringify({ appointmentId, emails, updated }),
+    });
+    if (!res.ok) return { sent: false, error: 'request_failed' };
+    return await res.json();
+  } catch {
+    return { sent: false, error: 'request_failed' };
   }
 }
 
@@ -2696,6 +2795,17 @@ function BusinessPlanMarketingPanel({ fields, setField }) {
   );
 }
 
+function isValidEmail(v) { return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test((v || '').trim()); }
+// One-tap Email for anyone with an email saved.
+function ContactLinks({ email }) {
+  if (!email) return null;
+  return (
+    <div className="tr-contact-links">
+      <a className="tr-btn tr-btn-ghost tr-btn-sm" href={`mailto:${email.trim()}`}>Email</a>
+      <span className="tr-contact-detail">{email.trim()}</span>
+    </div>
+  );
+}
 function ProspectForm({ editing, onCancel, onSubmit, saving, onOpenJogger }) {
   const [firstName, setFirstName] = useState(editing?.firstName || '');
   const [lastName, setLastName] = useState(editing?.lastName || '');
@@ -2708,14 +2818,16 @@ function ProspectForm({ editing, onCancel, onSubmit, saving, onOpenJogger }) {
   });
   const [notes, setNotes] = useState(editing?.notes || '');
   const [source, setSource] = useState(editing?.source || '');
+  const [email, setEmail] = useState(editing?.email || '');
   const [err, setErr] = useState('');
 
   function toggleChar(key) { setChars(prev => ({ ...prev, [key]: !prev[key] })); }
 
   function submit(another = false) {
     if (!firstName.trim() || !lastName.trim()) { setErr("Enter the prospect's first and last name."); return; }
+    if (email.trim() && !isValidEmail(email)) { setErr("That email address doesn't look right."); return; }
     setErr('');
-    onSubmit({ firstName, lastName, age, relationshipStrength, notes, source, ...chars }, { another });
+    onSubmit({ firstName, lastName, age, relationshipStrength, notes, source, email, ...chars }, { another });
   }
   const liveScore = prospectTotalChecked({ age, ...chars });
   const liveLeaning = prospectLeaningKey({ age, ...chars });
@@ -2742,6 +2854,10 @@ function ProspectForm({ editing, onCancel, onSubmit, saving, onOpenJogger }) {
         <label className="tr-field">
           <span>Last name</span>
           <input value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Last name" />
+        </label>
+        <label className="tr-field">
+          <span>Email (optional)</span>
+          <input type="email" inputMode="email" autoComplete="off" autoCapitalize="none" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@example.com" />
         </label>
         <label className="tr-field">
           <span>Age</span>
@@ -2869,6 +2985,7 @@ function ProspectCard({ prospect, rank, onDelete, onToggleOutcome, onLogAppointm
         </div>
       )}
       {prospect.notes && <p className="tr-note" style={{ marginTop: 8 }}>{prospect.notes}</p>}
+      <ContactLinks email={prospect.email} />
       {!readOnly && (
       <div className="tr-prospect-outcome-row">
         {onLogAppointment && (
@@ -3861,16 +3978,22 @@ function MyAppointmentsBody({ user, prefillData, onPrefillConsumed }) {
         .sort((a, b) => (b.appointmentDate + b.appointmentTime).localeCompare(a.appointmentDate + a.appointmentTime))
     : [];
   const [showHistory, setShowHistory] = useState(false);
+  const [notice, setNotice] = useState(null); // { kind: 'ok' | 'warn', text }
+  useEffect(() => {
+    if (!notice) return undefined;
+    const t = setTimeout(() => setNotice(''), 9000);
+    return () => clearTimeout(t);
+  }, [notice]);
 
   function handleExportAppointments() {
-    const rows = [['Date set', 'Appointment date', 'Time', 'Timezone', 'Presenter', 'Trainee', 'Client', 'Type', 'Status', 'Notes', 'Zoom link']];
+    const rows = [['Date set', 'Appointment date', 'Time', 'Timezone', 'Presenter', 'Trainee', 'Client', 'Client email', 'Type', 'Status', 'Notes', 'Zoom link']];
     appointments
       .slice()
       .sort((a, b) => (b.appointmentDate + b.appointmentTime).localeCompare(a.appointmentDate + a.appointmentTime))
       .forEach(a => {
         rows.push([
           a.dateSetOption, a.appointmentDate, a.appointmentTime, a.appointmentTimezone,
-          a.presenter, a.trainee, a.client, typeLabel(a), a.status, a.notes, a.zoomUrl,
+          a.presenter, a.trainee, a.client, a.clientEmail, typeLabel(a), a.status, a.notes, a.zoomUrl,
         ]);
       });
     downloadCSV(`my-appointments-${todayStr()}.csv`, rows);
@@ -3934,9 +4057,21 @@ function MyAppointmentsBody({ user, prefillData, onPrefillConsumed }) {
     if (editingAppt) {
       const isReschedule = editingAppt.status === 'needs_reschedule';
       const res = await updateAppointment(editingAppt.id, form, isReschedule);
+      if (!res.ok) { setSaving(false); setError(res.error || 'Could not save. Try again.'); return; }
+      let updatedRecord = res.record;
+      if (form.inviteEmails && form.inviteEmails.length) {
+        // Stays in "Saving…" until the email is out, so a second click
+        // can't send it twice.
+        const r = await sendAppointmentInviteEmail(updatedRecord.id, form.inviteEmails, true);
+        if (r.sent) {
+          updatedRecord = { ...updatedRecord, inviteeEmails: r.recipients || form.inviteEmails, inviteMethod: 'email', inviteSentAt: new Date().toISOString() };
+          setNotice({ kind: 'ok', text: `Updated invite emailed to ${(r.recipients || form.inviteEmails).join(', ')}.` });
+        } else {
+          setNotice({ kind: 'warn', text: inviteFailureMessage(r.error, true) });
+        }
+      }
       setSaving(false);
-      if (!res.ok) { setError(res.error || 'Could not save. Try again.'); return; }
-      setAppointments(prev => prev.map(a => a.id === editingAppt.id ? res.record : a));
+      setAppointments(prev => prev.map(a => a.id === editingAppt.id ? updatedRecord : a));
       closeForm();
     } else {
       const res = await insertAppointment(user.id, { ...form, weekOf: weekMonday });
@@ -3965,13 +4100,34 @@ function MyAppointmentsBody({ user, prefillData, onPrefillConsumed }) {
       // presenting manager's too if their Zoom was used. Never blocks the
       // appointment from being saved even if this fails entirely (e.g.
       // neither side has reconnected to grant the newer write scope yet).
-      await pushAppointmentToGoogleCalendar({
+      const inviteEmails = form.inviteEmails || [];
+      const google = await pushAppointmentToGoogleCalendar({
         title: `Meeting with ${form.client}`,
+        description: record.zoomUrl ? `Join Zoom: ${record.zoomUrl}` : undefined,
+        location: record.zoomUrl || undefined,
+        attendees: inviteEmails,
         startDateTime: `${form.appointmentDate}T${form.appointmentTime}:00`,
         endDateTime: addMinutesToDateTime(form.appointmentDate, form.appointmentTime, 30),
         timezone: form.timezone,
         managerHostId: form.zoomHostId,
       });
+      // Invites: Google Calendar sends them when it's connected; otherwise
+      // PaceLedger emails them itself.
+      if (inviteEmails.length) {
+        if (google.ownInvited) {
+          await markInviteSent(record.id, inviteEmails, 'google');
+          record = { ...record, inviteeEmails: inviteEmails, inviteMethod: 'google', inviteSentAt: new Date().toISOString() };
+          setNotice({ kind: 'ok', text: `Google Calendar invite sent to ${inviteEmails.join(', ')}${record.zoomUrl ? ' with the Zoom link' : ''}.` });
+        } else {
+          const r = await sendAppointmentInviteEmail(record.id, inviteEmails);
+          if (r.sent) {
+            record = { ...record, inviteeEmails: r.recipients || inviteEmails, inviteMethod: 'email', inviteSentAt: new Date().toISOString() };
+            setNotice({ kind: 'ok', text: `Invite emailed to ${(r.recipients || inviteEmails).join(', ')}${record.zoomUrl ? ' with the Zoom link' : ''}.` });
+          } else {
+            setNotice({ kind: 'warn', text: inviteFailureMessage(r.error) });
+          }
+        }
+      }
       setSaving(false);
       setAppointments(prev => [...prev, record]);
       closeForm();
@@ -4038,6 +4194,7 @@ function MyAppointmentsBody({ user, prefillData, onPrefillConsumed }) {
           </button>
         </div>
         {error && <div className="tr-error">{error}</div>}
+        {notice && <div className={notice.kind === 'ok' ? 'tr-flash' : 'tr-error'}>{notice.text}</div>}
         {showForm && (
           <AppointmentForm user={user} weekMonday={weekMonday} editing={editingAppt} prefillData={!editingAppt ? pendingPrefillData : null} onCancel={closeForm} onSubmit={handleFormSubmit} saving={saving} />
         )}
@@ -4324,9 +4481,10 @@ function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentConsumed })
                       <h4 className="tr-h4" style={{ margin: 0 }}>Outcome</h4>
                       <span className="tr-empty" style={{ margin: 0 }}>{outcome ? outcome.label : 'Not logged yet'}</span>
                     </div>
+                    <ContactLinks email={a.clientEmail} />
                     <div className="tr-form-actions" style={{ marginTop: 8, justifyContent: 'flex-start' }}>
                       <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={() => setModalTarget(a)}>{a.followUpCompletedAt ? 'Update outcome' : 'Log outcome'}</button>
-                      <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => onScheduleNext({ client: a.client, notes: '', typeRecruit: isRecruitType(a), typeSale: isSaleType(a) })}>
+                      <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => onScheduleNext({ client: a.client, notes: '', clientEmail: a.clientEmail, typeRecruit: isRecruitType(a), typeSale: isSaleType(a) })}>
                         <Plus size={13} /> Schedule next appointment
                       </button>
                     </div>
@@ -5626,7 +5784,7 @@ export default function App() {
   }
   if (profileLoading || !profile) return <Shell><Spinner label="Loading your account…" /></Shell>;
 
-  const user = { id: session.user.id, displayName: profile.display_name, role: profile.role, hierarchyTier: profile.hierarchy_tier, managerId: profile.manager_id };
+  const user = { id: session.user.id, email: session.user.email || profile.email || '', displayName: profile.display_name, role: profile.role, hierarchyTier: profile.hierarchy_tier, managerId: profile.manager_id };
   return (
     <>
       <ConnectionBanner banner={connectionBanner} onDismiss={() => setConnectionBanner(null)} />
