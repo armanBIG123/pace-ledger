@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   LogIn, LogOut, Plus, Trash2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Users,
   CalendarDays, ShieldCheck, UserPlus, Loader2, Pencil, ClipboardCheck, TrendingUp, UserCog, DollarSign,
-  Download, Search, X, GraduationCap, FileText, Ban
+  Download, Search, X, GraduationCap, FileText, Ban, LayoutDashboard, Menu, Award, Calendar
 } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
 import {
@@ -838,7 +838,7 @@ function Header({ user }) {
       <div className="tr-brand"><ShieldCheck size={20} /> <span>Pace<em>Ledger</em></span></div>
       <div className="tr-header-user">
         <span className="tr-header-name">{user.displayName}</span>
-        <span className="tr-header-role">{user.role}</span>
+        <span className="tr-header-role">{user.role === 'super_admin' ? 'Admin' : user.role}</span>
         <button className="tr-icon-btn" onClick={() => supabase.auth.signOut()} title="Log out"><LogOut size={16} /></button>
       </div>
     </header>
@@ -889,7 +889,7 @@ function PaceStrip({ groups }) {
         {groups.map(g => (
           <div className="tr-pace-group" key={g.option.value}>
             <div className="tr-pace-label">
-              <span>{g.option.batchLabel}</span>
+              <span><span className="tr-hide-mobile">{g.option.batchLabel}</span><span className="tr-mobile-only">{g.option.category === 'weekend' ? 'Weekend' : g.option.label}</span></span>
               <span className="tr-mono tr-pace-count">{g.count}/{g.option.target}</span>
             </div>
             <div className="tr-pace-row">
@@ -1047,10 +1047,10 @@ function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty, hideSet }
               {list.map(a => {
                 const typeClass = isRecruitType(a) && isSaleType(a) ? 'tr-type-both' : isRecruitType(a) ? 'tr-type-recruit' : isSaleType(a) ? 'tr-type-sale' : '';
                 return (
-                  <tr key={a.id}>
-                    {!hideSet && <td className={typeClass}>{a.dateSetLabel}</td>}
-                    <td className={hideSet ? typeClass : ''}>{fmtApptDateTime(a)}</td>
-                    <td>
+                  <tr key={a.id} className={`tr-appt-row tr-appt-row-${typeClass ? typeClass.replace('tr-type-', '') : 'none'}`}>
+                    {!hideSet && <td className={`td-set ${typeClass}`}>{a.dateSetLabel}</td>}
+                    <td className={`td-when ${hideSet ? typeClass : ''}`}>{fmtApptDateTime(a)}</td>
+                    <td className="td-client">
                       <strong className="tr-appt-client">{a.client}</strong>
                       <TypeBadge appt={a} />
                       {a.status ? <span style={{ marginLeft: 6 }}><StatusChip status={a.status} /></span> : null}
@@ -1058,10 +1058,10 @@ function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty, hideSet }
                       {a.followUpAppointmentDate ? <div className="tr-note" style={{ marginTop: 2 }}>Follow-up: {fmtFollowUpDateTime(a)}</div> : null}
                       {a.notes ? <span className="tr-note"> — {a.notes}</span> : null}
                     </td>
-                    <td>{a.presenter}</td>
-                    {showTrainee && <td>{a.trainee || '—'}</td>}
+                    <td className="td-presenter"><span className="tr-mobile-only">with </span>{a.presenter}</td>
+                    {showTrainee && <td className="td-trainee"><span className="tr-mobile-only">trainee </span>{a.trainee || '—'}</td>}
                     {onDelete && (
-                      <td style={{ whiteSpace: 'nowrap' }}>
+                      <td className="td-actions" style={{ whiteSpace: 'nowrap' }}>
                         {onFollowUp && isPastAppointment(a) && !a.followUpCompletedAt && (
                           <button className="tr-btn tr-btn-brass tr-btn-sm" style={{ marginRight: 4 }} onClick={() => onFollowUp(a)} title="Log how it went">Log outcome</button>
                         )}
@@ -4050,7 +4050,7 @@ function MyAppointmentsBody({ user, prefillData, onPrefillConsumed }) {
             <button type="button" className="tr-icon-btn" onClick={() => setSearchQuery('')} title="Clear search"><X size={15} /></button>
           )}
           <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={handleExportAppointments} disabled={appointments.length === 0}>
-            <Download size={14} /> Export CSV
+            <Download size={14} /><span className="tr-hide-mobile"> Export CSV</span>
           </button>
         </div>
         <div className="tr-typefilter-row">
@@ -4596,6 +4596,71 @@ function OverviewBody({ user, onNavigate }) {
     </div>
   );
 }
+// ---------------------------------------------------------------------
+// Tab navigation — a tab strip on desktop/tablet, and an app-style bar
+// fixed to the bottom of the screen on phones (first four tabs plus a
+// "More" sheet for the rest), so nothing hides off the edge of the screen.
+// ---------------------------------------------------------------------
+const MY_WORK_TABS = [
+  { id: 'overview', label: 'Overview', short: 'Home', Icon: LayoutDashboard },
+  { id: 'systems', label: 'Prospecting', short: 'Prospect', Icon: UserPlus },
+  { id: 'mine', label: 'My Appointments', short: 'Appts', Icon: CalendarDays },
+  { id: 'followup', label: 'Follow Up', short: 'Follow Up', Icon: ClipboardCheck },
+  { id: 'bizplan', label: 'Business Plan', short: 'Biz Plan', Icon: DollarSign },
+  { id: 'calendar', label: 'Calendar', short: 'Calendar', Icon: Calendar },
+  { id: 'milestones', label: 'Milestones', short: 'Milestones', Icon: Award },
+  { id: 'documents', label: 'Documents', short: 'Documents', Icon: FileText },
+];
+const TEAM_TABS = [
+  { id: 'teamsystems', label: 'Team Prospecting', short: 'Prospecting', Icon: Users },
+  { id: 'pace', label: 'Team Pace', short: 'Pace', Icon: TrendingUp },
+  { id: 'production', label: 'Track Production', short: 'Production', Icon: DollarSign },
+];
+const ADMIN_TEAM_TABS = [...TEAM_TABS, { id: 'users', label: 'Manage Team', short: 'Manage', Icon: UserCog }];
+function TabNav({ tabs, tab, onSelect }) {
+  const [moreOpen, setMoreOpen] = useState(false);
+  const primary = tabs.length > 5 ? tabs.slice(0, 4) : tabs;
+  const overflow = tabs.length > 5 ? tabs.slice(4) : [];
+  const inOverflow = overflow.some(t => t.id === tab);
+  function pick(id) {
+    setMoreOpen(false);
+    onSelect(id);
+    window.scrollTo(0, 0);
+  }
+  return (
+    <>
+      <div className="tr-tabs">
+        {tabs.map(t => (
+          <button key={t.id} type="button" className={`tr-tab ${tab === t.id ? 'tr-tab-active' : ''}`} onClick={() => onSelect(t.id)}>{t.label}</button>
+        ))}
+      </div>
+      <nav className="tr-bottomnav" aria-label="Main">
+        {primary.map(({ id, short, Icon }) => (
+          <button key={id} type="button" className={tab === id ? 'tr-bottomnav-on' : ''} onClick={() => pick(id)} aria-current={tab === id ? 'page' : undefined}>
+            <Icon size={21} /><span>{short}</span>
+          </button>
+        ))}
+        {overflow.length > 0 && (
+          <button type="button" className={inOverflow || moreOpen ? 'tr-bottomnav-on' : ''} onClick={() => setMoreOpen(o => !o)} aria-expanded={moreOpen}>
+            <Menu size={21} /><span>{inOverflow ? overflow.find(t => t.id === tab).short : 'More'}</span>
+          </button>
+        )}
+      </nav>
+      {moreOpen && (
+        <div className="tr-sheet-backdrop" onClick={() => setMoreOpen(false)}>
+          <div className="tr-sheet" onClick={e => e.stopPropagation()}>
+            <div className="tr-sheet-grip" />
+            {overflow.map(({ id, label, Icon }) => (
+              <button key={id} type="button" className={`tr-sheet-item ${tab === id ? 'tr-sheet-item-on' : ''}`} onClick={() => pick(id)}>
+                <Icon size={19} /><span>{label}</span><ChevronRight size={16} />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 function AdvisorView({ user }) {
   const [tab, setTab] = useState('overview');
   const [prefillData, setPrefillData] = useState(null);
@@ -4612,16 +4677,7 @@ function AdvisorView({ user }) {
     <Shell>
       <Header user={user} />
       <main className="tr-main">
-        <div className="tr-tabs" style={{ maxWidth: 1060 }}>
-          <button className={`tr-tab ${tab === 'overview' ? 'tr-tab-active' : ''}`} onClick={() => setTab('overview')}>Overview</button>
-          <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Prospecting</button>
-          <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
-          <button className={`tr-tab ${tab === 'followup' ? 'tr-tab-active' : ''}`} onClick={() => setTab('followup')}>Follow Up</button>
-          <button className={`tr-tab ${tab === 'bizplan' ? 'tr-tab-active' : ''}`} onClick={() => setTab('bizplan')}>Business Plan</button>
-          <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
-          <button className={`tr-tab ${tab === 'milestones' ? 'tr-tab-active' : ''}`} onClick={() => setTab('milestones')}>Milestones</button>
-          <button className={`tr-tab ${tab === 'documents' ? 'tr-tab-active' : ''}`} onClick={() => setTab('documents')}>Documents</button>
-        </div>
+        <TabNav tabs={MY_WORK_TABS} tab={tab} onSelect={setTab} />
         {tab === 'overview' && <OverviewBody user={user} onNavigate={go} />}
         {tab === 'mine' && <MyAppointmentsBody user={user} prefillData={prefillData} onPrefillConsumed={() => setPrefillData(null)} />}
         {tab === 'bizplan' && <BusinessPlanBody user={user} />}
@@ -5170,26 +5226,7 @@ function ManagerView({ user }) {
           <button className={`tr-tab-group ${group === 'mine' ? 'tr-tab-group-active' : ''}`} onClick={() => selectGroup('mine')}>My Work</button>
           <button className={`tr-tab-group ${group === 'team' ? 'tr-tab-group-active' : ''}`} onClick={() => selectGroup('team')}>Team</button>
         </div>
-        <div className="tr-tabs" style={{ maxWidth: group === 'mine' ? 1060 : 900 }}>
-          {group === 'mine' ? (
-            <>
-              <button className={`tr-tab ${tab === 'overview' ? 'tr-tab-active' : ''}`} onClick={() => setTab('overview')}>Overview</button>
-              <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Prospecting</button>
-              <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
-              <button className={`tr-tab ${tab === 'followup' ? 'tr-tab-active' : ''}`} onClick={() => setTab('followup')}>Follow Up</button>
-              <button className={`tr-tab ${tab === 'bizplan' ? 'tr-tab-active' : ''}`} onClick={() => setTab('bizplan')}>Business Plan</button>
-              <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
-              <button className={`tr-tab ${tab === 'milestones' ? 'tr-tab-active' : ''}`} onClick={() => setTab('milestones')}>Milestones</button>
-              <button className={`tr-tab ${tab === 'documents' ? 'tr-tab-active' : ''}`} onClick={() => setTab('documents')}>Documents</button>
-            </>
-          ) : (
-            <>
-              <button className={`tr-tab ${tab === 'teamsystems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('teamsystems')}>Team Prospecting</button>
-              <button className={`tr-tab ${tab === 'pace' ? 'tr-tab-active' : ''}`} onClick={() => setTab('pace')}>Team Pace</button>
-              <button className={`tr-tab ${tab === 'production' ? 'tr-tab-active' : ''}`} onClick={() => setTab('production')}>Track Production</button>
-            </>
-          )}
-        </div>
+        <TabNav tabs={group === 'mine' ? MY_WORK_TABS : TEAM_TABS} tab={tab} onSelect={setTab} />
         {tab === 'overview' && <OverviewBody user={user} onNavigate={go} />}
         {tab === 'mine' && <MyAppointmentsBody user={user} prefillData={prefillData} onPrefillConsumed={() => setPrefillData(null)} />}
         {tab === 'bizplan' && <BusinessPlanBody user={user} />}
@@ -5479,27 +5516,7 @@ function AdminView({ user }) {
           <button className={`tr-tab-group ${group === 'mine' ? 'tr-tab-group-active' : ''}`} onClick={() => selectGroup('mine')}>My Work</button>
           <button className={`tr-tab-group ${group === 'team' ? 'tr-tab-group-active' : ''}`} onClick={() => selectGroup('team')}>Team &amp; Admin</button>
         </div>
-        <div className="tr-tabs" style={{ maxWidth: group === 'mine' ? 1060 : 1140 }}>
-          {group === 'mine' ? (
-            <>
-              <button className={`tr-tab ${tab === 'overview' ? 'tr-tab-active' : ''}`} onClick={() => setTab('overview')}>Overview</button>
-              <button className={`tr-tab ${tab === 'systems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('systems')}>Prospecting</button>
-              <button className={`tr-tab ${tab === 'mine' ? 'tr-tab-active' : ''}`} onClick={() => setTab('mine')}>My Appointments</button>
-              <button className={`tr-tab ${tab === 'followup' ? 'tr-tab-active' : ''}`} onClick={() => setTab('followup')}>Follow Up</button>
-              <button className={`tr-tab ${tab === 'bizplan' ? 'tr-tab-active' : ''}`} onClick={() => setTab('bizplan')}>Business Plan</button>
-              <button className={`tr-tab ${tab === 'calendar' ? 'tr-tab-active' : ''}`} onClick={() => setTab('calendar')}>Calendar</button>
-              <button className={`tr-tab ${tab === 'milestones' ? 'tr-tab-active' : ''}`} onClick={() => setTab('milestones')}>Milestones</button>
-              <button className={`tr-tab ${tab === 'documents' ? 'tr-tab-active' : ''}`} onClick={() => setTab('documents')}>Documents</button>
-            </>
-          ) : (
-            <>
-              <button className={`tr-tab ${tab === 'teamsystems' ? 'tr-tab-active' : ''}`} onClick={() => setTab('teamsystems')}>Team Prospecting</button>
-              <button className={`tr-tab ${tab === 'pace' ? 'tr-tab-active' : ''}`} onClick={() => setTab('pace')}>Team Pace</button>
-              <button className={`tr-tab ${tab === 'production' ? 'tr-tab-active' : ''}`} onClick={() => setTab('production')}>Track Production</button>
-              <button className={`tr-tab ${tab === 'users' ? 'tr-tab-active' : ''}`} onClick={() => setTab('users')}>Manage Team</button>
-            </>
-          )}
-        </div>
+        <TabNav tabs={group === 'mine' ? MY_WORK_TABS : ADMIN_TEAM_TABS} tab={tab} onSelect={setTab} />
         {tab === 'overview' && <OverviewBody user={user} onNavigate={go} />}
         {tab === 'mine' && <MyAppointmentsBody user={user} prefillData={prefillData} onPrefillConsumed={() => setPrefillData(null)} />}
         {tab === 'bizplan' && <BusinessPlanBody user={user} />}

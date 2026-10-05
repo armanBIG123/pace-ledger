@@ -478,6 +478,18 @@ export const CSS = `
 .tr-agenda-time { width: 70px; flex-shrink: 0; font-size: 13px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
 .tr-agenda-what { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 
+/* app-style bottom navigation + "More" sheet (phones only) */
+.tr-bottomnav { display: none; }
+.tr-mobile-only { display: none; }
+.tr-sheet-backdrop { position: fixed; inset: 0; z-index: 60; background: rgba(20,32,43,0.45); display: flex; align-items: flex-end; }
+.tr-sheet { width: 100%; background: var(--card); border-radius: 16px 16px 0 0; padding: 8px 12px calc(76px + env(safe-area-inset-bottom, 0px)); box-shadow: 0 -8px 30px rgba(19,35,48,0.2); }
+.tr-sheet-grip { width: 38px; height: 4px; border-radius: 999px; background: var(--line); margin: 4px auto 10px; }
+.tr-sheet-item { display: flex; align-items: center; gap: 14px; width: 100%; min-height: 52px; padding: 0 10px; border: none; border-radius: 10px; background: transparent; font-family: inherit; font-size: 16px; font-weight: 500; color: var(--ink); text-align: left; cursor: pointer; }
+.tr-sheet-item span { flex: 1; }
+.tr-sheet-item svg { color: var(--slate-light); }
+.tr-sheet-item-on { background: var(--paper-dim); }
+.tr-sheet-item-on svg:first-child { color: var(--brass-dark); }
+
 /* follow up tab */
 .tr-fu-card { padding: 0; overflow: hidden; }
 .tr-fu-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; padding: 14px 18px; background: transparent; border: none; font-family: inherit; font-size: 14px; color: var(--ink); text-align: left; cursor: pointer; }
@@ -602,5 +614,120 @@ export const CSS = `
   .tr-fu-head { flex-direction: column; align-items: flex-start; }
   .tr-fu-chips { justify-content: flex-start; }
   .tr-intake-page { padding: 20px 14px 48px; }
+
+  /* ---- phone layout ---------------------------------------------- */
+  /* Bottom bar replaces the top tab strip (login screen tabs untouched) */
+  .tr-main > .tr-tabs { display: none; }
+  .tr-bottomnav {
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 70;
+    background: var(--card); border-top: 1px solid var(--line);
+    padding: 4px 4px env(safe-area-inset-bottom, 0px);
+    box-shadow: 0 -4px 18px rgba(19,35,48,0.06);
+  }
+  .tr-bottomnav button {
+    flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    min-height: 54px; border: none; background: transparent; font-family: inherit; font-size: 10.5px; font-weight: 500;
+    color: var(--slate-light); cursor: pointer; border-radius: 10px;
+  }
+  .tr-bottomnav button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tr-bottomnav .tr-bottomnav-on { color: var(--ink); }
+  .tr-bottomnav .tr-bottomnav-on svg { color: var(--brass-dark); }
+  .tr-main { padding: 14px 14px calc(88px + env(safe-area-inset-bottom, 0px)); gap: 16px; }
+  .tr-mobile-only { display: inline; }
+
+  /* Nothing may be wider than the screen */
+  .tr-root { overflow-x: clip; }
+  .tr-appts-shell { align-items: stretch; gap: 12px; }
+  .tr-appts-main { width: 100%; gap: 14px; }
+
+  /* Side tabs become one swipeable row of chips */
+  .tr-appts-sidebar {
+    flex-wrap: nowrap; overflow-x: auto; gap: 8px; width: auto;
+    margin: 0 -14px; padding: 2px 14px 6px; scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent);
+  }
+  .tr-appts-sidebar::-webkit-scrollbar { display: none; }
+  .tr-appts-sidebar .tr-sidebar-divider, .tr-appts-sidebar .tr-bizplan-glance { display: none; }
+  .tr-sidebar-item { flex: 0 0 auto; white-space: nowrap; background: var(--card); border: 1px solid var(--line); border-left-width: 3px; min-height: 40px; padding: 8px 12px; font-family: inherit !important; font-size: 13.5px !important; }
+  .tr-sidebar-item-active { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+  .tr-sidebar-item-active .tr-mono { background: rgba(255,255,255,0.16); color: var(--paper); }
+
+  /* Overview */
+  .tr-ov-flow { flex-wrap: nowrap; overflow-x: auto; margin: 0 -14px; padding: 0 14px 2px; scrollbar-width: none; }
+  .tr-ov-flow::-webkit-scrollbar { display: none; }
+  .tr-ov-flow button { flex: 0 0 auto; white-space: nowrap; }
+  .tr-ov-hello-actions { width: 100%; }
+  .tr-ov-hello-actions .tr-btn { flex: 1 1 0; justify-content: center; }
+
+  /* Weekly pace: two batches per row, smaller dots */
+  .tr-pace-grid { grid-template-columns: 1fr 1fr !important; gap: 14px 16px; }
+  .tr-pace .tr-pill { width: 18px; height: 18px; }
+  .tr-hide-mobile { display: none; }
+
+  /* Header + headings */
+  .tr-brand { font-size: 18px; }
+  .tr-h2 { font-size: 19px; }
+  .tr-card { padding: 16px 14px; }
+  .tr-card.tr-fu-card { padding: 0; }
+  .tr-card.tr-cal-card { padding: 0; }
+  .tr-card.tr-agenda { padding: 4px 14px 12px; }
+  /* Month grid on a phone: colored dots instead of unreadable text */
+  .tr-cal-day { min-height: 54px; }
+  .tr-cal-appts { flex-direction: row; flex-wrap: wrap; gap: 3px; margin-top: 2px; }
+  .tr-cal-appt { width: 7px; height: 7px; min-width: 7px; padding: 0 !important; border: none !important; border-image: none !important; border-radius: 50%; font-size: 0 !important; background: var(--slate-light); }
+  .tr-cal-appt svg { display: none; }
+  .tr-cal-appt-sale { background: var(--type-sale); }
+  .tr-cal-appt-recruit { background: var(--type-recruit); }
+  .tr-cal-appt-both { background: linear-gradient(90deg, var(--type-recruit) 50%, var(--type-sale) 50%); }
+  .tr-cal-appt-training { background: var(--brass); }
+  .tr-cal-appt-unavailable { background: var(--rust); }
+  .tr-cal-appt-google { background: var(--slate-light); }
+  .tr-cal-more { font-size: 9px; padding: 0; line-height: 7px; }
+  .tr-fu-head { padding: 13px 14px; }
+  .tr-fu-body { padding: 4px 14px 14px; }
+  .tr-card.tr-prospect-card-compact { padding: 12px 14px; }
+  .tr-row-head { gap: 10px; }
+
+  /* Comfortable tap targets */
+  .tr-btn { min-height: 40px; }
+  .tr-btn-sm { min-height: 36px; padding: 7px 12px; }
+  .tr-icon-btn { min-width: 36px; min-height: 36px; }
+  .tr-form-actions { flex-wrap: wrap; }
+  .tr-form .tr-form-actions .tr-btn { flex: 1 1 auto; justify-content: center; }
+
+  /* Modals open as bottom sheets */
+  .tr-modal-backdrop { align-items: flex-end; padding: 0; z-index: 90; }
+  .tr-sort-select { max-width: 128px; text-overflow: ellipsis; }
+  .tr-modal-card { max-width: none; border-radius: 16px 16px 0 0; max-height: 88vh; padding: 20px 16px calc(20px + env(safe-area-inset-bottom, 0px)); }
+
+  /* Appointment tables become stacked cards */
+  .tr-appt-group .tr-table thead { display: none; }
+  .tr-appt-group .tr-table, .tr-appt-group .tr-table tbody { display: block; }
+  .tr-appt-group .tr-table tr.tr-appt-row {
+    display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "client actions" "when actions" "presenter actions" "trainee actions" "set actions";
+    gap: 2px 8px; padding: 10px 0 10px 12px; border-bottom: 1px solid var(--line); box-shadow: inset 3px 0 0 0 var(--line);
+  }
+  .tr-appt-group .tr-table tr.tr-appt-row:last-child { border-bottom: none; }
+  .tr-appt-row-sale { box-shadow: inset 3px 0 0 0 var(--type-sale) !important; }
+  .tr-appt-row-recruit { box-shadow: inset 3px 0 0 0 var(--type-recruit) !important; }
+  .tr-appt-row-both { box-shadow: inset 3px 0 0 0 var(--type-recruit) !important; }
+  .tr-appt-group .tr-table td { display: block; padding: 0; border: none; box-shadow: none; border-image: none; font-size: 13px; color: var(--slate); }
+  .tr-appt-group .tr-table td.td-client { grid-area: client; font-size: 14.5px; color: var(--ink); }
+  .tr-appt-group .tr-table td.td-when { grid-area: when; }
+  .tr-appt-group .tr-table td.td-presenter { grid-area: presenter; }
+  .tr-appt-group .tr-table td.td-trainee { grid-area: trainee; }
+  .tr-appt-group .tr-table td.td-set { grid-area: set; font-size: 12px; color: var(--slate-light); }
+  .tr-appt-group .tr-table td.td-actions { grid-area: actions; align-self: center; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+  .tr-appt-group .tr-table-wrap { overflow: visible; }
+
+  /* Other wide tables scroll inside their card, never the page */
+  .tr-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -14px; padding: 0 14px; }
+  /* Team tables: names stay pinned while you swipe across the numbers */
+  .tr-table-wrap .tr-table th:first-child, .tr-table-wrap .tr-table td:first-child { position: sticky; left: -14px; z-index: 1; background: var(--card); box-shadow: 1px 0 0 var(--line); min-width: 112px; max-width: 132px; }
+  .tr-appt-group .tr-table td:first-child { position: static; box-shadow: none; min-width: 0; max-width: none; background: transparent; }
+
+  /* iOS Safari zooms the whole page when you tap a field smaller than
+     16px — keep every field at 16px on phones so it never does. */
+  .tr-root input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), .tr-root select, .tr-root textarea { font-size: 16px !important; }
 }
 `;
