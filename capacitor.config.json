@@ -1,0 +1,33 @@
+{
+  "appId": "com.armanbig.paceledger",
+  "appName": "PaceLedger",
+  "webDir": "dist",
+  "server": {
+    "url": "https://big-pace-ledger.com",
+    "cleartext": false,
+    "errorPath": "offline.html"
+  },
+  "ios": {
+    "contentInset": "never",
+    "appendUserAgent": "PaceLedgerApp",
+    "backgroundColor": "#14202B"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 900,
+      "launchAutoHide": true,
+      "backgroundColor": "#14202B",
+      "showSpinner": false,
+      "splashFullScreen": true,
+      "splashImmersive": true
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#14202B",
+      "overlaysWebView": true
+    },
+    "LocalNotifications": {
+      "iconColor": "#C49A3C"
+    }
+  }
+}

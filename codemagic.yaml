@@ -1,0 +1,115 @@
+# Codemagic — builds the PaceLedger iPhone app in the cloud (on a Mac)
+# and uploads it to App Store Connect / TestFlight. Nothing here needs to
+# run on your own computer.
+#
+# Before the first build (one-time, all in the browser — see
+# APPLE-APP-STORE-GUIDE.md):
+#   1. App Store Connect API key added in Codemagic as an integration
+#      named exactly:  PaceLedger
+#   2. An Apple Distribution certificate + App Store provisioning profile
+#      for com.armanbig.paceledger in Codemagic's "Code signing identities".
+#
+# The app loads big-pace-ledger.com, so ordinary website updates reach the
+# app without a new build. Rebuild only for app-level changes (icon,
+# name, plugins, version).
+
+workflows:
+  ios-app-store:
+    name: iOS — App Store / TestFlight
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    integrations:
+      app_store_connect: PaceLedger
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.armanbig.paceledger
+      vars:
+        BUNDLE_ID: com.armanbig.paceledger
+        XCODE_WORKSPACE: ios/App/App.xcworkspace
+        XCODE_SCHEME: App
+      node: 20
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Install packages
+        script: npm install
+
+      - name: Build the web files
+        script: npm run build
+
+      - name: Create the iOS project
+        script: |
+          if [ ! -d ios ]; then npx cap add ios; fi
+
+      - name: App icon and splash screen
+        script: |
+          npx --yes @capacitor/assets@3 generate --ios \
+            --iconBackgroundColor '#14202B' --iconBackgroundColorDark '#14202B' \
+            --splashBackgroundColor '#14202B' --splashBackgroundColorDark '#14202B'
+
+      - name: Copy everything into the iOS project
+        script: npx cap sync ios
+
+      - name: Privacy manifest
+        script: |
+          cp ios-extras/PrivacyInfo.xcprivacy ios/App/App/PrivacyInfo.xcprivacy
+          ruby -e '
+            require "xcodeproj"
+            project = Xcodeproj::Project.open("ios/App/App.xcodeproj")
+            target = project.targets.find { |t| t.name == "App" }
+            group = project.main_group["App"]
+            unless group.files.any? { |f| f.path == "PrivacyInfo.xcprivacy" }
+              ref = group.new_file("PrivacyInfo.xcprivacy")
+              target.add_resources([ref])
+              project.save
+            end
+          '
+
+      - name: App settings (name, iPhone only, portrait, encryption)
+        script: |
+          PLIST=ios/App/App/Info.plist
+          PB=/usr/libexec/PlistBuddy
+          $PB -c "Set :CFBundleDisplayName PaceLedger" "$PLIST" 2>/dev/null || $PB -c "Add :CFBundleDisplayName string PaceLedger" "$PLIST"
+          # Standard HTTPS only — no export-compliance paperwork needed.
+          $PB -c "Delete :ITSAppUsesNonExemptEncryption" "$PLIST" 2>/dev/null || true
+          $PB -c "Add :ITSAppUsesNonExemptEncryption bool false" "$PLIST"
+          # Portrait only on iPhone.
+          $PB -c "Delete :UISupportedInterfaceOrientations" "$PLIST" 2>/dev/null || true
+          $PB -c "Add :UISupportedInterfaceOrientations array" "$PLIST"
+          $PB -c "Add :UISupportedInterfaceOrientations:0 string UIInterfaceOrientationPortrait" "$PLIST"
+          $PB -c "Delete :UISupportedInterfaceOrientations~ipad" "$PLIST" 2>/dev/null || true
+          # Status bar text stays light on the navy header.
+          $PB -c "Delete :UIStatusBarStyle" "$PLIST" 2>/dev/null || true
+          $PB -c "Add :UIStatusBarStyle string UIStatusBarStyleLightContent" "$PLIST"
+          # iPhone only (no iPad screenshots or iPad review needed).
+          sed -i '' 's/TARGETED_DEVICE_FAMILY = "1,2";/TARGETED_DEVICE_FAMILY = 1;/g' ios/App/App.xcodeproj/project.pbxproj
+
+      - name: Version and build number
+        script: |
+          cd ios/App
+          VERSION=$(node -p "require('../../package.json').version")
+          agvtool new-marketing-version "$VERSION"
+          # Every build needs a new, higher number; Codemagic counts builds for us.
+          agvtool new-version -all $((BUILD_NUMBER + 100))
+
+      - name: Code signing
+        script: xcode-project use-profiles
+
+      - name: Build the app (.ipa)
+        script: |
+          xcode-project build-ipa \
+            --workspace "$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME"
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        # Internal testers (you and your team) get every build automatically
+        # in TestFlight; no beta review needed.
+        submit_to_testflight: false
+        submit_to_app_store: false
