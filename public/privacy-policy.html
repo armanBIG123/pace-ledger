@@ -10,109 +10,218 @@
   h1 em { font-style: italic; }
   .updated { color: #7C8998; font-size: 13px; margin-bottom: 36px; }
   h2 { font-family: Georgia, serif; color: #14202B; font-size: 19px; margin-top: 36px; }
+  h3 { color: #14202B; font-size: 15.5px; margin: 22px 0 6px; }
   a { color: #A9843A; }
+  code { background: #EFEBDF; padding: 1px 5px; border-radius: 4px; font-size: 13px; }
   .note { background: #EFEBDF; border-left: 3px solid #C9A24B; padding: 12px 16px; font-size: 14px; margin: 24px 0; border-radius: 0 6px 6px 0; }
+  nav.top { font-size: 13.5px; margin-bottom: 28px; }
+  nav.top a { margin-right: 14px; }
 </style>
 </head>
 <body>
 
+<nav class="top"><a href="/home.html">PaceLedger home</a><a href="/terms-of-service.html">Terms of Service</a><a href="/support.html">Support</a></nav>
+
 <h1>Pace<em>Ledger</em> — Privacy Policy</h1>
-<p class="updated">Last updated: August 2026</p>
+<p class="updated">Last updated: October 2026</p>
 
 <div class="note">
-  <strong>About this document:</strong> PaceLedger is an internal appointment and
-  sales-pace tracking tool used by advisors, managers, and administrators within
-  our organization. It is not a public consumer product — accounts are created
-  by, and for, members of our team.
+  <strong>About this document:</strong> Big Pace Ledger ("PaceLedger",
+  big-pace-ledger.com) is an
+  appointment, prospecting and sales-pace tracking tool used by insurance
+  advisors, managers and administrators within our organization. It is not a
+  public consumer product — accounts are created by, and for, members of our
+  team. This policy explains what PaceLedger collects, how it is used, and how
+  data from Google and Zoom is handled.
 </div>
 
 <h2>Information we collect</h2>
-<p>When you create an account, we collect your name, email address, and a
-password (stored securely as a one-way hash — we never see or store your
-actual password). As you use the app, it stores the appointment details you
-enter: client or recruit names, presenters, dates and times, notes, sale or
-recruit outcomes, and related premium figures.</p>
+
+<h3>From you, when you have an account</h3>
+<ul>
+  <li><strong>Account details:</strong> your name, email address, role, and
+  who you report to. Your password is handled by our authentication provider
+  and stored only as a one-way hash — we never see your actual password.</li>
+  <li><strong>Prospects:</strong> names, an optional email address, where the
+  prospect came from, and notes you add while prospecting.</li>
+  <li><strong>Appointments:</strong> client or recruit names, an optional
+  client email address, presenters, dates and times, meeting links, notes,
+  sale or recruit outcomes and related premium figures, plus the email
+  addresses you choose to send a meeting invitation to.</li>
+  <li><strong>Follow-ups:</strong> follow-up notes you add to past
+  appointments.</li>
+  <li><strong>Planning and team data:</strong> your Business Plan and
+  Marketing Plan answers, milestones, trainings, availability, and documents
+  your organization uploads.</li>
+</ul>
+
+<h3>About clients and prospects (people who don't have an account)</h3>
+<p>Advisors enter the names and, optionally, email addresses of the clients
+and prospects they work with. An advisor can also send a client a private
+<strong>client intake link</strong>. If the client chooses to fill it out, the
+form collects the financial-planning information the client provides — for
+example date of birth, state, marital and tax-filing status, retirement goals,
+income, expenses, savings and coverage — and makes it available to that
+advisor (and the advisor's managers) to prepare for their meeting. Clients
+reach these forms only through the link their advisor sends them.</p>
+
+<h3>Recruit sign-up links</h3>
+<p>Team members can share a sign-up link that pre-selects who a new recruit
+will report to. The link contains only that team member's internal ID and
+display name — no other personal information.</p>
 
 <h2>How we use this information</h2>
-<p>This information is used solely to operate PaceLedger's core functions:
-tracking appointment-setting pace against team standards, coordinating
-follow-ups, and reporting sales and recruiting activity to the appropriate
-managers and administrators. We do not sell, rent, or share this information
-with third parties for advertising or marketing purposes, and the app
-contains no advertising.</p>
+<p>We use this information only to operate PaceLedger's features: tracking
+appointment-setting pace against team standards, prospecting, scheduling and
+following up on appointments, sending meeting invitations you ask us to send,
+and reporting sales and recruiting activity to the appropriate managers and
+administrators. We do not sell or rent any information, we do not use it for
+advertising, and the app contains no advertising.</p>
 
 <h2>Who can see your information</h2>
 <p>Access follows your organization's reporting structure:</p>
 <ul>
-  <li>You can always see your own appointments and data.</li>
-  <li>If you're an advisor, your assigned manager can see your logged
-  appointments and pace.</li>
-  <li>Super administrators can see all appointments and users across the
-  organization, for oversight purposes.</li>
+  <li>You can always see your own data.</li>
+  <li>Your managers above you in the reporting structure can see your
+  appointments, prospects, follow-ups, client intake forms and pace, so they
+  can coach and support you.</li>
+  <li>Super administrators can see data across the organization, for
+  oversight.</li>
 </ul>
-
-<h2>Data storage and security</h2>
-<p>Data is stored using Supabase (a hosted PostgreSQL database provider) and
-protected by database-level security rules that enforce the access described
-above. All connections to the app use HTTPS encryption.</p>
-
-<h2>Third-party services</h2>
-<p>PaceLedger uses Supabase for authentication and data storage, and
-Cloudflare for hosting. If a manager or administrator adds a Calendly link
-to their profile, clicking that link takes you to Calendly's own site,
-governed by Calendly's own privacy policy — we don't control or receive data
-from that separately.</p>
+<p>These rules are enforced by security rules inside the database itself,
+not just by the app's screens.</p>
 
 <h2>Google Calendar integration</h2>
-<p>If you choose to connect your Google Calendar, PaceLedger requests
-permission to view and create events on your calendar
-(the <code>calendar.events</code> scope). We use this to:</p>
+<p>Connecting Google Calendar is optional. If you connect it, PaceLedger
+requests a single permission: <strong>see, create, change and delete events
+on calendars you own</strong> (the
+<code>https://www.googleapis.com/auth/calendar.events.owned</code> scope; people
+who connected before October 2026 granted the similar
+<code>calendar.events</code> scope). We only ever use your primary calendar,
+and we don't request access to your Gmail, contacts, Drive, or any other
+Google data.</p>
+
+<h3>What we do with this access</h3>
 <ul>
-  <li>Show your existing Google Calendar events alongside your PaceLedger
-  appointments on the Calendar tab, so you have one place to see your full
-  schedule.</li>
-  <li>Automatically create a calendar event when you log a new appointment
-  in PaceLedger, so it also shows up on your Google Calendar without manual
-  entry.</li>
+  <li><strong>Show your schedule in one place.</strong> On PaceLedger's
+  Calendar tab we read your Google Calendar events for the dates you're
+  viewing and display them alongside your PaceLedger appointments. These
+  events are fetched when you view the calendar and shown only to you; we do
+  not store copies of them.</li>
+  <li><strong>Add appointments to your calendar.</strong> When you log an
+  appointment in PaceLedger, we create a matching event on your Google
+  Calendar with the appointment's title, time and Zoom meeting link.</li>
+  <li><strong>Send meeting invitations you ask for.</strong> If you add
+  invitees to an appointment (for example your client's email address, your
+  own, or a co-presenter's), we add those email addresses to the event as
+  attendees, and Google sends them the standard calendar invitation from your
+  calendar. We add only the addresses you enter for that appointment.</li>
+  <li><strong>Managers hosting a meeting.</strong> If you are a manager or
+  administrator who has connected both Zoom and Google Calendar, and an
+  advisor chooses your Zoom account to host an appointment's meeting,
+  PaceLedger adds that appointment (title, time and Zoom link) to your Google
+  Calendar too, so you know about the meeting you're hosting. Invitations are
+  never sent from a manager's calendar.</li>
 </ul>
-<p>We only access calendar event data — never your email, contacts, or any
-other Google data. Your Google access token is stored securely and used only
-to make these calendar requests on your behalf; it is never shared with any
-other party. You can disconnect Google Calendar at any time from within
-PaceLedger, or directly from your Google Account's third-party app
-permissions, either of which immediately revokes our access and deletes our
-stored copy of your token. PaceLedger's use and transfer of information
-received from Google APIs adheres to the
+
+<h3>What we store, and for how long</h3>
+<p>We store your Google access and refresh tokens and your connected
+calendar's address (shown to you as "Connected as …"). Tokens are stored in
+our database, cannot be read by the app in your browser (only by our
+server-side functions), and are used only to make the calendar requests
+described above on your behalf. Events PaceLedger creates are not changed
+afterwards: if you reschedule an appointment, update the Google event
+yourself or send an updated invitation from PaceLedger (see below).</p>
+
+<h3>Disconnecting</h3>
+<p>You can disconnect at any time with the <strong>Disconnect</strong> button
+on PaceLedger's Calendar tab. That deletes our stored tokens immediately and
+asks Google to revoke PaceLedger's access. You can also remove PaceLedger from
+<a href="https://myaccount.google.com/permissions" target="_blank" rel="noopener noreferrer">your Google Account's third-party access page</a>;
+we then delete our stored tokens the next time PaceLedger tries to use
+them. Events PaceLedger already created stay on your Google Calendar as
+ordinary events, which you can edit or delete in Google Calendar.</p>
+
+<h3>Limited Use</h3>
+<p>PaceLedger's use and transfer of information received from Google APIs
+adheres to the
 <a href="https://developers.google.com/terms/api-services-user-data-policy" target="_blank" rel="noopener noreferrer">Google API Services User Data Policy</a>,
-including the Limited Use requirements.</p>
+including the Limited Use requirements. Specifically:</p>
+<ul>
+  <li>We use Google Calendar data only to provide the user-facing calendar
+  features described above.</li>
+  <li>We do not transfer Google user data to others, except as needed to
+  provide those features (for example, Google itself delivering the
+  invitations you ask for), to comply with applicable law, or as part of a
+  merger or acquisition with notice to you.</li>
+  <li>We do not use Google user data for advertising, and we do not sell
+  it.</li>
+  <li>No person reads your Google Calendar data unless you give us
+  permission to (for example, to help with a support request), it is needed
+  for security purposes or to comply with the law, or it is aggregated and
+  anonymized for internal operations.</li>
+  <li>We do not use Google user data to develop, improve, or train
+  generalized artificial intelligence or machine-learning models.</li>
+</ul>
 
 <h2>Zoom integration</h2>
-<p>If you choose to connect your Zoom account, PaceLedger requests
-permission to create meetings on your behalf (the <code>meeting:write:meeting</code>
-scope). When you log a new appointment, we automatically create a unique
-Zoom meeting and attach the join link to that appointment. We don't access
-any other Zoom data, such as your recordings, contacts, or account settings.
-You can disconnect Zoom at any time from within PaceLedger, or directly from
-your Zoom account's connected-apps settings, either of which immediately
-revokes our access and deletes our stored copy of your token.</p>
+<p>If you choose to connect your Zoom account, PaceLedger requests permission
+to create meetings on your behalf (the <code>meeting:write:meeting</code>
+scope). When you log an appointment, we create a unique Zoom meeting and
+attach the join link to that appointment. We don't access any other Zoom
+data, such as recordings, contacts or account settings. You can disconnect
+Zoom at any time from within PaceLedger, or from your Zoom account's
+connected-apps settings; either removes our access and our stored copy of your
+token.</p>
+
+<h2>Meeting invitation emails</h2>
+<p>When an invitation can't come from your Google Calendar — because you
+haven't connected it, the Google step didn't go through, or you're sending an
+updated invitation after changing an appointment — PaceLedger can email the
+meeting details to the invitees you enter, through our email delivery
+provider,
+<a href="https://resend.com/legal/privacy-policy" target="_blank" rel="noopener noreferrer">Resend</a>.
+Each email goes only to the addresses you entered for that appointment, comes
+with a calendar file attached, and lists you as the reply-to address. Sending
+is rate-limited to prevent misuse.</p>
+
+<h2>Service providers</h2>
+<ul>
+  <li><strong>Supabase</strong> — authentication, database and server-side
+  functions.</li>
+  <li><strong>Cloudflare</strong> — website hosting.</li>
+  <li><strong>Google</strong> and <strong>Zoom</strong> — only if you connect
+  them, as described above.</li>
+  <li><strong>Resend</strong> — delivery of invitation emails you ask us to
+  send.</li>
+</ul>
+<p>If a manager adds a Calendly link to their profile, clicking it takes you
+to Calendly's own site, governed by Calendly's privacy policy.</p>
+
+<h2>Data storage and security</h2>
+<p>Data is stored in a hosted PostgreSQL database (Supabase) and protected by
+database-level security rules that enforce the access described above. All
+connections use HTTPS encryption, and responses that contain personal or
+token data are marked so browsers and proxies don't cache them.</p>
 
 <h2>Data retention and deletion</h2>
-<p>Your data is retained as long as your account remains active. A super
-administrator can remove your account at any time, which removes your
-profile and prevents further access; associated appointment history may be
-retained for organizational record-keeping.</p>
+<p>Your data is kept while your account is active. A super administrator can
+remove an account at any time, which removes the profile and prevents further
+access; appointment history may be kept for organizational record-keeping.
+Google and Zoom tokens are deleted as soon as you disconnect. To ask for your
+data, or a client's data, to be deleted, contact us at the address below.</p>
 
 <h2>Children's privacy</h2>
-<p>PaceLedger is a workplace tool intended for adult employees and
-contractors of our organization. It is not directed at, and should not be
-used by, children.</p>
+<p>PaceLedger is a workplace tool for adult employees and contractors of our
+organization. It is not directed at, and should not be used by, children.</p>
 
 <h2>Changes to this policy</h2>
 <p>If this policy changes, we'll update the date at the top of this page.</p>
 
 <h2>Contact us</h2>
-<p>Questions about this policy or your data can be directed to your
-organization's PaceLedger administrator.</p>
+<p>Questions about this policy or your data:
+<a href="mailto:arman@biginsurancenetwork.com">arman@biginsurancenetwork.com</a>.
+You can also reach your organization's PaceLedger administrator.</p>
 
 </body>
 </html>
