@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<title>PaceLedger — Offline</title>
+<style>
+  :root { color-scheme: light; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    display: flex; align-items: center; justify-content: center;
+    padding: calc(24px + env(safe-area-inset-top)) 24px calc(24px + env(safe-area-inset-bottom));
+    background: #13212E; color: #fff; text-align: center;
+    font-family: -apple-system, 'IBM Plex Sans', system-ui, sans-serif;
+  }
+  .wrap { max-width: 320px; }
+  .mark { width: 56px; height: 56px; margin: 0 auto 20px; color: #C49A3C; }
+  h1 { font-family: Georgia, 'Newsreader', serif; font-weight: 600; font-size: 26px; margin: 0 0 8px; }
+  p { margin: 0 0 24px; color: rgba(255,255,255,0.72); line-height: 1.5; font-size: 15px; }
+  button {
+    font: inherit; font-weight: 600; font-size: 16px; min-height: 48px; padding: 0 28px;
+    border-radius: 10px; border: 1px solid #B48B30; background: #C49A3C; color: #13212E; cursor: pointer;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <svg class="mark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/>
+    </svg>
+    <h1>You're offline</h1>
+    <p>PaceLedger needs an internet connection to load your appointments. Check your Wi-Fi or cellular data, then try again.</p>
+    <button type="button" onclick="window.location.href='https://big-pace-ledger.com/'">Try again</button>
+  </div>
+</body>
+</html>
