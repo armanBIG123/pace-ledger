@@ -857,16 +857,31 @@ function SkeletonCalendar() {
     </div>
   );
 }
-function Header({ user }) {
+// The navy band at the top: brand + account on one row, and (when a view
+// passes `nav`) the section tabs on a second row, so navigation reads as
+// part of the frame rather than floating over the page.
+function Header({ user, nav }) {
   return (
-    <header className="tr-header">
-      <div className="tr-brand"><ShieldCheck size={20} /> <span>Pace<em>Ledger</em></span></div>
-      <div className="tr-header-user">
-        <span className="tr-header-name">{user.displayName}</span>
-        <span className="tr-header-role">{user.role === 'super_admin' ? 'Admin' : user.role}</span>
-        <button className="tr-icon-btn" onClick={() => supabase.auth.signOut()} title="Log out"><LogOut size={16} /></button>
+    <header className={`tr-header ${nav ? 'tr-header-with-nav' : ''}`}>
+      <div className="tr-header-row">
+        <div className="tr-brand"><ShieldCheck size={20} /> <span>Pace<em>Ledger</em></span></div>
+        <div className="tr-header-user">
+          <span className="tr-header-name">{user.displayName}</span>
+          <span className="tr-header-role">{user.role === 'super_admin' ? 'Admin' : user.role}</span>
+          <button className="tr-icon-btn" onClick={() => supabase.auth.signOut()} title="Log out" aria-label="Log out"><LogOut size={16} /></button>
+        </div>
       </div>
+      {nav ? <div className="tr-header-nav">{nav}</div> : null}
     </header>
+  );
+}
+// Manager/admin switch between their own work and the team views.
+function GroupSwitch({ group, onSelect, teamLabel }) {
+  return (
+    <div className="tr-groupswitch" role="tablist" aria-label="Workspace">
+      <button type="button" role="tab" aria-selected={group === 'mine'} className={group === 'mine' ? 'tr-groupswitch-on' : ''} onClick={() => onSelect('mine')}>My work</button>
+      <button type="button" role="tab" aria-selected={group === 'team'} className={group === 'team' ? 'tr-groupswitch-on' : ''} onClick={() => onSelect('team')}>{teamLabel}</button>
+    </div>
   );
 }
 function WeekNav({ weekMonday, onShift, onToday }) {
@@ -4965,9 +4980,9 @@ function TabNav({ tabs, tab, onSelect }) {
   }
   return (
     <>
-      <div className="tr-tabs">
+      <div className="tr-navtabs">
         {tabs.map(t => (
-          <button key={t.id} type="button" className={`tr-tab ${tab === t.id ? 'tr-tab-active' : ''}`} onClick={() => onSelect(t.id)}>{t.label}</button>
+          <button key={t.id} type="button" className={`tr-navtab ${tab === t.id ? 'tr-navtab-on' : ''}`} aria-current={tab === t.id ? 'page' : undefined} onClick={() => { onSelect(t.id); window.scrollTo(0, 0); }}>{t.label}</button>
         ))}
       </div>
       <nav className="tr-bottomnav" aria-label="Main">
@@ -5011,9 +5026,8 @@ function AdvisorView({ user }) {
   const intentFor = t => (navIntent && navIntent.tab === t ? navIntent.intent : null);
   return (
     <Shell>
-      <Header user={user} />
+      <Header user={user} nav={<TabNav tabs={MY_WORK_TABS} tab={tab} onSelect={setTab} />} />
       <main className="tr-main">
-        <TabNav tabs={MY_WORK_TABS} tab={tab} onSelect={setTab} />
         {tab === 'overview' && <OverviewBody user={user} onNavigate={go} />}
         {tab === 'mine' && <MyAppointmentsBody user={user} prefillData={prefillData} onPrefillConsumed={() => setPrefillData(null)} />}
         {tab === 'bizplan' && <BusinessPlanBody user={user} />}
@@ -5556,13 +5570,11 @@ function ManagerView({ user }) {
 
   return (
     <Shell>
-      <Header user={user} />
-      <main className="tr-main">
-        <div className="tr-tab-groups">
-          <button className={`tr-tab-group ${group === 'mine' ? 'tr-tab-group-active' : ''}`} onClick={() => selectGroup('mine')}>My Work</button>
-          <button className={`tr-tab-group ${group === 'team' ? 'tr-tab-group-active' : ''}`} onClick={() => selectGroup('team')}>Team</button>
-        </div>
+      <Header user={user} nav={<>
+        <GroupSwitch group={group} onSelect={selectGroup} teamLabel="Team" />
         <TabNav tabs={group === 'mine' ? MY_WORK_TABS : TEAM_TABS} tab={tab} onSelect={setTab} />
+      </>} />
+      <main className="tr-main">
         {tab === 'overview' && <OverviewBody user={user} onNavigate={go} />}
         {tab === 'mine' && <MyAppointmentsBody user={user} prefillData={prefillData} onPrefillConsumed={() => setPrefillData(null)} />}
         {tab === 'bizplan' && <BusinessPlanBody user={user} />}
@@ -5846,13 +5858,11 @@ function AdminView({ user }) {
 
   return (
     <Shell>
-      <Header user={user} />
-      <main className="tr-main">
-        <div className="tr-tab-groups">
-          <button className={`tr-tab-group ${group === 'mine' ? 'tr-tab-group-active' : ''}`} onClick={() => selectGroup('mine')}>My Work</button>
-          <button className={`tr-tab-group ${group === 'team' ? 'tr-tab-group-active' : ''}`} onClick={() => selectGroup('team')}>Team &amp; Admin</button>
-        </div>
+      <Header user={user} nav={<>
+        <GroupSwitch group={group} onSelect={selectGroup} teamLabel="Team & admin" />
         <TabNav tabs={group === 'mine' ? MY_WORK_TABS : ADMIN_TEAM_TABS} tab={tab} onSelect={setTab} />
+      </>} />
+      <main className="tr-main">
         {tab === 'overview' && <OverviewBody user={user} onNavigate={go} />}
         {tab === 'mine' && <MyAppointmentsBody user={user} prefillData={prefillData} onPrefillConsumed={() => setPrefillData(null)} />}
         {tab === 'bizplan' && <BusinessPlanBody user={user} />}
