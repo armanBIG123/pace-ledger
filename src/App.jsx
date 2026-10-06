@@ -1915,9 +1915,8 @@ async function connectProvider(buildAuthUrl) {
 async function fetchProviderConnectionStatus(table, emailColumn, emailKey) {
   const { data: sessionData } = await supabase.auth.getSession();
   if (!sessionData.session) return { connected: false };
-  // Only ever select the two display-safe columns — never the tokens,
-  // even though the security rules would technically allow it for your
-  // own row.
+  // Only the two display-safe columns — the database doesn't let the
+  // browser read the token columns at all.
   const { data, error } = await supabase
     .from(table).select(`${emailColumn}, connected_at`).eq('user_id', sessionData.session.user.id).maybeSingle();
   if (error || !data) return { connected: false };
@@ -1930,25 +1929,103 @@ async function disconnectProvider(table) {
   return !error;
 }
 
-function googleOAuthUrl(accessToken) {
-  const redirectUri = `${supabase.supabaseUrl}/functions/v1/google-oauth-callback`;
+// Google sends people back to this site's own address (e.g.
+// https://big-pace-ledger.com/), not to a supabase.co URL — Google's app
+// verification requires every redirect domain to be one we own and have
+// verified. The app then hands the one-time code to the
+// google-oauth-callback Edge Function over an authenticated request.
+const GOOGLE_OAUTH_STATE_KEY = 'pl_google_oauth_state';
+function googleRedirectUri() { return `${window.location.origin}/`; }
+function newOAuthState() {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
+}
+function googleOAuthUrl(state) {
   const params = new URLSearchParams({
     client_id: GOOGLE_CLIENT_ID,
-    redirect_uri: redirectUri,
+    redirect_uri: googleRedirectUri(),
     response_type: 'code',
-    // calendar.events covers both reading events (what we already do) and
-    // creating them (new) — anyone who connected under the old
-    // calendar.readonly scope needs to reconnect once to grant this.
-    scope: 'https://www.googleapis.com/auth/calendar.events',
+    // The narrowest scope that does the job: events on calendars the
+    // person owns (we only ever use their primary calendar) — read, create,
+    // and add the attendees they choose. People who connected earlier
+    // under calendar.events keep working without reconnecting.
+    scope: 'https://www.googleapis.com/auth/calendar.events.owned',
     access_type: 'offline',
     prompt: 'consent',
-    state: accessToken,
+    // A random one-time value (not a login token) that we check on the
+    // way back, so a stray or forged redirect can't attach someone else's
+    // Google account.
+    state,
   });
   return `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
 }
-async function connectGoogleCalendar() { return connectProvider(googleOAuthUrl); }
+async function connectGoogleCalendar() {
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) return;
+  const state = newOAuthState();
+  try { sessionStorage.setItem(GOOGLE_OAUTH_STATE_KEY, state); } catch { /* checked on return */ }
+  window.location.href = googleOAuthUrl(state);
+}
+// Called once when Google sends the person back here. Returns
+// { ok: true } or { ok: false, reason }.
+async function finishGoogleConnect(params) {
+  let expected = null;
+  try {
+    expected = sessionStorage.getItem(GOOGLE_OAUTH_STATE_KEY);
+    sessionStorage.removeItem(GOOGLE_OAUTH_STATE_KEY);
+  } catch { /* storage blocked */ }
+  if (params.get('error')) return { ok: false, reason: params.get('error') === 'access_denied' ? 'cancelled' : params.get('error') };
+  if (!expected || params.get('state') !== expected) return { ok: false, reason: 'state_mismatch' };
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) return { ok: false, reason: 'not_signed_in' };
+  try {
+    const res = await fetch(`${supabase.supabaseUrl}/functions/v1/google-oauth-callback`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${data.session.access_token}`,
+        apikey: supabase.supabaseKey,
+      },
+      body: JSON.stringify({ code: params.get('code'), redirectUri: googleRedirectUri() }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.connected) return { ok: false, reason: json.error || `http_${res.status}` };
+    return { ok: true };
+  } catch {
+    return { ok: false, reason: 'network_error' };
+  }
+}
+// True when the current URL is Google returning from the connect screen
+// (and not, say, some other link that happens to carry ?code=).
+function isGoogleOAuthReturn(params) {
+  if (!params.get('state') || !(params.get('code') || params.get('error'))) return false;
+  let pending = null;
+  try { pending = sessionStorage.getItem(GOOGLE_OAUTH_STATE_KEY); } catch { /* ignore */ }
+  return !!pending || (params.get('scope') || '').includes('googleapis.com');
+}
 async function fetchGoogleConnectionStatus() { return fetchProviderConnectionStatus('google_calendar_connections', 'google_email', 'googleEmail'); }
-async function disconnectGoogleCalendar() { return disconnectProvider('google_calendar_connections'); }
+// Revokes PaceLedger's access at Google as well as deleting the stored
+// tokens (done server-side, where the tokens live). Falls back to a plain
+// delete if the function can't be reached.
+async function disconnectGoogleCalendar() {
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) return false;
+  try {
+    const res = await fetch(`${supabase.supabaseUrl}/functions/v1/google-oauth-callback`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${data.session.access_token}`,
+        apikey: supabase.supabaseKey,
+      },
+      body: JSON.stringify({ action: 'disconnect' }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json.disconnected) return true;
+  } catch { /* fall through */ }
+  return disconnectProvider('google_calendar_connections');
+}
 async function fetchGoogleEvents(startDate, endDate) {
   const { data: sessionData } = await supabase.auth.getSession();
   if (!sessionData.session) return { connected: false, events: [] };
@@ -2080,7 +2157,7 @@ function GoogleCalendarConnect({ status, connecting, onConnect, onDisconnect }) 
       <span className="tr-connect-text">
         {status.connected
           ? <><strong>Google Calendar connected</strong> as {status.googleEmail || 'your Google account'}.</>
-          : <><strong>Google Calendar not connected.</strong> Connect it to see your Google events alongside your appointments.</>}
+          : <><strong>Google Calendar not connected.</strong> Connect it to see your Google events here and to put appointments (and their invites) on your Google Calendar.</>}
       </span>
       {status.connected ? (
         <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onDisconnect}>Disconnect</button>
@@ -2358,6 +2435,11 @@ function CalendarBody({ user, onLogAppointment }) {
   }, [rangeStart, rangeEnd, user.id, user.role]);
 
   useEffect(() => { refresh(); }, [refresh]);
+  // Re-check once a Google connection finishes in the background.
+  useEffect(() => {
+    window.addEventListener('paceledger:google-connected', refresh);
+    return () => window.removeEventListener('paceledger:google-connected', refresh);
+  }, [refresh]);
 
   async function handleConnect() {
     setGoogleConnecting(true);
@@ -5799,6 +5881,13 @@ export default function App() {
   // it's checked first and, if present, renders instead of the normal app.
   // Read once from the URL present at mount; nothing in this app changes
   // it via client-side navigation, so it's safe to branch before any hooks.
+  // The old workers.dev address still serves the app; send everyone to the
+  // real domain (keeping any ?intake=, ?zoom=… on the URL) so sign-ins,
+  // Google's redirect and Zoom's all happen on big-pace-ledger.com.
+  if (window.location.hostname.endsWith('.workers.dev')) {
+    window.location.replace(`https://big-pace-ledger.com${window.location.pathname}${window.location.search}${window.location.hash}`);
+    return null;
+  }
   const intakeToken = new URLSearchParams(window.location.search).get('intake');
   if (intakeToken) return <ClientIntakePublicForm token={intakeToken} />;
 
@@ -5827,6 +5916,23 @@ export default function App() {
   // message either way, then clean the URL so refreshing doesn't re-show it.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    // New flow: Google returns straight to this site with ?code=&state=.
+    if (isGoogleOAuthReturn(params)) {
+      // Clear the one-time code from the address bar right away.
+      window.history.replaceState({}, '', window.location.pathname);
+      setConnectionBanner({ type: 'success', message: 'Finishing your Google Calendar connection…' });
+      finishGoogleConnect(params).then(result => {
+        if (result.ok) {
+          setConnectionBanner({ type: 'success', message: 'Google Calendar connected.' });
+          window.dispatchEvent(new Event('paceledger:google-connected'));
+        } else if (result.reason === 'cancelled') {
+          setConnectionBanner({ type: 'error', message: 'Google Calendar was not connected — you cancelled on the Google screen.' });
+        } else {
+          setConnectionBanner({ type: 'error', message: `Could not connect Google Calendar (${result.reason}). Please try again.` });
+        }
+      });
+      return;
+    }
     const google = params.get('google');
     const zoom = params.get('zoom');
     if (google === 'connected') {

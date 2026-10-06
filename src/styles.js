@@ -346,7 +346,7 @@ export const CSS = `
 /* toast banner */
 .tr-toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 200; padding: 12px 40px 12px 16px; border-radius: 8px; font-size: 13.5px; font-weight: 500; box-shadow: 0 4px 20px rgba(19,35,48,0.25); max-width: 90vw; }
 .tr-toast-success { background: #2E6E51; color: #fff; }
-.tr-toast-error { background: var(--rust); color: #fff; }
+.tr-toast-error { background: #B8503D; color: #fff; } /* literal: the toast sits outside .tr-root, where the color tokens live */
 .tr-toast-close { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: inherit; font-size: 18px; line-height: 1; cursor: pointer; opacity: 0.85; padding: 4px; }
 .tr-cal-day:hover { background: var(--paper-dim); }
 
