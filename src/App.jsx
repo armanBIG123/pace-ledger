@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   LogIn, LogOut, Plus, Trash2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Users,
   CalendarDays, ShieldCheck, UserPlus, Loader2, Pencil, ClipboardCheck, TrendingUp, UserCog, DollarSign,
-  Download, Search, X, GraduationCap, FileText, Ban, LayoutDashboard, Menu, Award, Calendar, Copy
+  Download, Search, X, GraduationCap, FileText, Ban, LayoutDashboard, Menu, Award, Calendar, Copy, Check
 } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
 import {
@@ -790,6 +790,19 @@ function Shell({ children }) {
     </div>
   );
 }
+// One consistent page title row: title, an optional one-line summary,
+// and the page's main action(s) on the right.
+function PageHead({ title, sub, children }) {
+  return (
+    <div className="tr-pagehead">
+      <div className="tr-pagehead-text">
+        <h2 className="tr-h2">{title}</h2>
+        {sub ? <p className="tr-pagehead-sub">{sub}</p> : null}
+      </div>
+      {children ? <div className="tr-pagehead-actions">{children}</div> : null}
+    </div>
+  );
+}
 function Spinner({ label }) {
   return (
     <div className="tr-spinner">
@@ -921,9 +934,12 @@ function MyCoachingNotes({ userId, weekOf }) {
     </div>
   );
 }
-function PaceStrip({ groups }) {
+function PaceStrip({ groups, header }) {
+  const total = groups.reduce((n, g) => n + g.count, 0);
+  const target = groups.reduce((n, g) => n + g.option.target, 0);
   return (
     <div className="tr-card tr-pace">
+      {header ? <div className="tr-pace-head">{header}<span className="tr-pace-total"><strong>{total}</strong> / {target} set</span></div> : null}
       <p className="tr-pace-hint">The {WEEKEND_TARGET} you commit to over the weekend for the week ahead, plus {WEEKDAY_TARGET} new ones each weekday.</p>
       <div className="tr-pace-grid">
         {groups.map(g => (
@@ -1075,13 +1091,13 @@ function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty, hideSet }
   // Only show the Trainee column when someone in this group actually has one.
   const showTrainee = list.some(a => a.trainee);
   return (
-    <div className="tr-card tr-appt-group">
-      {title ? <h3 className="tr-h3">{title}</h3> : null}
+    <div className={`tr-card tr-appt-group ${hideSet ? 'tr-appt-group-week' : ''}`}>
+      {title ? <h3 className="tr-h3 tr-appt-group-title">{title}</h3> : null}
       {list.length === 0 ? <p className="tr-empty">{empty}</p> : (
         <div className="tr-table-wrap">
           <table className="tr-table">
             <thead>
-              <tr>{!hideSet && <th>Set</th>}<th>Appointment</th><th>Client / recruit</th><th>Presenter</th>{showTrainee && <th>Trainee</th>}{onDelete && <th></th>}</tr>
+              <tr>{!hideSet && <th className="th-set">Set</th>}<th className="th-when">Appointment</th><th className="th-client">Client / recruit</th><th className="th-presenter">Presenter</th>{showTrainee && <th className="th-trainee">Trainee</th>}{onDelete && <th className="th-actions"><span className="tr-sr-only">Actions</span></th>}</tr>
             </thead>
             <tbody>
               {list.map(a => {
@@ -1493,10 +1509,10 @@ function FollowUpModal({ appointment, onClose, onSave, saving }) {
 
 function TypeFilter({ value, onChange }) {
   return (
-    <div className="tr-pillrow">
-      <button type="button" className={`tr-pill-btn ${value === 'all' ? 'tr-pill-btn-active' : ''}`} onClick={() => onChange('all')}>All</button>
-      <button type="button" className={`tr-pill-btn tr-pill-recruit ${value === 'recruit' ? 'tr-pill-btn-active-recruit' : ''}`} onClick={() => onChange('recruit')}>Recruits</button>
-      <button type="button" className={`tr-pill-btn tr-pill-sale ${value === 'sale' ? 'tr-pill-btn-active-sale' : ''}`} onClick={() => onChange('sale')}>Sales</button>
+    <div className="tr-seg" role="group" aria-label="Show">
+      {[['all', 'All'], ['recruit', 'Recruits'], ['sale', 'Sales']].map(([v, label]) => (
+        <button key={v} type="button" className={value === v ? 'tr-seg-on' : ''} aria-pressed={value === v} onClick={() => onChange(v)}>{label}</button>
+      ))}
     </div>
   );
 }
@@ -1893,7 +1909,7 @@ function OpenRequirementsBody({ view, user }) {
   return (
     <>
       <div className="tr-row-head">
-        <h2 className="tr-h2">{view === 'issued' ? 'Issued Premium' : 'Sold Premium'}</h2>
+        <h2 className="tr-section-title">{view === 'issued' ? 'Issued Premium' : 'Sold Premium'}</h2>
         <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
       </div>
       <p className="tr-subtitle">
@@ -2518,6 +2534,7 @@ function CalendarBody({ user, onLogAppointment }) {
 
   return (
     <>
+      <PageHead title="Calendar" sub="Your appointments, team trainings and Google events in one place." />
       <GoogleCalendarConnect status={googleStatus} connecting={googleConnecting} onConnect={handleConnect} onDisconnect={handleDisconnect} />
       {user.role === 'super_admin' && <TrainingPostCard user={user} onPosted={t => setTrainings(prev => [...prev, t])} />}
       {(user.role === 'manager' || user.role === 'super_admin') && (
@@ -2779,6 +2796,9 @@ function BusinessPlanBody({ user }) {
         )}
       </nav>
       <div className="tr-appts-main">
+        <PageHead
+          title={view === 'goals' ? 'Goals' : view === 'marketing' ? 'Marketing plan' : 'Business plan'}
+          sub={view === 'goals' ? 'Turn your income goal into the sales and prospects you need.' : view === 'marketing' ? 'How you will reach your goals, and when.' : 'Start with what you need to live on; everything else is worked out from it.'} />
         <div className="tr-card">
           {view === 'expenses' && (
             <BusinessPlanExpensesPanel
@@ -3065,14 +3085,16 @@ function ProspectFunnel({ prospects, title }) {
   ];
   return (
     <div className="tr-card tr-funnel">
-      <h4 className="tr-h4">{title || 'Conversion funnel'}</h4>
-      {stages.map(s => (
-        <div key={s.label} className="tr-funnel-stage">
-          <span className="tr-funnel-stage-label">{s.label}</span>
-          <div className="tr-funnel-track"><div className={`tr-funnel-bar ${s.cls}`} style={{ width: `${Math.max(s.pct, s.count > 0 ? 4 : 0)}%` }} /></div>
-          <span className="tr-funnel-stage-count">{s.count}{s.label !== 'Logged' ? ` (${s.pct}%)` : ''}</span>
-        </div>
-      ))}
+      {title ? <h4 className="tr-h4">{title}</h4> : null}
+      <div className="tr-funnel-strip">
+        {stages.map(s => (
+          <div key={s.label} className="tr-funnel-cell">
+            <span className="tr-funnel-num">{s.count}</span>
+            <span className="tr-funnel-stage-label">{s.label}{s.label !== 'Logged' ? <span className="tr-funnel-pct"> · {s.pct}%</span> : null}</span>
+            <div className="tr-funnel-track"><div className={`tr-funnel-bar ${s.cls}`} style={{ width: `${Math.max(s.pct, s.count > 0 ? 4 : 0)}%` }} /></div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -3088,7 +3110,7 @@ function ProspectCard({ prospect, rank, onDelete, onToggleOutcome, onLogAppointm
         <div
           style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flex: '1 1 240px', minWidth: 0, cursor: collapsible ? 'pointer' : 'default' }}
           onClick={collapsible ? () => setOpen(o => !o) : undefined}>
-          {rank && <span className="tr-prospect-rank">#{rank}</span>}
+          {rank && <span className="tr-prospect-rank" aria-label={`Rank ${rank}`}>{rank}</span>}
           <div style={{ minWidth: 0 }}>
             <strong>{prospect.firstName} {prospect.lastName}</strong>
             <div className="tr-note">
@@ -3102,14 +3124,17 @@ function ProspectCard({ prospect, rank, onDelete, onToggleOutcome, onLogAppointm
           <span className={`tr-type-badge ${leaning === 'sale' ? 'tr-type-badge-sale' : leaning === 'recruit' ? 'tr-type-badge-recruit' : leaning === 'both' ? 'tr-type-badge-both' : ''}`}>
             {LEANING_LABELS[leaning]}
           </span>
-          <span className="tr-mono">{total}/9</span>
+          <span className="tr-score" title={`${total} of 9 characteristics checked`}>
+            <span className="tr-score-track"><span className="tr-score-fill" style={{ width: `${(total / 9) * 100}%` }} /></span>
+            <span className="tr-mono">{total}/9</span>
+          </span>
           {collapsible && !readOnly && onLogAppointment && !open && (
             <button type="button" className="tr-btn tr-btn-sm tr-btn-ghost" onClick={() => onLogAppointment(prospect)} title="Log an appointment for this prospect">
-              <CalendarDays size={13} /> Log appt
+              <CalendarDays size={13} /><span className="tr-hide-mobile"> Log appt</span>
             </button>
           )}
           {collapsible && (
-            <button type="button" className="tr-icon-btn" onClick={() => setOpen(o => !o)} title={open ? 'Collapse' : 'Show details'}>
+            <button type="button" className="tr-icon-btn tr-prospect-toggle" onClick={() => setOpen(o => !o)} title={open ? 'Collapse' : 'Show details'} aria-expanded={open}>
               {open ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
             </button>
           )}
@@ -3161,28 +3186,38 @@ async function saveLicensing(userId, npn, fgWritingNumber) {
   const { error } = await supabase.from('profiles').update({ npn: npn.trim() || null, fg_writing_number: fgWritingNumber.trim() || null }).eq('id', userId);
   return error ? { ok: false, error: error.message } : { ok: true };
 }
-function TierCard({ tier, isCurrentTier }) {
+// The career ladder: one rung per tier, top of the ladder first. Rungs
+// already reached are marked done, your current one is highlighted, and the
+// rest show what it takes to get there.
+function TierLadder({ currentTierKey }) {
+  const currentIdx = HIERARCHY_TIERS.findIndex(t => t.key === currentTierKey);
+  const rungs = HIERARCHY_TIERS.map((tier, i) => ({ tier, i })).reverse();
   return (
-    <div className={`tr-card tr-tier-card ${isCurrentTier ? 'tr-tier-card-current' : ''}`}>
-      <div className="tr-tier-head">
-        <div>
-          <span className="tr-tier-abbr">{tier.key}</span>
-          <strong>{tier.name}</strong>
-          {isCurrentTier && <span className="tr-type-badge tr-type-badge-both" style={{ marginLeft: 8 }}>Your tier</span>}
-        </div>
-        <span className="tr-tier-commission">{tier.commission}%</span>
-      </div>
-      {tier.criteria.length === 0 ? (
-        <div className="tr-note">Automatically assigned at sign-up.</div>
-      ) : (
-        <>
-          <div className="tr-note">{HIERARCHY_TIER_WINDOW_LABELS[tier.window]}</div>
-          <ul className="tr-tier-criteria">
-            {tier.criteria.map((c, i) => <li key={i}>{c}</li>)}
-          </ul>
-        </>
-      )}
-    </div>
+    <ol className="tr-card tr-ladder" aria-label="Promotion ladder">
+      {rungs.map(({ tier, i }) => {
+        const state = currentIdx === -1 ? 'ahead' : i < currentIdx ? 'done' : i === currentIdx ? 'current' : i === currentIdx + 1 ? 'next' : 'ahead';
+        return (
+          <li key={tier.key} className={`tr-rung tr-rung-${state}`} aria-current={state === 'current' ? 'step' : undefined}>
+            <span className="tr-rung-node" aria-hidden="true">{state === 'done' ? <Check size={13} strokeWidth={3} /> : null}</span>
+            <div className="tr-rung-body">
+              <div className="tr-rung-head">
+                <span className="tr-rung-name">{tier.name} <span className="tr-rung-abbr">{tier.key}</span></span>
+                {state === 'current' ? <span className="tr-status tr-status-amber">You are here</span> : state === 'next' ? <span className="tr-status tr-status-none">Next</span> : null}
+                <span className="tr-rung-pct">{tier.commission}%</span>
+              </div>
+              {tier.criteria.length === 0 ? (
+                <div className="tr-rung-meta">Automatically assigned at sign-up.</div>
+              ) : state !== 'done' ? (
+                <>
+                  <div className="tr-rung-meta">{HIERARCHY_TIER_WINDOW_LABELS[tier.window]}</div>
+                  <ul className="tr-rung-criteria">{tier.criteria.map((c, k) => <li key={k}>{c}</li>)}</ul>
+                </>
+              ) : null}
+            </div>
+          </li>
+        );
+      })}
+    </ol>
   );
 }
 function RequirementRow({ req }) {
@@ -3278,23 +3313,20 @@ function MyProgressCard({ user }) {
 function PromotionGuidelinesBody({ user }) {
   return (
     <>
-      <h2 className="tr-h2">Promotion Guidelines</h2>
-      <p className="tr-subtitle">
-        {user.hierarchyTier
-          ? `Your current tier: ${hierarchyTierLabel(user.hierarchyTier)} (${HIERARCHY_TIERS.find(t => t.key === user.hierarchyTier)?.commission}% commission)`
-          : "Your hierarchy tier hasn't been set yet — ask a super admin to set it in Manage Team."}
-      </p>
+      <PageHead
+        title="Promotion guidelines"
+        sub={HIERARCHY_TIERS.some(t => t.key === user.hierarchyTier)
+          ? `Your tier: ${hierarchyTierLabel(user.hierarchyTier)} · ${HIERARCHY_TIERS.find(t => t.key === user.hierarchyTier).commission}% commission`
+          : "Your tier hasn't been set yet. Ask a super admin to set it in Manage Team."} />
       <MyProgressCard user={user} />
-      {HIERARCHY_TIERS.map(tier => (
-        <TierCard key={tier.key} tier={tier} isCurrentTier={user.hierarchyTier === tier.key} />
-      ))}
+      <TierLadder currentTierKey={user.hierarchyTier} />
     </>
   );
 }
 function IncentivesBody() {
   return (
     <>
-      <h2 className="tr-h2">Incentives</h2>
+      <PageHead title="Incentives" />
       <div className="tr-card"><p className="tr-empty">Coming soon.</p></div>
     </>
   );
@@ -3343,11 +3375,7 @@ function LicensingBody({ user }) {
 
   return (
     <>
-      <h2 className="tr-h2">Licensing</h2>
-      <p className="tr-subtitle">
-        Field Associates are plugged in right away, even before they're licensed — this is where that gets marked
-        official once it happens.
-      </p>
+      <PageHead title="Licensing" sub="Field Associates start right away, even before they're licensed. Record your numbers here once you are." />
       {!loaded ? <SkeletonCards count={1} /> : (
         <div className="tr-card">
           <div className="tr-row-head" style={{ marginBottom: 14 }}>
@@ -3833,6 +3861,7 @@ function SystemsBody({ user, onLogAppointment, initialIntent, onIntentConsumed }
   const [formKey, setFormKey] = useState(0);
   const [quickFirst, setQuickFirst] = useState('');
   const [quickLast, setQuickLast] = useState('');
+  const [staleOnly, setStaleOnly] = useState(initialIntent === 'stale');
 
   useEffect(() => { if (initialIntent) onIntentConsumed?.(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -3930,14 +3959,18 @@ function SystemsBody({ user, onLogAppointment, initialIntent, onIntentConsumed }
   const staleCount = listAll.filter(p => isStaleProspect(p, apptNames)).length;
   const recruitedAll = prospects.filter(p => p.markedRecruited);
   const soldAll = prospects.filter(p => p.markedSold);
-  const listSorted = bySearch(listAll.filter(p => leaningFilter === 'all' || prospectLeaningKey(p) === leaningFilter)).sort(sorters[sortBy]);
+  const listSorted = bySearch(listAll
+    .filter(p => leaningFilter === 'all' || prospectLeaningKey(p) === leaningFilter)
+    .filter(p => !staleOnly || isStaleProspect(p, apptNames))).sort(sorters[sortBy]);
   const recruitedProspects = bySearch(recruitedAll).sort(sorters[sortBy]);
   const soldProspects = bySearch(soldAll).sort(sorters[sortBy]);
 
   const activeList = systemsView === 'recruit' ? recruitedProspects : systemsView === 'sold' ? soldProspects : listSorted;
-  const activeTitle = systemsView === 'recruit' ? 'Recruited' : systemsView === 'sold' ? 'Sold' : 'Prospect list';
+  const activeTitle = systemsView === 'recruit' ? 'Recruited' : systemsView === 'sold' ? 'Sold' : 'Prospects';
+  const activeSub = systemsView === 'recruit' ? 'Prospects you marked as recruited.' : systemsView === 'sold' ? 'Prospects you marked as sold.'
+    : `${listAll.length} active · ranked by how many of the 9 characteristics they meet`;
   const activeEmpty = systemsView === 'recruit' ? 'No prospects marked recruited yet.' : systemsView === 'sold' ? 'No prospects marked sold yet.'
-    : searchQuery || leaningFilter !== 'all' ? 'No prospects match this search or filter.' : 'No prospects yet — quick-add a name above, or use New prospect to score them as you go.';
+    : searchQuery || leaningFilter !== 'all' || staleOnly ? 'No prospects match this search or filter.' : 'No prospects yet — quick-add a name above, or use New prospect to score them as you go.';
 
   const sideBtn = (v, label, color, count) => (
     <button
@@ -3951,8 +3984,7 @@ function SystemsBody({ user, onLogAppointment, initialIntent, onIntentConsumed }
   return (
     <div className="tr-appts-shell">
       <nav className="tr-appts-sidebar">
-        {sideBtn('prospect', '+ New prospect', 'week')}
-        {sideBtn('list', 'List', 'week', listAll.length)}
+        {sideBtn('list', 'Active', 'week', listAll.length)}
         {sideBtn('recruit', 'Recruit', 'recruit', recruitedAll.length)}
         {sideBtn('sold', 'Sold', 'sale', soldAll.length)}
         <div className="tr-sidebar-divider">Tools</div>
@@ -3977,10 +4009,10 @@ function SystemsBody({ user, onLogAppointment, initialIntent, onIntentConsumed }
           </>
         ) : (
           <>
-            <div className="tr-row-head">
-              <h2 className="tr-h2">{activeTitle}</h2>
+            <PageHead title={activeTitle} sub={activeSub}>
               <button className="tr-btn tr-btn-brass" onClick={() => { setEditingProspect(null); setSystemsView('prospect'); }}><Plus size={16} /> New prospect</button>
-            </div>
+            </PageHead>
+            {systemsView === 'list' && <ProspectFunnel prospects={prospects} />}
             {systemsView === 'list' && (
               <form className="tr-card tr-quickadd" onSubmit={handleQuickAdd}>
                 <span className="tr-quickadd-label">Quick add</span>
@@ -3989,38 +4021,36 @@ function SystemsBody({ user, onLogAppointment, initialIntent, onIntentConsumed }
                 <button type="submit" className="tr-btn tr-btn-ghost tr-btn-sm" disabled={saving}><Plus size={14} /> Add</button>
               </form>
             )}
-            {systemsView === 'list' && <ProspectFunnel prospects={prospects} />}
-            {systemsView === 'list' && staleCount > 0 && (
-              <div className="tr-health-line"><span className="tr-health-bad">{staleCount} prospect{staleCount === 1 ? '' : 's'} with no activity</span> — added {STALE_PROSPECT_DAYS}+ days ago with no appointment logged yet.</div>
-            )}
-            <div className="tr-search-row">
-              <Search size={15} className="tr-search-icon" />
-              <input
-                className="tr-search-input" type="text" placeholder="Search by prospect name…"
-                value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
-              {searchQuery && (
-                <button type="button" className="tr-icon-btn" onClick={() => setSearchQuery('')} title="Clear search"><X size={15} /></button>
-              )}
-              <select className="tr-sort-select" value={sortBy} onChange={e => setSortBy(e.target.value)} aria-label="Sort prospects">
+            <div className="tr-toolbar">
+              <div className="tr-search-row">
+                <Search size={15} className="tr-search-icon" />
+                <input
+                  className="tr-search-input" type="text" placeholder="Search by name…"
+                  value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+                {searchQuery && (
+                  <button type="button" className="tr-icon-btn" onClick={() => setSearchQuery('')} title="Clear search"><X size={15} /></button>
+                )}
+              </div>
+              <select className="tr-toolbar-select" value={sortBy} onChange={e => setSortBy(e.target.value)} aria-label="Sort prospects">
                 <option value="score">Best match first</option>
                 <option value="newest">Newest first</option>
                 <option value="oldest">Oldest first</option>
               </select>
             </div>
             {systemsView === 'list' && (
-              <div className="tr-typefilter-row">
-                <span className="tr-typefilter-label">Show:</span>
-                <div className="tr-pillrow">
-                  {[['all', 'All'], ['sale', 'Sale potential'], ['recruit', 'Recruit potential'], ['both', 'Both']].map(([v, label]) => (
-                    <button
-                      key={v} type="button"
-                      className={`tr-btn tr-btn-sm ${leaningFilter === v ? 'tr-btn-brass' : 'tr-btn-ghost'}`}
-                      onClick={() => setLeaningFilter(v)}>
-                      {label}
-                    </button>
+              <div className="tr-filterbar">
+                <div className="tr-seg" role="group" aria-label="Show">
+                  {[['all', 'All'], ['sale', 'Sale'], ['recruit', 'Recruit'], ['both', 'Both']].map(([v, label]) => (
+                    <button key={v} type="button" className={leaningFilter === v ? 'tr-seg-on' : ''} aria-pressed={leaningFilter === v} onClick={() => setLeaningFilter(v)}>{label}</button>
                   ))}
                 </div>
-                {sortBy === 'score' && <span className="tr-typefilter-note">Ranked by how many of the 9 characteristics are checked. Click a name for details.</span>}
+                {(staleCount > 0 || staleOnly) && (
+                  <button type="button" className={`tr-chip-toggle ${staleOnly ? 'tr-chip-toggle-on' : ''}`} aria-pressed={staleOnly} onClick={() => setStaleOnly(v => !v)}
+                    title={`Added ${STALE_PROSPECT_DAYS}+ days ago with no appointment logged yet`}>
+                    <span className="tr-chip-dot" /> {staleCount} with no activity in {STALE_PROSPECT_DAYS}+ days
+                    {staleOnly ? <X size={13} /> : null}
+                  </button>
+                )}
               </div>
             )}
             {loading ? <SkeletonCards count={3} /> : activeList.length === 0 ? (
@@ -4326,37 +4356,36 @@ function MyAppointmentsBody({ user, prefillData, onPrefillConsumed }) {
       </nav>
 
       <div className="tr-appts-main">
-        <div className="tr-row-head">
-          <h2 className="tr-h2">My appointments</h2>
+        <PageHead title="My appointments">
           <button className="tr-btn tr-btn-brass" onClick={() => (showForm ? closeForm() : setShowForm(true))}>
             {showForm ? <><X size={16} /> Close</> : <><Plus size={16} /> Log appointment</>}
           </button>
-        </div>
+        </PageHead>
         {error && <div className="tr-error">{error}</div>}
         {notice && <div className={notice.kind === 'ok' ? 'tr-flash' : 'tr-error'}>{notice.text}</div>}
         {showForm && (
           <AppointmentForm user={user} weekMonday={weekMonday} editing={editingAppt} prefillData={!editingAppt ? pendingPrefillData : null} onCancel={closeForm} onSubmit={handleFormSubmit} saving={saving} />
         )}
-        <div className="tr-search-row">
-          <Search size={15} className="tr-search-icon" />
-          <input
-            className="tr-search-input" type="text" placeholder="Search by client or recruit name…"
-            value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
-          {searchQuery && (
-            <button type="button" className="tr-icon-btn" onClick={() => setSearchQuery('')} title="Clear search"><X size={15} /></button>
-          )}
-          <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={handleExportAppointments} disabled={appointments.length === 0}>
-            <Download size={14} /><span className="tr-hide-mobile"> Export CSV</span>
+        <div className="tr-toolbar">
+          <div className="tr-search-row">
+            <Search size={15} className="tr-search-icon" />
+            <input
+              className="tr-search-input" type="text" placeholder="Search every appointment by name…"
+              value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+            {searchQuery && (
+              <button type="button" className="tr-icon-btn" onClick={() => setSearchQuery('')} title="Clear search"><X size={15} /></button>
+            )}
+          </div>
+          <div title="Filters the lists below. Your weekly pace always counts everything.">
+            <TypeFilter value={typeFilter} onChange={setTypeFilter} />
+          </div>
+          <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={handleExportAppointments} disabled={appointments.length === 0} title="Download every appointment as a spreadsheet (CSV)">
+            <Download size={14} /><span className="tr-hide-mobile"> Export</span>
           </button>
-        </div>
-        <div className="tr-typefilter-row">
-          <span className="tr-typefilter-label">Show:</span>
-          <TypeFilter value={typeFilter} onChange={setTypeFilter} />
-          <span className="tr-typefilter-note">Only filters what's listed below — your weekly pace count always includes everything.</span>
         </div>
         {searchQuery.trim() ? (
           <>
-            <h2 className="tr-h2">Search results for "{searchQuery.trim()}"</h2>
+            <h2 className="tr-section-title">Search results for "{searchQuery.trim()}"</h2>
             <p className="tr-subtitle">Across every appointment you've ever logged, regardless of week.</p>
             {searchResults.length === 0 ? (
               <div className="tr-card"><p className="tr-empty">No matches.</p></div>
@@ -4368,8 +4397,9 @@ function MyAppointmentsBody({ user, prefillData, onPrefillConsumed }) {
           <>
             <MyCoachingNotes userId={user.id} weekOf={weekMonday} />
             <ZoomConnect status={zoomStatus} connecting={zoomConnecting} onConnect={handleZoomConnect} onDisconnect={handleZoomDisconnect} />
-            <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
-            <PaceStrip groups={groups.map(g => ({ option: g.option, count: g.list.length, list: g.list }))} />
+            <PaceStrip
+              header={<WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />}
+              groups={groups.map(g => ({ option: g.option, count: g.list.length, list: g.list }))} />
             {upcomingFollowUps.length > 0 && (
               <ApptGroup
                 title={`Upcoming follow-ups (${upcomingFollowUps.length})`}
@@ -4417,7 +4447,7 @@ function MyAppointmentsBody({ user, prefillData, onPrefillConsumed }) {
           <OpenRequirementsBody view="issued" user={user} />
         ) : (
           <>
-            <h2 className="tr-h2">{STATUS_OPTIONS.find(o => o.value === statusView)?.label}</h2>
+            <h2 className="tr-section-title">{STATUS_OPTIONS.find(o => o.value === statusView)?.label}</h2>
             <p className="tr-subtitle">Every past appointment currently in this state.</p>
             {loading ? <SkeletonRows count={4} /> : byType(statusFiltered).length === 0 ? (
               <div className="tr-card"><p className="tr-empty">Nothing here.</p></div>
@@ -4485,6 +4515,11 @@ function RecruitSignupSection({ user, recruitName, joined }) {
     </div>
   );
 }
+const FOLLOW_UP_VIEW_TITLES = {
+  all: 'Follow up', nolog: 'Outcome not logged', needs: 'Needs follow-up', reschedule: 'Needs reschedule',
+  nointake: 'Intake not started', sent: 'Intake link sent', received: 'Intake received',
+  recruit_open: 'Recruits not signed up yet', recruit_joined: 'Recruits signed up',
+};
 function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentConsumed }) {
   const [loading, setLoading] = useState(true);
   const [appointments, setAppointments] = useState([]);
@@ -4621,11 +4656,14 @@ function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentConsumed })
         {navBtn('recruit_joined', 'Signed up', 'green')}
       </nav>
       <div className="tr-appts-main">
+        <PageHead title={FOLLOW_UP_VIEW_TITLES[view] || 'Follow up'}
+          sub={view === 'all' ? `${past.length} past appointment${past.length === 1 ? '' : 's'}${counts.nolog ? ` · ${counts.nolog} still need an outcome` : ''}` : `${list.length} of ${past.length} past appointments`} />
         <div className="tr-search-row">
           <Search size={15} className="tr-search-icon" />
           <input className="tr-search-input" type="text" placeholder="Search by client name…" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
           {searchQuery && <button type="button" className="tr-icon-btn" onClick={() => setSearchQuery('')} title="Clear search"><X size={15} /></button>}
         </div>
+        <div className="tr-fu-list">
         {list.length === 0 ? (
           <div className="tr-card"><p className="tr-empty">{past.length === 0 ? 'Appointments land here once their time has passed.' : 'Nothing matches this view.'}</p></div>
         ) : list.map(a => {
@@ -4729,6 +4767,7 @@ function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentConsumed })
             </div>
           );
         })}
+        </div>
       </div>
       {modalTarget && <FollowUpModal appointment={modalTarget} onClose={() => setModalTarget(null)} onSave={handleSaveOutcome} saving={modalSaving} />}
     </div>
@@ -4794,7 +4833,7 @@ function OverviewBody({ user, onNavigate }) {
     pastNoOutcome && { n: pastNoOutcome, text: `appointment${pastNoOutcome === 1 ? '' : 's'} with no outcome logged`, go: () => onNavigate('followup', 'nolog'), color: 'rust' },
     needsFollowUp && { n: needsFollowUp, text: `client${needsFollowUp === 1 ? '' : 's'} waiting on a follow-up`, go: () => onNavigate('followup', 'needs'), color: 'amber' },
     needsReschedule && { n: needsReschedule, text: `appointment${needsReschedule === 1 ? '' : 's'} to reschedule`, go: () => onNavigate('followup', 'reschedule'), color: 'violet' },
-    staleProspects && { n: staleProspects, text: `prospect${staleProspects === 1 ? '' : 's'} with no activity in ${STALE_PROSPECT_DAYS}+ days`, go: () => onNavigate('systems'), color: 'amber' },
+    staleProspects && { n: staleProspects, text: `prospect${staleProspects === 1 ? '' : 's'} with no activity in ${STALE_PROSPECT_DAYS}+ days`, go: () => onNavigate('systems', 'stale'), color: 'amber' },
   ].filter(Boolean);
 
   // Productivity rating: appointments set this week vs. what the weekly
