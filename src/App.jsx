@@ -2090,7 +2090,7 @@ async function sendAppointmentInviteEmail(appointmentId, emails, updated = false
   }
 }
 
-const ZOOM_CLIENT_ID = 'uTaIzgPhRMuVSfpHOCwKw';
+const ZOOM_CLIENT_ID = 'QfE5XHQXRuyAaOPOY60bvg'; // Production client ID (works for any Zoom account now the app is published)
 
 function zoomOAuthUrl(accessToken) {
   const redirectUri = `${supabase.supabaseUrl}/functions/v1/zoom-oauth-callback`;
