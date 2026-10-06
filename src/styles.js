@@ -114,6 +114,25 @@ export const CSS = `
 .tr-h3 { font-size: 15px; line-height: 1.35; font-weight: 600; color: var(--ink); margin: 0 0 12px; }
 .tr-h4 { font-size: 13px; font-weight: 600; color: var(--slate-light); margin: 0 0 8px; }
 
+/* account sheet */
+.tr-header-account { display: inline-flex; align-items: center; gap: 10px; padding: 4px 6px; margin: -4px -6px; border: none; border-radius: var(--radius-sm); background: transparent; font-family: inherit; color: inherit; cursor: pointer; }
+.tr-header-account:hover { background: rgba(255,255,255,0.08); }
+.tr-account-list { margin: 14px 0 12px; display: flex; flex-direction: column; gap: 0; }
+.tr-account-list > div { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.tr-account-list > div:first-child { border-top: none; }
+.tr-account-list dt { color: var(--slate-light); }
+.tr-account-list dd { margin: 0; color: var(--ink); font-weight: 500; text-align: right; overflow-wrap: anywhere; }
+.tr-account-links { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 0 0 12px; font-size: 13.5px; }
+.tr-account-links a { color: var(--brass-dark); }
+.tr-account-danger { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.tr-account-warn { margin: 0 0 12px; font-size: 13.5px; color: var(--slate); }
+.tr-link-danger { background: none; border: none; padding: 0; font-family: inherit; font-size: 13.5px; font-weight: 500; color: var(--rust); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.tr-btn-danger { background: var(--rust); border-color: var(--rust); color: #fff; }
+.tr-btn-danger:hover:not(:disabled) { background: #983826; }
+
+/* iPhone app: keep the status bar area navy even after the header scrolls away */
+.tr-root::before { content: ''; position: fixed; top: 0; left: 0; right: 0; height: env(safe-area-inset-top, 0px); background: #13212E; z-index: 95; pointer-events: none; }
+
 /* page title row */
 .tr-pagehead { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px 20px; flex-wrap: wrap; }
 .tr-pagehead-text { min-width: 0; }
@@ -463,7 +482,7 @@ export const CSS = `
 .tr-note-item-unavailable { border-left: 3px solid var(--rust); }
 
 /* toast banner */
-.tr-toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); z-index: 200; padding: 12px 42px 12px 16px; border-radius: 10px; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; font-weight: 500; box-shadow: 0 12px 32px rgba(19,33,46,0.28); max-width: 90vw; }
+.tr-toast { position: fixed; top: calc(16px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); z-index: 200; padding: 12px 42px 12px 16px; border-radius: 10px; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; font-weight: 500; box-shadow: 0 12px 32px rgba(19,33,46,0.28); max-width: 90vw; }
 .tr-toast-success { background: #13212E; color: #fff; box-shadow: inset 3px 0 0 #2E7D5B, 0 12px 32px rgba(19,33,46,0.28); }
 .tr-toast-error { background: #B0432F; color: #fff; } /* literal: the toast sits outside .tr-root, where the color tokens live */
 .tr-toast-close { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: inherit; font-size: 18px; line-height: 1; cursor: pointer; opacity: 0.85; padding: 4px; }

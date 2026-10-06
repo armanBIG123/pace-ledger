@@ -6,6 +6,17 @@ import {
 } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
 import {
+  isNativeApp, publicBaseUrl, openInBrowserSheet, shareOrCopy, shareCsvFile, PUBLIC_SITE_URL,
+  reminderPermission, requestReminderPermission, syncAppointmentReminders, clearAppointmentReminders,
+  onAppResume, onReminderTapped, REMINDER_MINUTES,
+} from './native.js';
+
+// Signs out, first clearing this person's appointment reminders from the phone.
+async function signOut() {
+  await clearAppointmentReminders();
+  await supabase.auth.signOut();
+}
+import {
   HIERARCHY_TIERS, HIERARCHY_TIER_WINDOW_LABELS, hierarchyTierLabel,
   nextTierAfter, isLicensed, computeTierProgress, computeDownline, computeUpline,
 } from './hierarchy.js';
@@ -384,11 +395,13 @@ function fmtCurrency(n) {
 }
 // Client-side CSV export — no backend involved, just builds a file in the
 // browser and triggers a normal download.
-function downloadCSV(filename, rows) {
+async function downloadCSV(filename, rows) {
   const csv = rows.map(row => row.map(cell => {
     const s = String(cell ?? '');
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   }).join(',')).join('\r\n');
+  // Inside the iPhone app a browser download does nothing; use the share sheet.
+  try { if (await shareCsvFile(filename, csv)) return; } catch { /* fall back to a normal download */ }
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -874,18 +887,107 @@ function SkeletonCalendar() {
 // passes `nav`) the section tabs on a second row, so navigation reads as
 // part of the frame rather than floating over the page.
 function Header({ user, nav }) {
+  const [accountOpen, setAccountOpen] = useState(false);
   return (
+    <>
     <header className={`tr-header ${nav ? 'tr-header-with-nav' : ''}`}>
       <div className="tr-header-row">
         <div className="tr-brand"><ShieldCheck size={20} /> <span>Pace<em>Ledger</em></span></div>
         <div className="tr-header-user">
-          <span className="tr-header-name">{user.displayName}</span>
-          <span className="tr-header-role">{user.role === 'super_admin' ? 'Admin' : user.role}</span>
-          <button className="tr-icon-btn" onClick={() => supabase.auth.signOut()} title="Log out" aria-label="Log out"><LogOut size={16} /></button>
+          <button type="button" className="tr-header-account" onClick={() => setAccountOpen(true)} title="Your account">
+            <span className="tr-header-name">{user.displayName}</span>
+            <span className="tr-header-role">{user.role === 'super_admin' ? 'Admin' : user.role}</span>
+          </button>
+          <button className="tr-icon-btn" onClick={signOut} title="Log out" aria-label="Log out"><LogOut size={16} /></button>
         </div>
       </div>
       {nav ? <div className="tr-header-nav">{nav}</div> : null}
     </header>
+    {/* Outside the header so header styles and stacking don't apply to it. */}
+    {accountOpen && <AccountSheet user={user} onClose={() => setAccountOpen(false)} />}
+    </>
+  );
+}
+// Deletes the signed-in person's account and everything they own. Done by
+// a server function because only the server may remove a login.
+async function deleteMyAccount() {
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) return { ok: false, error: 'not_signed_in' };
+  try {
+    const res = await fetch(`${supabase.supabaseUrl}/functions/v1/delete-account`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session.access_token}`, apikey: supabase.supabaseKey },
+      body: JSON.stringify({ confirm: 'DELETE' }),
+    });
+    const json = await res.json().catch(() => ({}));
+    return res.ok && json.deleted ? { ok: true } : { ok: false, error: json.error || `http_${res.status}` };
+  } catch {
+    return { ok: false, error: 'network_error' };
+  }
+}
+function AccountSheet({ user, onClose }) {
+  const [step, setStep] = useState('view'); // 'view' | 'confirm'
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function handleDelete() {
+    setBusy(true); setError('');
+    const res = await deleteMyAccount();
+    if (!res.ok) {
+      setBusy(false);
+      setError(res.error === 'last_admin'
+        ? "You're the only admin. Make someone else an admin in Manage Team first, then delete your account."
+        : "Your account couldn't be deleted. Check your connection and try again, or contact support.");
+      return;
+    }
+    await signOut();
+  }
+  return (
+    <div className="tr-modal-backdrop" onClick={onClose}>
+      <div className="tr-modal-card tr-account" role="dialog" aria-modal="true" aria-labelledby="tr-account-title" onClick={e => e.stopPropagation()}>
+        <div className="tr-row-head">
+          <h3 className="tr-h3" id="tr-account-title" style={{ margin: 0 }}>Your account</h3>
+          <button type="button" className="tr-icon-btn" onClick={onClose} aria-label="Close"><X size={16} /></button>
+        </div>
+        <dl className="tr-account-list">
+          <div><dt>Name</dt><dd>{user.displayName}</dd></div>
+          <div><dt>Email</dt><dd>{user.email || '—'}</dd></div>
+          <div><dt>Role</dt><dd style={{ textTransform: 'capitalize' }}>{user.role === 'super_admin' ? 'Admin' : user.role}</dd></div>
+        </dl>
+        <div className="tr-account-links">
+          <a href={`${PUBLIC_SITE_URL}/privacy-policy.html`} target="_blank" rel="noopener noreferrer">Privacy policy</a>
+          <a href={`${PUBLIC_SITE_URL}/terms-of-service.html`} target="_blank" rel="noopener noreferrer">Terms of service</a>
+          <a href={`${PUBLIC_SITE_URL}/support.html`} target="_blank" rel="noopener noreferrer">Support</a>
+        </div>
+        <button type="button" className="tr-btn tr-btn-ghost tr-btn-block" onClick={signOut}><LogOut size={15} /> Log out</button>
+
+        <div className="tr-account-danger">
+          {step === 'view' ? (
+            <button type="button" className="tr-link-danger" onClick={() => setStep('confirm')}>Delete my account</button>
+          ) : (
+            <>
+              <h4 className="tr-h4" style={{ color: 'var(--rust)' }}>Delete your account permanently</h4>
+              <p className="tr-account-warn">
+                This deletes your login and everything you've added: appointments, prospects, follow-up notes, your business plan,
+                client intake forms you sent, and your Google Calendar and Zoom connections. It can't be undone.
+                Anyone who reports to you will need a new manager assigned by an admin.
+              </p>
+              <label className="tr-field">
+                <span>Type DELETE to confirm</span>
+                <input value={typed} onChange={e => setTyped(e.target.value)} autoCapitalize="characters" autoComplete="off" />
+              </label>
+              {error && <div className="tr-error">{error}</div>}
+              <div className="tr-form-actions">
+                <button type="button" className="tr-btn tr-btn-ghost" onClick={() => { setStep('view'); setTyped(''); setError(''); }} disabled={busy}>Cancel</button>
+                <button type="button" className="tr-btn tr-btn-danger" onClick={handleDelete} disabled={typed.trim().toUpperCase() !== 'DELETE' || busy}>
+                  {busy ? 'Deleting…' : 'Delete my account'}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 // Manager/admin switch between their own work and the team views.
@@ -1154,14 +1256,15 @@ function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty, hideSet }
 function buildRecruitSignupLink(uplineId, name) {
   const q = new URLSearchParams({ join: uplineId });
   if (name) q.set('name', name);
-  return `${window.location.origin}${window.location.pathname}?${q.toString()}`;
+  return `${publicBaseUrl()}?${q.toString()}`;
 }
 function readJoinParams() {
   const p = new URLSearchParams(window.location.search);
   return { joinId: p.get('join') || '', joinName: p.get('name') || '' };
 }
+// Web: copies to the clipboard. iPhone app: opens the share sheet.
 async function copyText(text) {
-  try { await navigator.clipboard.writeText(text); return true; } catch { window.prompt('Copy this:', text); return false; }
+  return (await shareOrCopy({ text })) !== 'failed';
 }
 function AuthScreen() {
   const [{ joinId, joinName }] = useState(readJoinParams);
@@ -1247,7 +1350,7 @@ function AuthScreen() {
     if (!mail) { setError('Enter your email above first, then click "Forgot password?".'); return; }
     setBusy(true);
     const { error: err } = await supabase.auth.resetPasswordForEmail(mail, {
-      redirectTo: window.location.origin,
+      redirectTo: isNativeApp() ? PUBLIC_SITE_URL : window.location.origin,
     });
     setBusy(false);
     if (err) { setError(err.message); return; }
@@ -2473,6 +2576,12 @@ function CalendarBody({ user, onLogAppointment }) {
   }, [refresh]);
 
   async function handleConnect() {
+    if (isNativeApp()) {
+      // Google doesn't allow its sign-in inside an app's web view, so the
+      // connection is made on the website in a Safari sheet.
+      await openInBrowserSheet(`${PUBLIC_SITE_URL}/?connect=google&for=${encodeURIComponent(user.id)}`, () => refresh());
+      return;
+    }
     setGoogleConnecting(true);
     await connectGoogleCalendar();
   }
@@ -4182,8 +4291,21 @@ function MyAppointmentsBody({ user, prefillData, onPrefillConsumed }) {
     setZoomStatus(zStatus);
     setLoading(false);
   }, [user.id]);
+  // Any add, edit, reschedule or delete re-syncs phone reminders (app only).
+  const apptsLoadedOnce = useRef(false);
+  useEffect(() => {
+    if (loading) return;
+    if (!apptsLoadedOnce.current) { apptsLoadedOnce.current = true; return; }
+    window.dispatchEvent(new Event('paceledger:appointments-changed'));
+  }, [appointments, loading]);
 
   async function handleZoomConnect() {
+    if (isNativeApp()) {
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) return;
+      await openInBrowserSheet(zoomOAuthUrl(data.session.access_token), () => refresh());
+      return;
+    }
     setZoomConnecting(true);
     await connectZoom();
   }
@@ -4488,9 +4610,11 @@ function RecruitSignupSection({ user, recruitName, joined }) {
   const first = (recruitName || '').trim().split(' ')[0];
   const message = `Hey ${first || 'there'}! Here's your link to create your PaceLedger account — it's already set up to put you on my team: ${link}`;
   async function copy(kind) {
-    await copyText(kind === 'link' ? link : message);
-    setCopied(kind);
-    setTimeout(() => setCopied(''), 2000);
+    const res = await shareOrCopy(kind === 'link' ? { url: link, title: 'PaceLedger sign-up link' } : { text: message });
+    if (res === 'copied') {
+      setCopied(kind);
+      setTimeout(() => setCopied(''), 2000);
+    }
   }
   return (
     <div>
@@ -4505,10 +4629,10 @@ function RecruitSignupSection({ user, recruitName, joined }) {
           <p className="tr-empty" style={{ margin: '6px 0 0' }}>Their PaceLedger sign-up link — it puts them directly under you, with your team already set.</p>
           <div className="tr-intake-link-row" style={{ marginTop: 8 }}>
             <span className="tr-intake-link-box">{link}</span>
-            <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => copy('link')}><Copy size={13} /> {copied === 'link' ? 'Copied!' : 'Copy link'}</button>
+            <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => copy('link')}><Copy size={13} /> {copied === 'link' ? 'Copied!' : isNativeApp() ? 'Share link' : 'Copy link'}</button>
           </div>
           <div className="tr-form-actions" style={{ marginTop: 8, justifyContent: 'flex-start' }}>
-            <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => copy('message')}>{copied === 'message' ? 'Copied!' : 'Copy as a text message'}</button>
+            <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => copy('message')}>{copied === 'message' ? 'Copied!' : isNativeApp() ? 'Send as a message' : 'Copy as a text message'}</button>
           </div>
         </>
       )}
@@ -4882,6 +5006,8 @@ function OverviewBody({ user, onNavigate }) {
         </div>
       </div>
 
+      <RemindersPrompt />
+
       <div className="tr-ov-flow">
         <button type="button" onClick={() => onNavigate('systems')}><span>1</span> Prospect</button>
         <ChevronRight size={14} />
@@ -5051,7 +5177,56 @@ function TabNav({ tabs, tab, onSelect }) {
     </>
   );
 }
+// iPhone app only: keeps a phone reminder scheduled 30 minutes before each
+// upcoming appointment. Re-syncs on open, on return to the app, and
+// whenever an appointment is logged.
+function useAppointmentReminders(user) {
+  useEffect(() => {
+    if (!isNativeApp()) return undefined;
+    let alive = true;
+    const sync = async () => {
+      if ((await reminderPermission()) !== 'granted') return;
+      // Appointments I logged, am presenting, or am training on, from now on.
+      const { data, error } = await supabase
+        .from('appointments').select('*')
+        .or(`user_id.eq.${user.id},presenter_id.eq.${user.id},trainee_id.eq.${user.id}`)
+        .gte('appointment_at', new Date().toISOString());
+      if (error || !alive) return; // offline etc.: keep the reminders already set
+      await syncAppointmentReminders((data || []).map(rowToRecord)).catch(() => {});
+    };
+    sync();
+    const offResume = onAppResume(sync);
+    // Navigating (not window.open) lets iOS hand the link to the Zoom app.
+    const offTap = onReminderTapped(extra => { if (extra && extra.zoomUrl) window.location.href = extra.zoomUrl; });
+    window.addEventListener('paceledger:appointments-changed', sync);
+    window.addEventListener('paceledger:reminders-enabled', sync);
+    return () => {
+      alive = false; offResume(); offTap();
+      window.removeEventListener('paceledger:appointments-changed', sync);
+      window.removeEventListener('paceledger:reminders-enabled', sync);
+    };
+  }, [user.id]);
+}
+// Overview card asking (once) to turn on appointment reminders in the app.
+function RemindersPrompt() {
+  const [perm, setPerm] = useState(null);
+  useEffect(() => { reminderPermission().then(setPerm); }, []);
+  if (perm !== 'prompt' && perm !== 'prompt-with-rationale') return null;
+  async function enable() {
+    const res = await requestReminderPermission();
+    setPerm(res);
+    if (res === 'granted') window.dispatchEvent(new Event('paceledger:reminders-enabled'));
+  }
+  return (
+    <div className="tr-connect-slim tr-connect-slim-on">
+      <span className="tr-connect-dot" />
+      <span className="tr-connect-text"><strong>Appointment reminders.</strong> Get a notification {REMINDER_MINUTES} minutes before each appointment, with its Zoom link.</span>
+      <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={enable}>Turn on</button>
+    </div>
+  );
+}
 function AdvisorView({ user }) {
+  useAppointmentReminders(user);
   const [tab, setTab] = useState('overview');
   const [prefillData, setPrefillData] = useState(null);
   // Lets one tab send you to a specific spot in another (e.g. Overview's
@@ -5589,6 +5764,7 @@ function TrackProductionBody({ user }) {
 }
 
 function ManagerView({ user }) {
+  useAppointmentReminders(user);
   const [group, setGroup] = useState('mine'); // 'mine' | 'team'
   const [tab, setTab] = useState('overview');
   const [prefillData, setPrefillData] = useState(null);
@@ -5877,6 +6053,7 @@ function AuditLogView() {
   );
 }
 function AdminView({ user }) {
+  useAppointmentReminders(user);
   const [group, setGroup] = useState('mine'); // 'mine' | 'team'
   const [tab, setTab] = useState('overview');
   const [prefillData, setPrefillData] = useState(null);
@@ -5999,6 +6176,38 @@ export default function App() {
     }
   }, []);
 
+  // ?connect=google|zoom — opened from the iPhone app in a Safari sheet,
+  // because Google and Zoom sign-in can't run inside the app itself. Kept
+  // until the person is signed in here, then started automatically.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const want = params.get('connect');
+    if (want === 'google' || want === 'zoom') {
+      try {
+        sessionStorage.setItem('pl_pending_connect', want);
+        sessionStorage.setItem('pl_pending_connect_for', params.get('for') || '');
+      } catch { /* ignore */ }
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+  useEffect(() => {
+    if (!session || !profile) return;
+    let want = null, forUser = '';
+    try {
+      want = sessionStorage.getItem('pl_pending_connect');
+      forUser = sessionStorage.getItem('pl_pending_connect_for') || '';
+      sessionStorage.removeItem('pl_pending_connect');
+      sessionStorage.removeItem('pl_pending_connect_for');
+    } catch { /* ignore */ }
+    if (want && forUser && forUser !== session.user.id) {
+      // Signed in here as someone else — don't attach their calendar to the wrong person.
+      setConnectionBanner({ type: 'error', message: "You're signed in here with a different PaceLedger account than in the app. Log out, sign in with the same account, then connect again." });
+      return;
+    }
+    if (want === 'google') connectGoogleCalendar();
+    else if (want === 'zoom') connectZoom();
+  }, [session, profile]);
+
   useEffect(() => {
     let cancelled = false;
     const userId = session && session.user ? session.user.id : null;
@@ -6025,7 +6234,7 @@ export default function App() {
 
   if (session === undefined) return <Shell><Spinner label="Loading…" /></Shell>;
   if (recoveryMode) return <ResetPasswordScreen onDone={() => setRecoveryMode(false)} />;
-  if (!session) return <AuthScreen />;
+  if (!session) return <><ConnectionBanner banner={connectionBanner} onDismiss={() => setConnectionBanner(null)} /><AuthScreen /></>;
   if (profileError) {
     return (
       <Shell>

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ShieldCheck, CheckCircle2, Copy, Trash2, ChevronDown, ChevronUp, ArrowRight, Plus, X } from 'lucide-react';
+import { shareOrCopy, isNativeApp } from './native.js';
 import { CSS } from './styles.js';
 import {
   buildIntakeLink,
@@ -667,12 +668,11 @@ export function ClientIntakeSection({ candidate, canManage, onRemove }) {
   const [copied, setCopied] = useState(false);
   const link = buildIntakeLink(candidate.token);
   async function handleCopy() {
-    try {
-      await navigator.clipboard.writeText(link);
+    // Web: copy. iPhone app: share sheet (Messages, Mail, Copy, …).
+    const res = await shareOrCopy({ url: link, title: 'Client intake form' });
+    if (res === 'copied') {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      window.prompt('Copy this link:', link);
     }
   }
   const submitted = candidate.status === 'submitted';
@@ -687,7 +687,7 @@ export function ClientIntakeSection({ candidate, canManage, onRemove }) {
       {!submitted && (
         <div className="tr-intake-link-row" style={{ marginTop: 8 }}>
           <span className="tr-intake-link-box">{link}</span>
-          <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={handleCopy}><Copy size={13} /> {copied ? 'Copied!' : 'Copy'}</button>
+          <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={handleCopy}><Copy size={13} /> {copied ? 'Copied!' : isNativeApp() ? 'Share' : 'Copy'}</button>
         </div>
       )}
       <div className="tr-form-actions" style={{ marginTop: 8, justifyContent: 'flex-start' }}>

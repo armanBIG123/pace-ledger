@@ -1,3 +1,4 @@
+import { publicBaseUrl } from './native.js';
 import { supabase } from './supabaseClient.js';
 
 // ---------------------------------------------------------------------
@@ -19,7 +20,8 @@ function generateToken() {
 }
 
 export function buildIntakeLink(token) {
-  return `${window.location.origin}${window.location.pathname}?intake=${token}`;
+  // Always the public site, even when opened from the iPhone app.
+  return `${publicBaseUrl()}?intake=${token}`;
 }
 
 // -- advisor-side (authenticated, RLS-scoped) --------------------------
