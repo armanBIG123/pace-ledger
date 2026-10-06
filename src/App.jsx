@@ -1946,11 +1946,11 @@ function googleOAuthUrl(state) {
     client_id: GOOGLE_CLIENT_ID,
     redirect_uri: googleRedirectUri(),
     response_type: 'code',
-    // The narrowest scope that does the job: events on calendars the
-    // person owns (we only ever use their primary calendar) — read, create,
-    // and add the attendees they choose. People who connected earlier
-    // under calendar.events keep working without reconnecting.
-    scope: 'https://www.googleapis.com/auth/calendar.events.owned',
+    // calendar.events: read events, create them, and add the attendees the
+    // advisor chooses (we only ever use their primary calendar). This is the
+    // scope under Google review. The google-oauth-callback function also
+    // accepts calendar.events.owned, so narrowing later is a one-line change.
+    scope: 'https://www.googleapis.com/auth/calendar.events',
     access_type: 'offline',
     prompt: 'consent',
     // A random one-time value (not a login token) that we check on the
