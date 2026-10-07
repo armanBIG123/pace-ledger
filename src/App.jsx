@@ -5,6 +5,7 @@ import {
   Download, Search, X, GraduationCap, FileText, Ban, LayoutDashboard, Menu, Award, Calendar, Copy, Check
 } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
+import { buildInviteLink, inviteState, fetchInviteForAppointment, createInvite, fetchInvitePreview } from './invites.js';
 import {
   isNativeApp, publicBaseUrl, openInBrowserSheet, shareOrCopy, shareCsvFile, PUBLIC_SITE_URL,
   reminderPermission, requestReminderPermission, syncAppointmentReminders, clearAppointmentReminders,
@@ -782,11 +783,6 @@ async function fetchDirectManagers(viewer) {
   if (error) { console.error(error); return []; }
   return data;
 }
-async function fetchManagerDirectory() {
-  const { data, error } = await supabase.from('manager_directory').select('*').order('display_name');
-  if (error) { console.error(error); return []; }
-  return data;
-}
 async function fetchOrgDirectory() {
   const { data, error } = await supabase.from('org_directory').select('*');
   if (error) { console.error(error); return []; }
@@ -925,6 +921,50 @@ async function deleteMyAccount() {
     return { ok: false, error: 'network_error' };
   }
 }
+// Invite anyone onto your own team (for recruits who aren't tied to a
+// logged appointment). The link is personal, single-use and puts them
+// directly under you.
+function InviteSomeone({ user }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [invite, setInvite] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  async function make() {
+    setBusy(true); setErr('');
+    const res = await createInvite({ uplineId: user.id, createdBy: user.id, inviteeName: name });
+    setBusy(false);
+    if (!res.ok) { setErr("Couldn't create the link. Try again."); return; }
+    setInvite(res.invite);
+  }
+  if (!open) {
+    return <button type="button" className="tr-btn tr-btn-ghost tr-btn-block" style={{ marginBottom: 8 }} onClick={() => setOpen(true)}><UserPlus size={15} /> Invite someone to your team</button>;
+  }
+  return (
+    <div className="tr-invite-box" style={{ marginBottom: 12 }}>
+      <div className="tr-invite-title">Invite someone to your team</div>
+      {invite ? (
+        <>
+          <p className="tr-empty" style={{ margin: 0 }}>Send this to {invite.invitee_name || 'them'}. It puts them directly under you.</p>
+          <InviteShare invite={invite} recruitName={invite.invitee_name} />
+          <button type="button" className="tr-link-btn" style={{ marginTop: 6 }} onClick={() => { setInvite(null); setName(''); }}>Invite someone else</button>
+        </>
+      ) : (
+        <>
+          <label className="tr-field">
+            <span>Their name (optional)</span>
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="Jordan Blake" />
+          </label>
+          {err && <div className="tr-error">{err}</div>}
+          <div className="tr-form-actions" style={{ marginTop: 8 }}>
+            <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setOpen(false)}>Cancel</button>
+            <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={make} disabled={busy}>{busy ? 'Creating…' : 'Create link'}</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 function AccountSheet({ user, onClose }) {
   const [step, setStep] = useState('view'); // 'view' | 'confirm'
   const [typed, setTyped] = useState('');
@@ -959,6 +999,7 @@ function AccountSheet({ user, onClose }) {
           <a href={`${PUBLIC_SITE_URL}/terms-of-service.html`} target="_blank" rel="noopener noreferrer">Terms of service</a>
           <a href={`${PUBLIC_SITE_URL}/support.html`} target="_blank" rel="noopener noreferrer">Support</a>
         </div>
+        <InviteSomeone user={user} />
         <button type="button" className="tr-btn tr-btn-ghost tr-btn-block" onClick={signOut}><LogOut size={15} /> Log out</button>
 
         <div className="tr-account-danger">
@@ -1248,66 +1289,34 @@ function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty, hideSet }
 // auth
 // ---------------------------------------------------------------------
 // ---------------------------------------------------------------------
-// Recruit sign-up links — big-pace-ledger.com/?join=<upline id>&name=<name>
-// opens Create account with the recruit's direct upline (and that
-// person's manager) already filled in. Nothing new is stored: the sign-up
-// screen already reads the public org directory to build the team tree.
+// Sign-up is by invitation only: big-pace-ledger.com/?join=<token>.
+// The link (made by the inviter, see invites.js) decides the new person's
+// team; the database enforces it, so it can't be changed from the browser.
 // ---------------------------------------------------------------------
-function buildRecruitSignupLink(uplineId, name) {
-  const q = new URLSearchParams({ join: uplineId });
-  if (name) q.set('name', name);
-  return `${publicBaseUrl()}?${q.toString()}`;
-}
-function readJoinParams() {
-  const p = new URLSearchParams(window.location.search);
-  return { joinId: p.get('join') || '', joinName: p.get('name') || '' };
-}
-// Web: copies to the clipboard. iPhone app: opens the share sheet.
-async function copyText(text) {
-  return (await shareOrCopy({ text })) !== 'failed';
+function readJoinToken() {
+  return new URLSearchParams(window.location.search).get('join') || '';
 }
 function AuthScreen() {
-  const [{ joinId, joinName }] = useState(readJoinParams);
-  const [mode, setMode] = useState(joinId ? 'signup' : 'login');
+  const [joinToken] = useState(readJoinToken);
+  const [invite, setInvite] = useState(joinToken ? { loading: true } : null); // null = no link
+  const [mode, setMode] = useState(joinToken ? 'signup' : 'login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [displayName, setDisplayName] = useState(joinName);
-  const [joinUnlocked, setJoinUnlocked] = useState(false);
-  const [managerId, setManagerId] = useState('');
-  const [uplineId, setUplineId] = useState('');
-  const [managers, setManagers] = useState([]);
-  const [orgDirectory, setOrgDirectory] = useState([]);
+  const [displayName, setDisplayName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
   useEffect(() => {
-    fetchManagerDirectory().then(setManagers);
-    fetchOrgDirectory().then(setOrgDirectory);
-  }, []);
+    if (!joinToken) return;
+    fetchInvitePreview(joinToken).then(res => {
+      setInvite(res);
+      if (res && res.valid) setDisplayName(res.inviteeName || '');
+      else setMode('login');
+    });
+  }, [joinToken]);
 
-  // Once a manager is picked, scope the "who is your direct upline"
-  // options to just that manager's own team (themselves plus everyone
-  // under them), rather than the whole org.
-  const uplineOptions = managerId ? computeDownline(managerId, orgDirectory) : [];
-
-  // Arrived from a recruit sign-up link: pre-fill the upline (whoever sent
-  // the link) and the nearest manager above them, so the recruit lands in
-  // exactly the right spot in the tree without picking anything.
-  const joinPerson = joinId ? orgDirectory.find(p => p.id === joinId) : null;
-  const joinChain = joinPerson ? computeUpline(joinId, orgDirectory) : [];
-  const joinManager = joinChain.find(p => managers.some(m => m.id === p.id)) || null;
-  const joinLocked = !!joinPerson && !joinUnlocked && mode === 'signup';
-  useEffect(() => {
-    if (!joinPerson || joinUnlocked) return;
-    setManagerId(joinManager ? joinManager.id : '');
-    setUplineId(joinPerson.id);
-  }, [joinPerson?.id, joinManager?.id, joinUnlocked]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  function handleManagerSelect(id) {
-    setManagerId(id);
-    setUplineId(''); // the old upline pick may not be valid under a different manager
-  }
+  const canSignUp = !!(invite && invite.valid);
 
   async function submit() {
     setError(''); setNotice('');
@@ -1316,27 +1325,37 @@ function AuthScreen() {
     setBusy(true);
     try {
       if (mode === 'signup') {
-        if (!displayName.trim()) { setError('Enter your full name.'); setBusy(false); return; }
-        if (password.length < 6) { setError('Password needs to be at least 6 characters.'); setBusy(false); return; }
-        if (!joinLocked && managers.length > 0 && !managerId) { setError('Please select your manager.'); setBusy(false); return; }
-        if (!joinLocked && managerId && !uplineId) { setError('Please select who your direct upline is.'); setBusy(false); return; }
+        if (!canSignUp) { setError('You need an invitation link to create an account.'); return; }
+        if (!displayName.trim()) { setError('Enter your full name.'); return; }
+        if (password.length < 6) { setError('Password needs to be at least 6 characters.'); return; }
         const { data, error: signErr } = await supabase.auth.signUp({
           email: mail,
           password,
-          // The direct-upline pick is the more specific answer to "who do
-          // you report to" — that's what actually gets stored as
-          // manager_id, not the broader top-level manager selection that
-          // was only used to scope which upline options to show.
-          options: { data: { display_name: displayName.trim(), manager_id: (joinLocked ? joinPerson.id : (uplineId || managerId)) || '' } },
+          // Only the invitation is sent; the database works out the team from it.
+          options: { data: { display_name: displayName.trim(), invite_token: joinToken } },
         });
-        if (signErr) { setError(signErr.message); setBusy(false); return; }
+        if (signErr) {
+          setError(/database error/i.test(signErr.message)
+            ? "This invitation link can't be used anymore. Ask the person who invited you for a new one."
+            : signErr.message);
+          return;
+        }
+        // Supabase answers "success" without creating anything when the
+        // email already has an account (the invitation isn't used).
+        if (data.user && Array.isArray(data.user.identities) && data.user.identities.length === 0) {
+          setError('An account with this email already exists. Choose "I already have one" to log in.');
+          return;
+        }
+        // The link is used up now; drop it from the address bar.
+        window.history.replaceState({}, '', window.location.pathname);
         if (!data.session) {
-          setNotice('Account created — check your email to confirm it, then log in.');
+          setNotice('Account created. Check your email to confirm it, then log in.');
+          setInvite(null);
           setMode('login');
         }
       } else {
         const { error: loginErr } = await supabase.auth.signInWithPassword({ email: mail, password });
-        if (loginErr) { setError(loginErr.message); setBusy(false); return; }
+        if (loginErr) { setError(loginErr.message); return; }
       }
     } catch {
       setError('Something went wrong. Please try again.');
@@ -1358,76 +1377,73 @@ function AuthScreen() {
   }
   function handleKeyDown(e) { if (e.key === 'Enter') { e.preventDefault(); submit(); } }
 
+  const inviteProblem = invite && !invite.loading && !invite.valid
+    ? (invite.reason === 'used' ? 'This invitation link has already been used to create an account.'
+      : invite.reason === 'expired' ? 'This invitation link has expired.'
+      : invite.reason === 'error' ? "We couldn't check your invitation. Check your connection and reload this page."
+      : "This invitation link isn't valid.")
+    : '';
+  const teamLine = canSignUp
+    ? [invite.uplineName, ...(invite.aboveUpline || [])].filter(Boolean).join(' → ')
+    : '';
+
   return (
     <Shell>
       <div className="tr-auth-wrap">
         <div className="tr-auth-card" onKeyDown={handleKeyDown}>
           <div className="tr-brand tr-brand-center"><ShieldCheck size={22} /> <span>Pace<em>Ledger</em></span></div>
-          <p className="tr-auth-sub">{joinPerson ? 'Create your account to get started.' : 'Appointment-setting pace tracking for advisors and managers.'}</p>
-          <div className="tr-tabs">
-            <button className={`tr-tab ${mode === 'login' ? 'tr-tab-active' : ''}`} onClick={() => { setMode('login'); setError(''); setNotice(''); }}>Log in</button>
-            <button className={`tr-tab ${mode === 'signup' ? 'tr-tab-active' : ''}`} onClick={() => { setMode('signup'); setError(''); setNotice(''); }}>Create account</button>
-          </div>
+          <p className="tr-auth-sub">{canSignUp ? 'You\'ve been invited to PaceLedger. Create your account to get started.' : 'Appointment-setting pace tracking for advisors and managers.'}</p>
+          {canSignUp && (
+            <div className="tr-tabs">
+              <button className={`tr-tab ${mode === 'signup' ? 'tr-tab-active' : ''}`} onClick={() => { setMode('signup'); setError(''); setNotice(''); }}>Create account</button>
+              <button className={`tr-tab ${mode === 'login' ? 'tr-tab-active' : ''}`} onClick={() => { setMode('login'); setError(''); setNotice(''); }}>I already have one</button>
+            </div>
+          )}
+          {invite && invite.loading ? <Spinner label="Checking your invitation…" /> : (
           <div className="tr-auth-form">
+            {inviteProblem && (
+              <div className="tr-error" style={{ marginTop: 0 }}>{inviteProblem}{invite.reason === 'error' ? '' : ' Ask the person who invited you to send a new link.'}</div>
+            )}
+            {mode === 'signup' && canSignUp && (
+              <div className="tr-join-box">
+                <div>You're joining <strong>{invite.uplineName}</strong>'s team.</div>
+                {invite.aboveUpline && invite.aboveUpline.length > 0 && (
+                  <div className="tr-join-chain">{teamLine}</div>
+                )}
+              </div>
+            )}
             {mode === 'signup' && (
               <label className="tr-field">
                 <span>Full name</span>
-                <input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Jordan Blake" />
+                <input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Jordan Blake" autoComplete="name" />
               </label>
             )}
             <label className="tr-field">
               <span>Email</span>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="jordan@yourcompany.com" autoCapitalize="none" />
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="jordan@yourcompany.com" autoCapitalize="none" autoComplete="email" />
             </label>
             <label className="tr-field">
               <span>Password</span>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} />
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} />
             </label>
             {mode === 'login' && (
               <button type="button" className="tr-link-btn" onClick={forgotPassword} disabled={busy}>Forgot password?</button>
-            )}
-            {joinLocked && (
-              <div className="tr-join-box">
-                <div>You're joining <strong>{joinPerson.display_name}</strong>'s team{joinManager && joinManager.id !== joinPerson.id ? <> under <strong>{joinManager.display_name}</strong></> : null}.</div>
-                <button type="button" className="tr-link-btn" onClick={() => setJoinUnlocked(true)}>Not right? Choose manually</button>
-              </div>
-            )}
-            {joinId && !joinPerson && orgDirectory.length > 0 && mode === 'signup' && (
-              <div className="tr-badge tr-badge-weekday">This sign-up link isn't valid anymore — pick your manager below.</div>
-            )}
-            {mode === 'signup' && !joinLocked && managers.length > 0 && (
-              <label className="tr-field">
-                <span>Your manager</span>
-                <select value={managerId} onChange={e => handleManagerSelect(e.target.value)}>
-                  <option value="">Select your manager…</option>
-                  {managers.map(m => <option key={m.id} value={m.id}>{m.display_name}</option>)}
-                </select>
-              </label>
-            )}
-            {mode === 'signup' && !joinLocked && managerId && (
-              <label className="tr-field">
-                <span>Your direct upline (who recruited you)</span>
-                <select value={uplineId} onChange={e => setUplineId(e.target.value)}>
-                  <option value="">Select who recruited you…</option>
-                  {uplineOptions.map(p => <option key={p.id} value={p.id}>{p.display_name}</option>)}
-                </select>
-              </label>
-            )}
-            {mode === 'signup' && managers.length === 0 && (
-              <div className="tr-badge tr-badge-weekday">No managers set up yet — you can sign up now and be assigned one later.</div>
             )}
             {notice && <div className="tr-badge tr-badge-weekday">{notice}</div>}
             {error && <div className="tr-error">{error}</div>}
             <button type="button" className="tr-btn tr-btn-brass tr-btn-block" onClick={submit} disabled={busy}>
               {busy ? 'Please wait…' : mode === 'login' ? <><LogIn size={16} /> Log in</> : <><UserPlus size={16} /> Create account</>}
             </button>
+            {!canSignUp && (
+              <p className="tr-auth-invite-note">New to PaceLedger? Accounts are by invitation only. Ask the person recruiting you for your sign-up link.</p>
+            )}
           </div>
+          )}
         </div>
       </div>
     </Shell>
   );
 }
-
 function ResetPasswordScreen({ onDone }) {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -4602,13 +4618,13 @@ const QUICK_NOTE_TAGS = ['Called', 'Left voicemail', 'Texted', 'Emailed', 'Met i
 function daysSince(iso) {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 864e5);
 }
-// Recruit sign-up link for one recruit — pre-fills their name and puts
-// them directly under the advisor sending it.
-function RecruitSignupSection({ user, recruitName, joined }) {
+// Recruit sign-up link for one recruit: a personal, single-use invitation
+// that puts them directly under the advisor who sends it.
+function InviteShare({ invite, recruitName }) {
   const [copied, setCopied] = useState('');
-  const link = buildRecruitSignupLink(user.id, recruitName);
+  const link = buildInviteLink(invite.token);
   const first = (recruitName || '').trim().split(' ')[0];
-  const message = `Hey ${first || 'there'}! Here's your link to create your PaceLedger account — it's already set up to put you on my team: ${link}`;
+  const message = `Hey ${first || 'there'}! Here's your personal link to create your PaceLedger account. It's already set up to put you on my team: ${link}`;
   async function copy(kind) {
     const res = await shareOrCopy(kind === 'link' ? { url: link, title: 'PaceLedger sign-up link' } : { text: message });
     if (res === 'copied') {
@@ -4617,23 +4633,69 @@ function RecruitSignupSection({ user, recruitName, joined }) {
     }
   }
   return (
+    <>
+      <div className="tr-intake-link-row" style={{ marginTop: 8 }}>
+        <span className="tr-intake-link-box">{link}</span>
+        <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => copy('link')}><Copy size={13} /> {copied === 'link' ? 'Copied!' : isNativeApp() ? 'Share link' : 'Copy link'}</button>
+      </div>
+      <div className="tr-form-actions" style={{ marginTop: 8, justifyContent: 'flex-start', alignItems: 'center' }}>
+        <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => copy('message')}>{copied === 'message' ? 'Copied!' : isNativeApp() ? 'Send as a message' : 'Copy as a text message'}</button>
+        <span className="tr-note" style={{ fontSize: 12.5 }}>
+          Works once{invite.expires_at && !isNaN(new Date(invite.expires_at)) ? ` · expires ${new Date(invite.expires_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
+        </span>
+      </div>
+    </>
+  );
+}
+function RecruitSignupSection({ user, recruitName, joined, appointmentId }) {
+  const [invite, setInvite] = useState(undefined); // undefined = loading
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    let alive = true;
+    fetchInviteForAppointment(appointmentId).then(inv => { if (alive) setInvite(inv); });
+    return () => { alive = false; };
+  }, [appointmentId]);
+  const state = inviteState(invite);
+  const signedUp = joined || state === 'used';
+  async function makeLink() {
+    setBusy(true); setErr('');
+    const res = await createInvite({ uplineId: user.id, createdBy: user.id, inviteeName: recruitName, appointmentId });
+    setBusy(false);
+    if (!res.ok) { setErr("Couldn't create the link. Try again."); return; }
+    setInvite(res.invite);
+  }
+  return (
     <div>
       <div className="tr-row-head">
         <h4 className="tr-h4" style={{ margin: 0 }}>Recruit sign-up</h4>
-        {joined
+        {signedUp
           ? <span className="tr-status tr-status-green">Signed up</span>
           : <span className="tr-status tr-status-none">Not signed up yet</span>}
       </div>
-      {!joined && (
+      {signedUp && !joined && state === 'used' && (
+        <button type="button" className="tr-link-btn" style={{ marginTop: 8 }} onClick={makeLink} disabled={busy}>
+          Someone else used the link? Create a new one
+        </button>
+      )}
+      {!signedUp && invite !== undefined && (
         <>
-          <p className="tr-empty" style={{ margin: '6px 0 0' }}>Their PaceLedger sign-up link — it puts them directly under you, with your team already set.</p>
-          <div className="tr-intake-link-row" style={{ marginTop: 8 }}>
-            <span className="tr-intake-link-box">{link}</span>
-            <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => copy('link')}><Copy size={13} /> {copied === 'link' ? 'Copied!' : isNativeApp() ? 'Share link' : 'Copy link'}</button>
-          </div>
-          <div className="tr-form-actions" style={{ marginTop: 8, justifyContent: 'flex-start' }}>
-            <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => copy('message')}>{copied === 'message' ? 'Copied!' : isNativeApp() ? 'Send as a message' : 'Copy as a text message'}</button>
-          </div>
+          {state === 'active' ? (
+            <>
+              <p className="tr-empty" style={{ margin: '6px 0 0' }}>Their personal sign-up link. It puts them directly under you, and they can't change it.</p>
+              <InviteShare invite={invite} recruitName={recruitName} />
+            </>
+          ) : (
+            <>
+              <p className="tr-empty" style={{ margin: '6px 0 0' }}>
+                {state === 'expired' ? 'Their sign-up link expired. Make a new one to send them.' : 'PaceLedger is invitation-only. Make a personal sign-up link that puts them directly under you.'}
+              </p>
+              <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" style={{ marginTop: 8 }} onClick={makeLink} disabled={busy}>
+                <UserPlus size={14} /> {busy ? 'Creating…' : state === 'expired' ? 'Create a new link' : 'Create sign-up link'}
+              </button>
+            </>
+          )}
+          {err && <div className="tr-error">{err}</div>}
         </>
       )}
     </div>
@@ -4841,7 +4903,7 @@ function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentConsumed })
 
                   {isRecruitType(a) && (
                     <div className="tr-fu-section">
-                      <RecruitSignupSection user={user} recruitName={a.client} joined={recruitJoined(a)} />
+                      <RecruitSignupSection user={user} recruitName={a.client} joined={recruitJoined(a)} appointmentId={a.id} />
                     </div>
                   )}
 

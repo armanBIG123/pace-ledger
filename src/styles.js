@@ -648,6 +648,8 @@ export const CSS = `
 /* recruit sign-up link landing */
 .tr-join-box { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border-radius: 8px; background: rgba(201,162,75,0.10); border: 1px solid rgba(201,162,75,0.35); font-size: 14px; color: var(--ink); }
 .tr-join-box .tr-link-btn { align-self: flex-start; }
+.tr-join-chain { font-size: 12.5px; color: var(--slate-light); }
+.tr-auth-invite-note { margin: 4px 0 0; font-size: 13px; color: var(--slate-light); text-align: center; }
 
 /* follow up tab */
 .tr-fu-card { padding: 0; overflow: hidden; }
