@@ -42,6 +42,11 @@ workflows:
         script: |
           if [ ! -d ios ]; then npx cap add ios; fi
 
+      - name: Minimum iOS version (15.0, as Apple requires from 2027)
+        script: |
+          sed -i '' "s/platform :ios, '[0-9.]*'/platform :ios, '15.0'/" ios/App/Podfile
+          sed -i '' 's/IPHONEOS_DEPLOYMENT_TARGET = [0-9.]*;/IPHONEOS_DEPLOYMENT_TARGET = 15.0;/g' ios/App/App.xcodeproj/project.pbxproj
+
       - name: App icon and splash screen
         script: |
           npx --yes @capacitor/assets@3 generate --ios \
