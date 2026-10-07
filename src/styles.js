@@ -88,7 +88,8 @@ export const CSS = `
 /* On white cards (sign-in, reset password) the brand needs ink, not white. */
 .tr-auth-card .tr-brand em, .tr-card .tr-brand em { color: var(--ink); }
 .tr-header-user { display: flex; align-items: center; gap: 12px; font-size: 14px; }
-.tr-header-name { font-weight: 500; color: rgba(255,255,255,0.92); }
+.tr-header-name, .tr-header-firstname { font-weight: 500; color: rgba(255,255,255,0.92); }
+.tr-header-firstname { display: none; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tr-header-role { text-transform: capitalize; font-size: 12px; font-weight: 500; padding: 2px 9px; border-radius: 999px; color: var(--brass); border: 1px solid rgba(196,154,60,0.45); }
 
 .tr-navtabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; margin-bottom: -1px; }
@@ -891,6 +892,7 @@ export const CSS = `
   .tr-header-with-nav .tr-header-row { padding-bottom: 12px; }
   .tr-header-nav { padding: 0 16px; }
   .tr-header-name { display: none; }
+  .tr-header-firstname { display: inline; }
   .tr-main { padding: 18px 14px calc(48px + env(safe-area-inset-bottom, 0px)); }
   .tr-tabs .tr-tab { flex: 0 0 auto; }
   .tr-appts-shell { flex-direction: column; }

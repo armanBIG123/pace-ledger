@@ -898,6 +898,7 @@ function Header({ user, nav }) {
         <div className="tr-header-user">
           <button type="button" className="tr-header-account" onClick={() => setAccountOpen(true)} title="Your account">
             <span className="tr-header-name">{user.displayName}</span>
+            <span className="tr-header-firstname">{(user.displayName || '').trim().split(/\s+/)[0]}</span>
             <span className="tr-header-role">{user.role === 'super_admin' ? 'Admin' : user.role}</span>
           </button>
           <button className="tr-icon-btn" onClick={signOut} title="Log out" aria-label="Log out"><LogOut size={16} /></button>
