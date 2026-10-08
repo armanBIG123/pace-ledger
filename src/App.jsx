@@ -5906,6 +5906,53 @@ function NewAdvisorsCard({ members }) {
     </div>
   );
 }
+// Team Pace: one person's week, opened from their row. A compact list
+// (not nested tables) so it fits the card on any screen.
+function TeamWeekDetail({ groups, counts, filter }) {
+  const byWhen = (x, y) => apptStartMsSafe(x) - apptStartMsSafe(y);
+  return (
+    <div className="tr-weekdetail">
+      {DATE_SET_OPTIONS.map((opt, i) => {
+        const list = filter(groups[i]).slice().sort(byWhen);
+        const met = counts[i] >= opt.target;
+        return (
+          <section className="tr-weekdetail-batch" key={opt.value}>
+            <div className="tr-weekdetail-head">
+              <span className="tr-weekdetail-title">{opt.batchLabel}</span>
+              <span className={`tr-weekdetail-count ${met ? 'tr-weekdetail-met' : ''}`}>{counts[i]} of {opt.target} set</span>
+            </div>
+            {list.length === 0 ? (
+              <div className="tr-weekdetail-none">{groups[i].length ? 'None of this type.' : 'None logged.'}</div>
+            ) : (
+              <ul className="tr-weekdetail-list">
+                {list.map(a => (
+                  <li key={a.id} className="tr-weekdetail-row">
+                    <span className="tr-weekdetail-when">{fmtApptDateTime(a)}</span>
+                    <span className="tr-weekdetail-client">
+                      <strong>{a.client}</strong> <TypeBadge appt={a} />
+                      <span className="tr-weekdetail-meta">
+                        {a.presenter ? `with ${a.presenter}` : ''}{a.trainee ? ` · trainee ${a.trainee}` : ''}
+                      </span>
+                    </span>
+                    <span className="tr-weekdetail-state">
+                      {a.status ? <StatusChip status={a.status} />
+                        : isPastAppointment(a) ? <span className="tr-status tr-status-none">No outcome yet</span>
+                        : a.zoomUrl ? <a href={a.zoomUrl} target="_blank" rel="noopener noreferrer" className="tr-note tr-link">Join Zoom</a>
+                        : <span className="tr-weekdetail-upcoming">Upcoming</span>}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+function apptStartMsSafe(a) {
+  return a.appointmentAt ? new Date(a.appointmentAt).getTime() : new Date(`${a.appointmentDate}T${a.appointmentTime || '00:00'}`).getTime();
+}
 function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, emptyMessage, memberLabel }) {
   const [weekAppts, setWeekAppts] = useState([]);
   const [loadingAppts, setLoadingAppts] = useState(true);
@@ -5962,7 +6009,7 @@ function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, emptyMe
       <div className="tr-typefilter-row">
         <span className="tr-typefilter-label">Show:</span>
         <TypeFilter value={typeFilter} onChange={setTypeFilter} />
-        <span className="tr-typefilter-note">Only affects the expanded appointment lists below — pace counts always include everything.</span>
+        <span className="tr-typefilter-note">Tap anyone's name to see their appointments for the week. The filter only changes those lists; pace counts always include everything.</span>
       </div>
       {loading ? <SkeletonTable rows={5} cols={6} /> : members.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">{emptyMessage}</p></div>
@@ -5996,8 +6043,12 @@ function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, emptyMe
                   const isOpen = expanded === adv.id;
                   return (
                     <React.Fragment key={adv.id}>
-                      <tr className="tr-clickable-row" onClick={() => setExpanded(isOpen ? null : adv.id)}>
+                      <tr
+                        className={`tr-clickable-row ${isOpen ? 'tr-row-open' : ''}`} onClick={() => setExpanded(isOpen ? null : adv.id)}
+                        tabIndex={0} aria-expanded={isOpen}
+                        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setExpanded(isOpen ? null : adv.id); } }}>
                         <td>
+                          <span className="tr-row-toggle">{isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</span>
                           {adv.display_name}
                           {adv.role === 'manager' ? <span className="tr-note"> — manager</span> : null}
                           {adv.role === 'super_admin' ? <span className="tr-note"> — admin</span> : null}
@@ -6011,10 +6062,10 @@ function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, emptyMe
                       </tr>
                       {isOpen && (
                         <tr className="tr-expand-row"><td colSpan={DATE_SET_OPTIONS.length + 3}>
-                          {DATE_SET_OPTIONS.map((opt, i) => (
-                            <ApptGroup key={opt.value} hideSet title={`${opt.batchLabel} (${counts[i]}/${opt.target})`} list={byType(groups[i])} empty="None logged." />
-                          ))}
-                          {adv.id !== user.id && <CoachingNotesPanel advisorId={adv.id} weekOf={weekMonday} currentUser={user} />}
+                          <div className="tr-expand-inner">
+                            <TeamWeekDetail groups={groups} counts={counts} filter={byType} />
+                            {adv.id !== user.id && <CoachingNotesPanel advisorId={adv.id} weekOf={weekMonday} currentUser={user} />}
+                          </div>
                         </td></tr>
                       )}
                     </React.Fragment>

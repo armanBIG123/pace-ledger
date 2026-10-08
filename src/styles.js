@@ -337,14 +337,37 @@ export const CSS = `
 .tr-audit-time { color: var(--slate-light); font-size: 11.5px; white-space: nowrap; min-width: 110px; }
 
 .tr-summary-card { padding: 0; overflow: hidden; }
-.tr-table-summary th, .tr-table-summary td { padding: 12px 16px; }
+.tr-table-summary th, .tr-table-summary td { padding: 12px 8px; }
+.tr-table-summary th:first-child, .tr-table-summary td:first-child { padding-left: 16px; }
+.tr-table-summary th:last-child, .tr-table-summary td:last-child { padding-right: 16px; }
+.tr-table-summary .tr-expand-row td { padding: 16px; }
 .tr-clickable-row { cursor: pointer; }
-.tr-clickable-row:hover { background: var(--paper-dim); }
+.tr-clickable-row:hover { background: rgba(19,33,46,0.035); }
+.tr-clickable-row:focus-visible { outline: 2px solid var(--brass); outline-offset: -2px; }
+.tr-row-open, .tr-row-open:hover { background: rgba(196,154,60,0.08); box-shadow: inset 3px 0 0 var(--brass); }
+.tr-row-toggle { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; margin-right: 6px; vertical-align: -3px; border-radius: 4px; color: var(--slate-light); }
+.tr-clickable-row:hover .tr-row-toggle, .tr-row-open .tr-row-toggle { color: var(--brass-dark); }
+.tr-expand-inner { display: flex; flex-direction: column; gap: 12px; }
+.tr-weekdetail { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.tr-weekdetail-batch { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; min-width: 0; }
+.tr-weekdetail-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 6px; }
+.tr-weekdetail-title { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+.tr-weekdetail-count { font-size: 12.5px; font-weight: 600; color: var(--slate-light); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tr-weekdetail-met { color: #23654A; }
+.tr-weekdetail-none { font-size: 13px; color: var(--slate-light); }
+.tr-weekdetail-list { list-style: none; margin: 0; padding: 0; }
+.tr-weekdetail-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 13.5px; }
+.tr-weekdetail-row:first-child { border-top: none; padding-top: 2px; }
+.tr-weekdetail-when { flex-basis: 100%; font-size: 12.5px; font-weight: 600; color: var(--slate); font-variant-numeric: tabular-nums; }
+.tr-weekdetail-client { flex: 1; min-width: 0; color: var(--ink); }
+.tr-weekdetail-meta { display: block; font-size: 12px; color: var(--slate-light); }
+.tr-weekdetail-state { flex-shrink: 0; }
+.tr-weekdetail-upcoming { font-size: 12px; color: var(--slate-light); }
 .tr-expand-row td { background: var(--paper); padding: 16px; }
 .tr-expand-row .tr-card { margin-bottom: 12px; }
 .tr-expand-row .tr-card:last-child { margin-bottom: 0; }
 
-.tr-minibar-wrap { display: flex; align-items: center; gap: 6px; min-width: 84px; }
+.tr-minibar-wrap { display: flex; align-items: center; gap: 6px; min-width: 60px; }
 .tr-minibar-track { flex: 1; height: 7px; border-radius: 999px; background: var(--paper-dim); overflow: hidden; }
 .tr-minibar-fill { height: 100%; background: var(--brass); border-radius: 999px; }
 .tr-minibar-num { font-size: 12px; color: var(--slate-light); white-space: nowrap; }
@@ -1059,6 +1082,9 @@ export const CSS = `
   .tr-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 0 -14px; padding: 0 14px; }
   /* Team tables: names stay pinned while you swipe across the numbers */
   .tr-table-wrap .tr-table th:first-child, .tr-table-wrap .tr-table td:first-child { position: sticky; left: -14px; z-index: 1; background: var(--card); box-shadow: 1px 0 0 var(--line); min-width: 112px; max-width: 132px; }
+  .tr-table-wrap .tr-table .tr-expand-row td:first-child { position: static; min-width: 0; max-width: none; box-shadow: none; background: var(--paper); }
+  .tr-expand-inner { position: sticky; left: 0; width: calc(100vw - 60px); }
+  .tr-weekdetail { grid-template-columns: 1fr; }
   .tr-appt-group .tr-table td:first-child { position: static; box-shadow: none; min-width: 0; max-width: none; background: transparent; }
 
   /* iOS Safari zooms the whole page when you tap a field smaller than
