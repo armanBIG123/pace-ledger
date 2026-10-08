@@ -447,7 +447,7 @@ export const CSS = `
 .tr-typefilter-note { font-size: 12px; color: var(--slate-light); }
 
 /* tenure */
-.tr-tenure { font-size: 11px; color: var(--slate-light); margin-top: 2px; }
+.tr-tenure { font-size: 11px; color: var(--slate-light); margin-top: 2px;  white-space: nowrap; }
 
 /* calendar */
 .tr-cal-card { padding: 0; overflow: hidden; }

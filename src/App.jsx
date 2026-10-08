@@ -420,23 +420,10 @@ async function downloadCSV(filename, rows) {
   URL.revokeObjectURL(url);
 }
 // Days/months/years since a timestamp, e.g. "1y 2m 5d"
-function tenureSince(createdAt) {
+// The date someone joined PaceLedger, e.g. 08/26/2026.
+function joinedDate(createdAt) {
   if (!createdAt) return '—';
-  const start = new Date(createdAt);
-  const now = new Date();
-  let years = now.getFullYear() - start.getFullYear();
-  let months = now.getMonth() - start.getMonth();
-  let days = now.getDate() - start.getDate();
-  if (days < 0) {
-    months -= 1;
-    days += new Date(now.getFullYear(), now.getMonth(), 0).getDate();
-  }
-  if (months < 0) { years -= 1; months += 12; }
-  const parts = [];
-  if (years > 0) parts.push(`${years}y`);
-  if (months > 0) parts.push(`${months}m`);
-  parts.push(`${days}d`);
-  return parts.join(' ');
+  return new Date(createdAt).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
 }
 // Status is derived entirely from the follow-up answers — there's no
 // separate manual status control, so the two can never disagree.
@@ -6014,7 +6001,7 @@ function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, emptyMe
                           {adv.display_name}
                           {adv.role === 'manager' ? <span className="tr-note"> — manager</span> : null}
                           {adv.role === 'super_admin' ? <span className="tr-note"> — admin</span> : null}
-                          <div className="tr-tenure">Member for {tenureSince(adv.created_at)}</div>
+                          <div className="tr-tenure">Joined {joinedDate(adv.created_at)}</div>
                         </td>
                         {DATE_SET_OPTIONS.map((opt, i) => (
                           <td key={opt.value}><MiniBar count={counts[i]} target={opt.target} /></td>
@@ -6260,7 +6247,7 @@ function TeamProspectingBody({ user }) {
                       <tr className="tr-clickable-row" onClick={() => setExpanded(isOpen ? null : m.id)}>
                         <td>
                           {m.display_name}
-                          <div className="tr-tenure">Member for {tenureSince(m.created_at)}</div>
+                          <div className="tr-tenure">Joined {joinedDate(m.created_at)}</div>
                         </td>
                         <td className="tr-mono">{active.length}</td>
                         <td className="tr-mono">{sale}</td>
@@ -6574,7 +6561,7 @@ function ManageUsersView({ currentUserId, currentUserName }) {
                 <tr key={u.id}>
                   <td>
                     {u.display_name}{u.id === currentUserId ? ' (you)' : ''}
-                    <div className="tr-tenure">Member for {tenureSince(u.created_at)}</div>
+                    <div className="tr-tenure">Joined {joinedDate(u.created_at)}</div>
                   </td>
                   <td>{u.email || '—'}</td>
                   <td>
