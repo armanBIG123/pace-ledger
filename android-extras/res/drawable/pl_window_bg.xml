@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shown only where the page doesn't reach: navy behind the status bar,
+     white behind the navigation bar (dark icons are used there). -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/pl_navy" />
+    <item android:drawable="@color/pl_white" android:gravity="bottom" android:height="64dp" />
+</layer-list>

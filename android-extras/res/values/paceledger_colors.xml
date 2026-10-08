@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- PaceLedger navy (header) and white (bottom bar). -->
+    <color name="pl_navy">#14202B</color>
+    <color name="pl_white">#FFFFFF</color>
+</resources>
