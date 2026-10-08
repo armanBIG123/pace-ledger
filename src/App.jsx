@@ -15,7 +15,8 @@ import {
 import {
   isNativeApp, publicBaseUrl, openInBrowserSheet, shareOrCopy, shareCsvFile, PUBLIC_SITE_URL,
   reminderPermission, requestReminderPermission, syncAppointmentReminders, clearAppointmentReminders,
-  onAppResume, onReminderTapped, REMINDER_MINUTES,
+  onAppResume, onReminderTapped, REMINDER_MINUTES, onAndroidBack, minimizeAndroidApp,
+  exactReminderStatus, requestExactReminders,
 } from './native.js';
 
 // Signs out, first clearing this person's appointment reminders from the phone.
@@ -5225,7 +5226,7 @@ function TodayBody({ user, onNavigate }) {
       const res = await requestReminderPermission();
       setFacts(f => ({ ...f, reminders: res }));
       if (res === 'granted') window.dispatchEvent(new Event('paceledger:reminders-enabled'));
-      else setFlash('Notifications are off for PaceLedger. Turn them on in your iPhone Settings → PaceLedger → Notifications.');
+      else setFlash("Notifications are off for PaceLedger. Turn them on in your phone's Settings → PaceLedger → Notifications.");
       return;
     }
     onNavigate(tab, intent || null);
@@ -5728,16 +5729,48 @@ function useAppointmentReminders(user) {
     };
   }, [user.id]);
 }
-// Overview card asking (once) to turn on appointment reminders in the app.
+// Today card asking (once) to turn on appointment reminders in the app. On
+// Android it then asks for exact alarms, so reminders arrive on time.
+const EXACT_DISMISS_KEY = 'pl_exact_reminders_dismissed';
 function RemindersPrompt() {
   const [perm, setPerm] = useState(null);
-  useEffect(() => { reminderPermission().then(setPerm); }, []);
-  if (perm !== 'prompt' && perm !== 'prompt-with-rationale') return null;
+  const [exact, setExact] = useState('granted');
+  const [exactDismissed, setExactDismissed] = useState(() => { try { return localStorage.getItem(EXACT_DISMISS_KEY) === '1'; } catch { return false; } });
+  useEffect(() => {
+    reminderPermission().then(p => {
+      setPerm(p);
+      if (p === 'granted') exactReminderStatus().then(setExact);
+    });
+  }, []);
   async function enable() {
     const res = await requestReminderPermission();
     setPerm(res);
+    if (res === 'granted') {
+      window.dispatchEvent(new Event('paceledger:reminders-enabled'));
+      setExact(await exactReminderStatus());
+    }
+  }
+  async function allowExact() {
+    const res = await requestExactReminders();
+    setExact(res);
+    // Re-schedule so existing reminders use exact timing too.
     if (res === 'granted') window.dispatchEvent(new Event('paceledger:reminders-enabled'));
   }
+  function notNow() {
+    setExactDismissed(true);
+    try { localStorage.setItem(EXACT_DISMISS_KEY, '1'); } catch { /* fine */ }
+  }
+  if (perm === 'granted' && exact !== 'granted' && !exactDismissed) {
+    return (
+      <div className="tr-connect-slim tr-connect-slim-on">
+        <span className="tr-connect-dot" />
+        <span className="tr-connect-text"><strong>On-time reminders.</strong> Allow PaceLedger to set alarms so each reminder arrives exactly {REMINDER_MINUTES} minutes before.</span>
+        <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={notNow}>Not now</button>
+        <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={allowExact}>Allow</button>
+      </div>
+    );
+  }
+  if (perm !== 'prompt' && perm !== 'prompt-with-rationale') return null;
   return (
     <div className="tr-connect-slim tr-connect-slim-on">
       <span className="tr-connect-dot" />
@@ -5746,9 +5779,30 @@ function RemindersPrompt() {
     </div>
   );
 }
+// Android Back button on screens with nowhere to go back to (sign-in,
+// loading): leaves the app, like other apps.
+function AndroidBackLeavesApp() {
+  useEffect(() => onAndroidBack(minimizeAndroidApp), []);
+  return null;
+}
+// Android Back button: closes an open window or sheet first, then returns
+// to Today, then (on Today) puts the app in the background like other apps.
+function useAndroidBackButton(tab, goHome) {
+  const tabRef = useRef(tab);
+  tabRef.current = tab;
+  const homeRef = useRef(goHome);
+  homeRef.current = goHome;
+  useEffect(() => onAndroidBack(() => {
+    const overlays = document.querySelectorAll('.tr-modal-backdrop, .tr-sheet-backdrop');
+    if (overlays.length) { overlays[overlays.length - 1].click(); return; }
+    if (tabRef.current !== 'overview') { homeRef.current(); window.scrollTo(0, 0); return; }
+    minimizeAndroidApp();
+  }), []);
+}
 function AdvisorView({ user }) {
   useAppointmentReminders(user);
   const [tab, setTab] = useState('overview');
+  useAndroidBackButton(tab, () => setTab('overview'));
   const [prefillData, setPrefillData] = useState(null);
   // Lets one tab send you to a specific spot in another (e.g. Overview's
   // "3 appointments with no outcome logged" opens Follow Up on that filter).
@@ -6425,6 +6479,7 @@ function ManagerView({ user }) {
     setGroup(g);
     setTab(g === 'mine' ? 'overview' : 'teamsystems');
   }
+  useAndroidBackButton(group === 'mine' ? tab : `team:${tab}`, () => selectGroup('mine'));
 
   return (
     <Shell>
@@ -6717,6 +6772,7 @@ function AdminView({ user }) {
     setGroup(g);
     setTab(g === 'mine' ? 'overview' : 'teamsystems');
   }
+  useAndroidBackButton(group === 'mine' ? tab : `team:${tab}`, () => selectGroup('mine'));
 
   return (
     <Shell>
@@ -6878,17 +6934,18 @@ export default function App() {
     return () => { cancelled = true; };
   }, [session]);
 
-  if (session === undefined) return <Shell><Spinner label="Loading…" /></Shell>;
-  if (recoveryMode) return <ResetPasswordScreen onDone={() => setRecoveryMode(false)} />;
-  if (!session) return <><ConnectionBanner banner={connectionBanner} onDismiss={() => setConnectionBanner(null)} /><AuthScreen /></>;
+  if (session === undefined) return <Shell><AndroidBackLeavesApp /><Spinner label="Loading…" /></Shell>;
+  if (recoveryMode) return <><AndroidBackLeavesApp /><ResetPasswordScreen onDone={() => setRecoveryMode(false)} /></>;
+  if (!session) return <><AndroidBackLeavesApp /><ConnectionBanner banner={connectionBanner} onDismiss={() => setConnectionBanner(null)} /><AuthScreen /></>;
   if (profileError) {
     return (
       <Shell>
+        <AndroidBackLeavesApp />
         <div className="tr-auth-wrap"><div className="tr-card"><p className="tr-error">{profileError}</p></div></div>
       </Shell>
     );
   }
-  if (profileLoading || !profile) return <Shell><Spinner label="Loading your account…" /></Shell>;
+  if (profileLoading || !profile) return <Shell><AndroidBackLeavesApp /><Spinner label="Loading your account…" /></Shell>;
 
   const user = { id: session.user.id, email: session.user.email || profile.email || '', displayName: profile.display_name, role: profile.role, hierarchyTier: profile.hierarchy_tier, managerId: profile.manager_id, createdAt: profile.created_at };
   return (

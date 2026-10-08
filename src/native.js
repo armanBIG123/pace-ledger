@@ -3,7 +3,7 @@
 // (Capacitor) than in a web browser. Every helper here is safe to call on
 // the web: it either does the normal web thing or nothing at all.
 // ---------------------------------------------------------------------
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { App as CapApp } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
 import { Share } from '@capacitor/share';
@@ -16,6 +16,9 @@ export const PUBLIC_SITE_URL = 'https://big-pace-ledger.com';
 
 export function isNativeApp() {
   try { return Capacitor.isNativePlatform(); } catch { return false; }
+}
+export function isAndroidApp() {
+  try { return Capacitor.getPlatform() === 'android'; } catch { return false; }
 }
 
 // Base for shareable links: the real site when running in the app,
@@ -84,6 +87,18 @@ export async function reminderPermission() {
 export async function requestReminderPermission() {
   if (!isNativeApp()) return 'unsupported';
   try { return (await LocalNotifications.requestPermissions()).display; } catch { return 'denied'; }
+}
+// Android 12+: reminders only arrive exactly on time if the person allows
+// "Alarms & reminders" for PaceLedger. Always 'granted' elsewhere.
+export async function exactReminderStatus() {
+  if (!isAndroidApp()) return 'granted';
+  try { return (await LocalNotifications.checkExactNotificationSetting()).exact_alarm || 'granted'; } catch { return 'granted'; }
+}
+// Opens Android's "Alarms & reminders" setting for PaceLedger and returns
+// the result when the person comes back.
+export async function requestExactReminders() {
+  if (!isAndroidApp()) return 'granted';
+  try { return (await LocalNotifications.changeExactNotificationSetting()).exact_alarm || 'denied'; } catch { return 'denied'; }
 }
 
 // Stable 31-bit number from an appointment id (notification ids must be ints).
@@ -154,4 +169,30 @@ export function onReminderTapped(fn) {
   LocalNotifications.addListener('localNotificationActionPerformed', e => fn(e.notification && e.notification.extra))
     .then(h => { if (stopped) h.remove(); else handle = h; });
   return () => { stopped = true; handle?.remove(); };
+}
+
+// ---- Android only -----------------------------------------------------
+
+// The Android app draws edge to edge (Android 15+ requires it). Light
+// status-bar icons sit on the navy header; dark navigation-bar icons sit on
+// the white bottom bar. (SystemBars is built into the Android app.)
+const SystemBars = registerPlugin('SystemBars');
+function initAndroidSystemBars() {
+  if (!isAndroidApp()) return;
+  SystemBars.setStyle({ bar: 'StatusBar', style: 'DARK' }).catch(() => {});
+  SystemBars.setStyle({ bar: 'NavigationBar', style: 'LIGHT' }).catch(() => {});
+}
+initAndroidSystemBars();
+
+// The phone's Back button/gesture. Returns a function that stops listening.
+export function onAndroidBack(fn) {
+  if (!isAndroidApp()) return () => {};
+  let handle = null, stopped = false;
+  CapApp.addListener('backButton', () => fn())
+    .then(h => { if (stopped) h.remove(); else handle = h; });
+  return () => { stopped = true; handle?.remove(); };
+}
+// Sends the app to the background (what Back does on the home screen).
+export function minimizeAndroidApp() {
+  try { CapApp.minimizeApp().catch(() => {}); } catch { /* not available */ }
 }
