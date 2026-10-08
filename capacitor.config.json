@@ -12,6 +12,10 @@
     "appendUserAgent": "PaceLedgerApp",
     "backgroundColor": "#14202B"
   },
+  "android": {
+    "appendUserAgent": "PaceLedgerApp",
+    "backgroundColor": "#14202B"
+  },
   "plugins": {
     "SplashScreen": {
       "launchShowDuration": 900,
@@ -27,7 +31,12 @@
       "overlaysWebView": true
     },
     "LocalNotifications": {
-      "iconColor": "#C49A3C"
+      "iconColor": "#C49A3C",
+      "smallIcon": "ic_stat_paceledger"
+    },
+    "SystemBars": {
+      "style": "DARK",
+      "initialViewportFitValueHint": "cover"
     }
   }
 }

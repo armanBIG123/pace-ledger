@@ -1,13 +1,19 @@
-# Codemagic — builds the PaceLedger iPhone app in the cloud (on a Mac)
-# and uploads it to App Store Connect / TestFlight. Nothing here needs to
-# run on your own computer.
+# Codemagic — builds the PaceLedger phone apps in the cloud. Nothing here
+# needs to run on your own computer.
+#   - ios-app-store:      iPhone app -> App Store Connect / TestFlight
+#   - android-play-store: Android app -> an .aab file you upload to Google
+#                         Play (see GOOGLE-PLAY-GUIDE.md)
 #
-# Before the first build (one-time, all in the browser — see
+# iPhone, before the first build (one-time, all in the browser — see
 # APPLE-APP-STORE-GUIDE.md):
 #   1. App Store Connect API key added in Codemagic as an integration
 #      named exactly:  PaceLedger
 #   2. An Apple Distribution certificate + App Store provisioning profile
 #      for com.armanbig.paceledger in Codemagic's "Code signing identities".
+#
+# Android, before the first build: the upload key (paceledger-upload.jks)
+# added in Codemagic's "Code signing identities" -> Android keystores with
+# the reference name:  paceledger_upload
 #
 # The app loads big-pace-ledger.com, so ordinary website updates reach the
 # app without a new build. Rebuild only for app-level changes (icon,
@@ -118,3 +124,124 @@ workflows:
         # in TestFlight; no beta review needed.
         submit_to_testflight: false
         submit_to_app_store: false
+
+  android-play-store:
+    name: Android — Google Play
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      android_signing:
+        - paceledger_upload
+      node: 22
+      java: 21
+    scripts:
+      - name: Use Capacitor 8 for the Android app
+        script: |
+          # Google Play only accepts apps built for Android 16 (API 36), which
+          # needs Capacitor 8. This changes only the copy of the project on
+          # Codemagic's machine; the website and the iPhone app are untouched.
+          node -e '
+            const fs = require("fs");
+            const p = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            for (const section of ["dependencies", "devDependencies"]) {
+              for (const name of Object.keys(p[section] || {})) {
+                if (name.startsWith("@capacitor/")) p[section][name] = "^8.0.0";
+              }
+            }
+            delete p.dependencies["@capacitor/status-bar"]; // iPhone only; SystemBars covers Android
+            delete p.devDependencies["@capacitor/ios"];
+            fs.writeFileSync("package.json", JSON.stringify(p, null, 2));
+          '
+          rm -f package-lock.json
+          npm install
+
+      - name: Build the web files
+        script: npm run build
+
+      - name: Create the Android project
+        script: npx cap add android
+
+      - name: App icon, splash screen and notification icon
+        script: |
+          npx --yes @capacitor/assets@3 generate --android --assetPath assets-android \
+            --iconBackgroundColor '#14202B' --iconBackgroundColorDark '#14202B' \
+            --splashBackgroundColor '#14202B' --splashBackgroundColorDark '#14202B'
+          # Reminder icon, sharper launcher icon layer, and the bar colors.
+          cp -R android-extras/res/ android/app/src/main/res/
+
+      - name: App settings (version, colors, signing)
+        script: |
+          set -e
+          VERSION=$(node -p "require('./package.json').version")
+          CODE=$((BUILD_NUMBER + 100))
+          python3 - "$VERSION" "$CODE" <<'PY'
+          import re, sys
+          version, code = sys.argv[1], sys.argv[2]
+
+          # Version shown in Google Play, and a new, higher build number each time.
+          path = "android/app/build.gradle"
+          g = open(path).read()
+          g = re.sub(r"versionCode\s*=?\s*\d+", "versionCode = " + code, g, count=1)
+          g = re.sub(r'versionName\s*=?\s*"[^"]*"', 'versionName = "' + version + '"', g, count=1)
+
+          # Sign with the upload key Codemagic provides.
+          signing = """
+              signingConfigs {
+                  release {
+                      storeFile = file(System.getenv("CM_KEYSTORE_PATH"))
+                      storePassword = System.getenv("CM_KEYSTORE_PASSWORD")
+                      keyAlias = System.getenv("CM_KEY_ALIAS")
+                      keyPassword = System.getenv("CM_KEY_PASSWORD")
+                  }
+              }
+          """
+          g = g.replace("android {", "android {" + signing, 1)
+          g, n = re.subn(r"(buildTypes\s*\{\s*release\s*\{)", r"\1\n            signingConfig = signingConfigs.release", g, count=1)
+          if n != 1:
+              sys.exit("Could not find buildTypes.release in build.gradle")
+          open(path, "w").write(g)
+
+          # Exact alarms, so appointment reminders arrive on time (Android asks
+          # the person to allow it; PaceLedger shows a prompt on Today).
+          manifest = "android/app/src/main/AndroidManifest.xml"
+          m = open(manifest).read()
+          if "SCHEDULE_EXACT_ALARM" not in m:
+              m = m.replace("</manifest>", '    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />\n</manifest>')
+              open(manifest, "w").write(m)
+
+          # Navy behind the status bar, white behind the navigation bar
+          # (colors and drawable come from android-extras/res).
+          styles = "android/app/src/main/res/values/styles.xml"
+          st = open(styles).read()
+          if "pl_navy" not in st:
+              # (Android 14 and older draw the bars themselves: navy status
+              # bar, white navigation bar.)
+              st, n = re.subn(
+                  r'(<style name="AppTheme\.NoActionBar"[^>]*>)',
+                  r'\1\n        <item name="android:windowBackground">@drawable/pl_window_bg</item>'
+                  r'\n        <item name="android:statusBarColor">@color/pl_navy</item>'
+                  r'\n        <item name="android:navigationBarColor">@color/pl_white</item>',
+                  st, count=1)
+              if n != 1:
+                  sys.exit("Could not find AppTheme.NoActionBar in styles.xml")
+              # Navy launch screen on Android 12+ (instead of white).
+              st, n = re.subn(
+                  r'(<style name="AppTheme\.NoActionBarLaunch"[^>]*>)',
+                  r'\1\n        <item name="windowSplashScreenBackground">@color/pl_navy</item>',
+                  st, count=1)
+              if n != 1:
+                  sys.exit("Could not find AppTheme.NoActionBarLaunch in styles.xml")
+              open(styles, "w").write(st)
+          print("versionName", version, "versionCode", code)
+          PY
+
+      - name: Copy everything into the Android project
+        script: npx cap sync android
+
+      - name: Build the app bundle (.aab)
+        script: |
+          cd android
+          ./gradlew bundleRelease
+
+    artifacts:
+      - android/app/build/outputs/bundle/release/*.aab
