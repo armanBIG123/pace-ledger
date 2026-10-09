@@ -268,6 +268,10 @@ export const CSS = `
 .tr-field textarea { resize: vertical; min-height: 88px; line-height: 1.5; }
 .tr-field input:focus, .tr-field select:focus, .tr-field textarea:focus { border-color: var(--brass); box-shadow: var(--ring); outline: none; }
 .tr-field input:disabled, .tr-field select:disabled { background-color: var(--paper); color: var(--slate-light); }
+.tr-pw-wrap { position: relative; display: flex; }
+.tr-pw-wrap input { flex: 1; min-width: 0; padding-right: 46px; }
+.tr-pw-toggle { position: absolute; top: 0; right: 0; bottom: 0; width: 44px; display: flex; align-items: center; justify-content: center; border: none; background: none; color: var(--slate-light); cursor: pointer; border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+.tr-pw-toggle:hover { color: var(--ink); }
 .tr-badge { font-size: 12.5px; font-weight: 500; padding: 8px 10px; border-radius: 6px; border: 1px dashed var(--line); background: var(--paper); }
 .tr-badge-weekend { color: var(--brass-dark); border-color: rgba(201,162,75,0.5); background: rgba(201,162,75,0.08); }
 .tr-badge-weekday { color: #2E6E51; border-color: rgba(63,143,108,0.4); background: rgba(63,143,108,0.08); }

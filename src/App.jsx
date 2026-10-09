@@ -3,7 +3,7 @@ import {
   LogIn, LogOut, Plus, Trash2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Users,
   CalendarDays, ShieldCheck, UserPlus, Loader2, Pencil, ClipboardCheck, TrendingUp, UserCog, DollarSign,
   Download, Search, X, GraduationCap, FileText, Ban, Menu, Award, Calendar, Copy, Check,
-  Sun, Video, Sparkles
+  Sun, Video, Sparkles, Eye, EyeOff
 } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
 import { buildInviteLink, inviteState, fetchInviteForAppointment, createInvite, fetchInvitePreview } from './invites.js';
@@ -1323,10 +1323,15 @@ function AuthScreen() {
   const [invite, setInvite] = useState(joinToken ? { loading: true } : null); // null = no link
   const [mode, setMode] = useState(joinToken ? 'signup' : 'login');
   const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
+  const [passwordState, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [showPw, setShowPw] = useState(false);
+  // Android's autofill can fill these boxes without telling React, so login
+  // reads what's actually in the boxes at the moment you tap the button.
+  const emailInputRef = useRef(null);
+  const pwInputRef = useRef(null);
   const [notice, setNotice] = useState('');
 
   useEffect(() => {
@@ -1342,7 +1347,13 @@ function AuthScreen() {
 
   async function submit() {
     setError(''); setNotice('');
-    const mail = email.trim();
+    const typedEmail = (emailInputRef.current && emailInputRef.current.value) || email;
+    const password = (pwInputRef.current && pwInputRef.current.value) || passwordState;
+    // Keep what's on screen and what the app knows the same from here on.
+    if (typedEmail !== email) setEmail(typedEmail);
+    if (password !== passwordState) setPassword(password);
+    // Phone keyboards can add capitals or spaces; email addresses ignore both.
+    const mail = typedEmail.trim().toLowerCase();
     if (!mail || !password) { setError('Enter an email and password.'); return; }
     setBusy(true);
     try {
@@ -1376,8 +1387,18 @@ function AuthScreen() {
           setMode('login');
         }
       } else {
-        const { error: loginErr } = await supabase.auth.signInWithPassword({ email: mail, password });
-        if (loginErr) { setError(loginErr.message); return; }
+        let { error: loginErr } = await supabase.auth.signInWithPassword({ email: mail, password });
+        // An autofilled or predicted password sometimes picks up a space at
+        // the start or end; if the exact one fails, try it without.
+        if (loginErr && password !== password.trim()) {
+          ({ error: loginErr } = await supabase.auth.signInWithPassword({ email: mail, password: password.trim() }));
+        }
+        if (loginErr) {
+          setError(/invalid login credentials/i.test(loginErr.message)
+            ? "That email and password don't match. Tap the eye to check what's typed (watch for autofill), or use \"Forgot password?\"."
+            : loginErr.message);
+          return;
+        }
       }
     } catch {
       setError('Something went wrong. Please try again.');
@@ -1442,11 +1463,20 @@ function AuthScreen() {
             )}
             <label className="tr-field">
               <span>Email</span>
-              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="jordan@yourcompany.com" autoCapitalize="none" autoComplete="email" />
+              <input ref={emailInputRef} type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="jordan@yourcompany.com" autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="email" />
             </label>
             <label className="tr-field">
               <span>Password</span>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} />
+              <div className="tr-pw-wrap">
+                <input
+                  ref={pwInputRef} type={showPw ? 'text' : 'password'} value={passwordState} onChange={e => setPassword(e.target.value)}
+                  autoCapitalize="none" autoCorrect="off" spellCheck={false}
+                  autoComplete={mode === 'signup' ? 'new-password' : 'current-password'} />
+                <button type="button" className="tr-pw-toggle" onClick={e => { e.preventDefault(); setShowPw(v => !v); }}
+                  aria-label={showPw ? 'Hide password' : 'Show password'} aria-pressed={showPw}>
+                  {showPw ? <EyeOff size={17} /> : <Eye size={17} />}
+                </button>
+              </div>
             </label>
             {mode === 'login' && (
               <button type="button" className="tr-link-btn" onClick={forgotPassword} disabled={busy}>Forgot password?</button>
