@@ -100,10 +100,10 @@ not just by the app's screens.</p>
 
 <h2>Google Calendar integration</h2>
 <p>Connecting Google Calendar is optional. If you connect it, PaceLedger
-requests a single permission: <strong>view and edit events on your
-calendars</strong> (the
-<code>https://www.googleapis.com/auth/calendar.events</code> scope). We only
-ever use your primary calendar, and we don't request access to your Gmail,
+requests a single permission: <strong>see, create, change and delete events
+on Google calendars you own</strong> (the
+<code>https://www.googleapis.com/auth/calendar.events.owned</code> scope). We
+only ever use your primary calendar, and we don't request access to your Gmail,
 contacts, Drive, or any other Google data.</p>
 
 <h3>What we do with this access</h3>
@@ -147,6 +147,32 @@ we then delete our stored tokens the next time PaceLedger tries to use
 them. Events PaceLedger already created stay on your Google Calendar as
 ordinary events, which you can edit or delete in Google Calendar.</p>
 
+<h3>Who we share Google user data with</h3>
+<p>Google user data means the calendar events we read from your Google
+Calendar, your connected calendar's address, and the access tokens Google
+gives us. We share it only as follows:</p>
+<ul>
+  <li><strong>Our service providers, only to run the features above.</strong>
+  <a href="https://supabase.com/privacy" target="_blank" rel="noopener noreferrer">Supabase</a>
+  hosts our database and server functions: it stores your Google tokens and
+  connected calendar address, and runs the functions that send requests to
+  Google Calendar for you.
+  <a href="https://www.cloudflare.com/privacypolicy/" target="_blank" rel="noopener noreferrer">Cloudflare</a>
+  hosts the PaceLedger website, so calendar data passes through its network
+  (encrypted) on its way to your screen; it doesn't store it. Both act on our
+  behalf under their terms and may not use the data for anything else.</li>
+  <li><strong>People you choose to invite.</strong> When you add invitees to an
+  appointment, Google sends them a calendar invitation from your calendar with
+  the event's title, time and meeting link. Only the addresses you enter
+  receive it.</li>
+  <li><strong>When the law requires it</strong>, or as part of a merger or
+  acquisition, with notice to you.</li>
+</ul>
+<p>We do <strong>not</strong> share Google user data with your managers or
+other PaceLedger users (Google Calendar events are shown only to you), with
+Zoom, with our email provider, or with advertisers or data brokers, and we
+never sell it.</p>
+
 <h3>Limited Use</h3>
 <p>PaceLedger's use and transfer of information received from Google APIs
 adheres to the
@@ -155,10 +181,10 @@ including the Limited Use requirements. Specifically:</p>
 <ul>
   <li>We use Google Calendar data only to provide the user-facing calendar
   features described above.</li>
-  <li>We do not transfer Google user data to others, except as needed to
-  provide those features (for example, Google itself delivering the
-  invitations you ask for), to comply with applicable law, or as part of a
-  merger or acquisition with notice to you.</li>
+  <li>We do not transfer Google user data to others, except as described in
+  "Who we share Google user data with" above: to provide those features, to
+  comply with applicable law, or as part of a merger or acquisition with
+  notice to you.</li>
   <li>We do not use Google user data for advertising, and we do not sell
   it.</li>
   <li>No person reads your Google Calendar data unless you give us
