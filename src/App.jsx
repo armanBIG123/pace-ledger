@@ -2118,11 +2118,11 @@ function googleOAuthUrl(state) {
     client_id: GOOGLE_CLIENT_ID,
     redirect_uri: googleRedirectUri(),
     response_type: 'code',
-    // calendar.events: read events, create them, and add the attendees the
-    // advisor chooses (we only ever use their primary calendar). This is the
-    // scope under Google review. The google-oauth-callback function also
-    // accepts calendar.events.owned, so narrowing later is a one-line change.
-    scope: 'https://www.googleapis.com/auth/calendar.events',
+    // calendar.events.owned: read and create events on calendars the person
+    // owns (we only ever use their primary calendar), including adding the
+    // attendees they choose. Must match the scope configured in Google Cloud
+    // Console exactly (Google verification checks the string).
+    scope: 'https://www.googleapis.com/auth/calendar.events.owned',
     access_type: 'offline',
     prompt: 'consent',
     // A random one-time value (not a login token) that we check on the
