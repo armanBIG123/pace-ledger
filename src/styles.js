@@ -895,6 +895,17 @@ export const CSS = `
 .tr-intake-steps-list { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
 .tr-intake-step-num { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 999px; background: var(--paper-dim); color: var(--slate); font-size: 11px; font-weight: 600; margin-right: 8px; flex-shrink: 0; }
 .tr-intake-link-row { display: flex; align-items: center; gap: 8px; }
+.tr-invite-email { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line); display: flex; flex-direction: column; gap: 6px; }
+.tr-invite-email-label { font-size: 13px; font-weight: 600; color: var(--ink); }
+.tr-invite-email-row { display: flex; align-items: center; gap: 8px; }
+.tr-invite-email-input { flex: 1; min-width: 0; font-family: inherit; font-size: 14px; min-height: 36px; padding: 7px 11px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background-color: var(--card); color: var(--ink); }
+.tr-invite-email-input::placeholder { color: #7A8591; }
+.tr-invite-email-input:focus { border-color: var(--brass); box-shadow: var(--ring); outline: none; }
+.tr-invite-email-row .tr-btn { flex-shrink: 0; white-space: nowrap; }
+.tr-invite-email-sent { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: #2E6E51; }
+@media (max-width: 640px) {
+  .tr-invite-email-input { font-size: 16px; }
+}
 .tr-intake-link-box { flex: 1; font-family: 'IBM Plex Mono', monospace; font-size: 11.5px; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--paper-dim); color: var(--slate); overflow-x: auto; white-space: nowrap; }
 .tr-intake-progress-label { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; font-weight: 500; color: var(--slate); margin-bottom: 7px; }
 .tr-intake-progress-label strong { color: var(--ink); }

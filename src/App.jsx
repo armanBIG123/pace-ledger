@@ -3,10 +3,10 @@ import {
   LogIn, LogOut, Plus, Trash2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Users,
   CalendarDays, ShieldCheck, UserPlus, Loader2, Pencil, ClipboardCheck, TrendingUp, UserCog, DollarSign,
   Download, Search, X, GraduationCap, FileText, Ban, Menu, Award, Calendar, Copy, Check,
-  Sun, Video, Sparkles, Eye, EyeOff
+  Sun, Video, Sparkles, Eye, EyeOff, Mail
 } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
-import { buildInviteLink, inviteState, fetchInviteForAppointment, createInvite, fetchInvitePreview } from './invites.js';
+import { buildInviteLink, inviteState, fetchInviteForAppointment, createInvite, fetchInvitePreview, emailInvite } from './invites.js';
 import {
   ONBOARDING_DAYS, ONBOARDING_WEEKS, onboardingDay, weekForDay, computeOnboarding, shouldShowOnboarding,
   fetchMyOnboarding, saveOnboardingSnapshot, setOnboardingVisibility, fetchTeamOnboarding,
@@ -922,6 +922,7 @@ async function deleteMyAccount() {
 function InviteSomeone({ user }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
   const [invite, setInvite] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -941,14 +942,18 @@ function InviteSomeone({ user }) {
       {invite ? (
         <>
           <p className="tr-empty" style={{ margin: 0 }}>Send this to {invite.invitee_name || 'them'}. It puts them directly under you.</p>
-          <InviteShare invite={invite} recruitName={invite.invitee_name} />
-          <button type="button" className="tr-link-btn" style={{ marginTop: 6 }} onClick={() => { setInvite(null); setName(''); }}>Invite someone else</button>
+          <InviteShare key={invite.id} invite={invite} recruitName={invite.invitee_name} defaultEmail={email} />
+          <button type="button" className="tr-link-btn" style={{ marginTop: 6 }} onClick={() => { setInvite(null); setName(''); setEmail(''); }}>Invite someone else</button>
         </>
       ) : (
         <>
           <label className="tr-field">
             <span>Their name (optional)</span>
             <input value={name} onChange={e => setName(e.target.value)} placeholder="Jordan Blake" />
+          </label>
+          <label className="tr-field">
+            <span>Their email (optional, to email them the link)</span>
+            <input type="email" inputMode="email" autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={email} onChange={e => setEmail(e.target.value)} placeholder="jordan@example.com" />
           </label>
           {err && <div className="tr-error">{err}</div>}
           <div className="tr-form-actions" style={{ marginTop: 8 }}>
@@ -4471,21 +4476,40 @@ function MyAppointmentsBody({ user, prefillData, onPrefillConsumed }) {
         timezone: form.timezone,
         managerHostId: form.zoomHostId,
       });
-      // Invites: Google Calendar sends them when it's connected; otherwise
-      // PaceLedger emails them itself.
+      // Invites: Google Calendar emails everyone it can when it's connected.
+      // Google never emails the calendar's owner (usually the advisor's own
+      // "Me" address), so PaceLedger emails whoever Google didn't — or
+      // everyone, when Google Calendar isn't connected.
       if (inviteEmails.length) {
-        if (google.ownInvited) {
-          await markInviteSent(record.id, inviteEmails, 'google');
-          record = { ...record, inviteeEmails: inviteEmails, inviteMethod: 'google', inviteSentAt: new Date().toISOString() };
-          setNotice({ kind: 'ok', text: `Google Calendar invite sent to ${inviteEmails.join(', ')}${record.zoomUrl ? ' with the Zoom link' : ''}.` });
-        } else {
-          const r = await sendAppointmentInviteEmail(record.id, inviteEmails);
-          if (r.sent) {
-            record = { ...record, inviteeEmails: r.recipients || inviteEmails, inviteMethod: 'email', inviteSentAt: new Date().toISOString() };
-            setNotice({ kind: 'ok', text: `Invite emailed to ${(r.recipients || inviteEmails).join(', ')}${record.zoomUrl ? ' with the Zoom link' : ''}.` });
-          } else {
-            setNotice({ kind: 'warn', text: inviteFailureMessage(r.error) });
-          }
+        const norm = e => String(e).trim().toLowerCase();
+        const byGoogle = google.ownPushed && Array.isArray(google.invited) ? google.invited.map(norm) : [];
+        const byEmail = inviteEmails.filter(e => !byGoogle.includes(norm(e)));
+        let emailed = [];
+        let emailError = null;
+        // Email first: send-appointment-invite refuses a second send within
+        // a minute of invite_sent_at, which markInviteSent sets.
+        if (byEmail.length) {
+          const r = await sendAppointmentInviteEmail(record.id, byEmail);
+          if (r.sent) emailed = r.recipients || byEmail;
+          else emailError = r.error;
+        }
+        const reached = [...byGoogle, ...emailed];
+        if (reached.length) {
+          const method = byGoogle.length ? 'google' : 'email';
+          if (byGoogle.length) await markInviteSent(record.id, reached, method);
+          record = { ...record, inviteeEmails: reached, inviteMethod: method, inviteSentAt: new Date().toISOString() };
+        }
+        const zoomBit = record.zoomUrl ? ' with the Zoom link' : '';
+        const parts = [];
+        if (byGoogle.length) parts.push(`Google Calendar invite sent to ${byGoogle.join(', ')}`);
+        if (emailed.length) parts.push(`invite emailed to ${emailed.join(', ')}`);
+        if (emailError) {
+          const missed = byEmail.filter(e => !emailed.map(norm).includes(norm(e)));
+          const failText = inviteFailureMessage(emailError);
+          setNotice({ kind: 'warn', text: parts.length ? `${parts.join('; ')}${zoomBit}. Not sent to ${missed.join(', ')}: ${failText}` : failText });
+        } else if (parts.length) {
+          const text = parts.join('; ');
+          setNotice({ kind: 'ok', text: `${text.charAt(0).toUpperCase()}${text.slice(1)}${zoomBit}.` });
         }
       }
       setSaving(false);
@@ -4672,9 +4696,27 @@ function daysSince(iso) {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 864e5);
 }
 // Recruit sign-up link for one recruit: a personal, single-use invitation
-// that puts them directly under the advisor who sends it.
-function InviteShare({ invite, recruitName }) {
+// that puts them directly under the advisor who sends it. It can be
+// copied, shared, or emailed straight from PaceLedger.
+function inviteEmailError(code) {
+  if (code === 'bad_email') return "That email address doesn't look right.";
+  if (code === 'too_soon') return 'It was just sent. Wait a minute before sending it again.';
+  if (code === 'link_limit') return "This link has been emailed 5 times already. Copy it and send it yourself instead.";
+  if (code === 'daily_limit') return "You've hit today's limit for emailed sign-up links. Copy the link instead, or try tomorrow.";
+  if (code === 'used') return 'This link has already been used to create an account.';
+  if (code === 'expired') return 'This link has expired. Make a new one.';
+  if (code === 'email_not_configured') return "PaceLedger's email sending isn't set up yet. Copy the link instead.";
+  return "The email couldn't be sent. Check your connection and try again, or copy the link instead.";
+}
+function fmtSentStamp(iso) {
+  return new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+function InviteShare({ invite, recruitName, defaultEmail }) {
   const [copied, setCopied] = useState('');
+  const [to, setTo] = useState(invite.emailed_to || defaultEmail || '');
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(invite.emailed_to ? { to: invite.emailed_to, at: invite.emailed_at } : null);
+  const [emailErr, setEmailErr] = useState('');
   const link = buildInviteLink(invite.token);
   const first = (recruitName || '').trim().split(' ')[0];
   const message = `Hey ${first || 'there'}! Here's your personal link to create your PaceLedger account. It's already set up to put you on my team: ${link}`;
@@ -4685,6 +4727,17 @@ function InviteShare({ invite, recruitName }) {
       setTimeout(() => setCopied(''), 2000);
     }
   }
+  async function sendEmail(e) {
+    e.preventDefault();
+    const addr = to.trim();
+    if (!isValidEmail(addr)) { setEmailErr(inviteEmailError('bad_email')); return; }
+    setSending(true); setEmailErr('');
+    const res = await emailInvite(invite.id, addr);
+    setSending(false);
+    if (res.sent) setSent({ to: res.emailedTo || addr, at: res.emailedAt || new Date().toISOString() });
+    else setEmailErr(inviteEmailError(res.error));
+  }
+  const sameAsSent = sent && to.trim().toLowerCase() === sent.to;
   return (
     <>
       <div className="tr-intake-link-row" style={{ marginTop: 8 }}>
@@ -4697,10 +4750,24 @@ function InviteShare({ invite, recruitName }) {
           Works once{invite.expires_at && !isNaN(new Date(invite.expires_at)) ? ` · expires ${new Date(invite.expires_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}
         </span>
       </div>
+      <form className="tr-invite-email" onSubmit={sendEmail} noValidate>
+        <label className="tr-invite-email-label" htmlFor={`invite-email-${invite.id}`}>Or email it to them</label>
+        <div className="tr-invite-email-row">
+          <input
+            id={`invite-email-${invite.id}`} type="email" inputMode="email" autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false}
+            className="tr-invite-email-input" value={to} placeholder="name@example.com"
+            onChange={e => { setTo(e.target.value); setEmailErr(''); }} />
+          <button type="submit" className="tr-btn tr-btn-brass tr-btn-sm" disabled={sending || !to.trim()}>
+            <Mail size={13} /> {sending ? 'Sending…' : sameAsSent ? 'Send again' : 'Email link'}
+          </button>
+        </div>
+        {sent && !emailErr && <div className="tr-invite-email-sent"><Check size={13} /> Emailed to {sent.to}{sent.at ? ` · ${fmtSentStamp(sent.at)}` : ''}. Replies come to you.</div>}
+        {emailErr && <div className="tr-error" style={{ marginTop: 6 }}>{emailErr}</div>}
+      </form>
     </>
   );
 }
-function RecruitSignupSection({ user, recruitName, joined, appointmentId }) {
+function RecruitSignupSection({ user, recruitName, recruitEmail, joined, appointmentId }) {
   const [invite, setInvite] = useState(undefined); // undefined = loading
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -4736,7 +4803,7 @@ function RecruitSignupSection({ user, recruitName, joined, appointmentId }) {
           {state === 'active' ? (
             <>
               <p className="tr-empty" style={{ margin: '6px 0 0' }}>Their personal sign-up link. It puts them directly under you, and they can't change it.</p>
-              <InviteShare invite={invite} recruitName={recruitName} />
+              <InviteShare key={invite.id} invite={invite} recruitName={recruitName} defaultEmail={recruitEmail} />
             </>
           ) : (
             <>
@@ -4956,7 +5023,7 @@ function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentConsumed })
 
                   {isRecruitType(a) && (
                     <div className="tr-fu-section">
-                      <RecruitSignupSection user={user} recruitName={a.client} joined={recruitJoined(a)} appointmentId={a.id} />
+                      <RecruitSignupSection user={user} recruitName={a.client} recruitEmail={a.clientEmail} joined={recruitJoined(a)} appointmentId={a.id} />
                     </div>
                   )}
 

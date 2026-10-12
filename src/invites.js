@@ -49,3 +49,25 @@ export async function fetchInvitePreview(token) {
   if (error || !data) return { valid: false, reason: 'error' };
   return data;
 }
+
+// Emails the sign-up link to `email` (see send-recruit-invite). Returns
+// { sent: true, emailedTo, emailedAt } or { sent: false, error }.
+export async function emailInvite(inviteId, email) {
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (!sessionData.session) return { sent: false, error: 'not_signed_in' };
+  try {
+    const res = await fetch(`${supabase.supabaseUrl}/functions/v1/send-recruit-invite`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${sessionData.session.access_token}`,
+        apikey: supabase.supabaseKey,
+      },
+      body: JSON.stringify({ inviteId, email }),
+    });
+    const json = await res.json().catch(() => ({}));
+    return res.ok ? json : { sent: false, error: json.error || 'request_failed' };
+  } catch {
+    return { sent: false, error: 'request_failed' };
+  }
+}
