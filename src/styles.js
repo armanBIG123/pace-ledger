@@ -102,7 +102,7 @@ export const CSS = `
 .tr-groupswitch { display: inline-flex; flex-shrink: 0; align-self: center; margin-bottom: 6px; padding: 3px; border-radius: 9px; background: rgba(255,255,255,0.08); }
 .tr-groupswitch button { font-family: inherit; font-size: 13px; font-weight: 500; padding: 5px 12px; border-radius: 6px; border: none; background: transparent; color: rgba(255,255,255,0.7); cursor: pointer; white-space: nowrap; }
 .tr-groupswitch button:hover { color: #fff; }
-.tr-groupswitch .tr-groupswitch-on { background: #fff; color: var(--ink); }
+.tr-groupswitch .tr-groupswitch-on, .tr-groupswitch .tr-groupswitch-on:hover { background: #fff; color: var(--ink); }
 
 /* layout */
 .tr-main { max-width: 1120px; margin: 0 auto; padding: 28px 24px calc(72px + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; gap: 20px; }
@@ -371,7 +371,7 @@ export const CSS = `
 .tr-expand-row .tr-card { margin-bottom: 12px; }
 .tr-expand-row .tr-card:last-child { margin-bottom: 0; }
 
-.tr-minibar-wrap { display: flex; align-items: center; gap: 6px; min-width: 60px; }
+.tr-minibar-wrap { display: flex; align-items: center; gap: 5px; min-width: 50px; }
 .tr-minibar-track { flex: 1; height: 7px; border-radius: 999px; background: var(--paper-dim); overflow: hidden; }
 .tr-minibar-fill { height: 100%; background: var(--brass); border-radius: 999px; }
 .tr-minibar-num { font-size: 12px; color: var(--slate-light); white-space: nowrap; }

@@ -758,16 +758,36 @@ async function deleteAppointmentRow(id) {
   return !error;
 }
 async function fetchTeamMembers(viewer) {
-  let query = supabase.from('profiles').select('*').order('display_name');
-  if (viewer.role === 'super_admin') {
-    query = query.in('role', ['advisor', 'manager', 'super_admin']);
-  } else {
-    // regular managers only ever see their own assigned advisors
-    query = query.eq('role', 'advisor').eq('manager_id', viewer.id);
-  }
-  const { data, error } = await query;
+  const { data, error } = await supabase.from('profiles').select('*').order('display_name');
   if (error) { console.error(error); return []; }
-  return data;
+  if (viewer.role === 'super_admin') return data.filter(p => ['advisor', 'manager', 'super_admin'].includes(p.role));
+  // Everyone else (managers and advisors who lead people) sees their whole
+  // downline, at any depth. People who don't report to the viewer directly
+  // carry the name of who they do report to, so the structure stays clear.
+  const byId = new Map(data.map(p => [p.id, p]));
+  return computeDownline(viewer.id, data)
+    .filter(p => p.id !== viewer.id)
+    .map(p => (p.manager_id && p.manager_id !== viewer.id ? { ...p, reports_to_name: (byId.get(p.manager_id) || {}).display_name || '' } : p))
+    .sort((a, b) => (a.display_name || '').localeCompare(b.display_name || ''));
+}
+// Does anyone report to this person? Advisors who lead people get the
+// Team views without needing the manager role.
+async function hasDirectReports(userId) {
+  const { count, error } = await supabase.from('profiles').select('id', { count: 'exact', head: true }).eq('manager_id', userId);
+  if (error) { console.error(error); return false; }
+  return (count || 0) > 0;
+}
+// Sees other people's work: managers, admins, and advisors with a downline.
+function seesTeam(user) {
+  return user.role !== 'advisor' || !!user.isLeader;
+}
+// "Reports to Sam · Joined 08/26/2026" under a team member's name.
+function MemberSubline({ member }) {
+  return (
+    <div className="tr-tenure">
+      {member.reports_to_name ? <>Reports to {member.reports_to_name} · </> : null}Joined {joinedDate(member.created_at)}
+    </div>
+  );
 }
 // manager_id doubles as "reports to" for manager-role rows too — a manager
 // assigned to a super_admin just has manager_id set to that admin's id.
@@ -2624,7 +2644,7 @@ function CalendarBody({ user, onLogAppointment }) {
     // One extra day each side: appointments are placed by your local date,
     // which can differ by a day from the stored date across timezones.
     const tasks = [fetchAppointmentsInRange(fmtDate(addDays(parseDate(rangeStart), -1)), fmtDate(addDays(parseDate(rangeEnd), 1))), fetchGoogleConnectionStatus(), fetchTrainingsInRange(rangeStart, rangeEnd), fetchScheduleBlocksInRange(rangeStart, rangeEnd)];
-    if (user.role !== 'advisor') tasks.push(fetchTeamMembers(user));
+    if (seesTeam(user)) tasks.push(fetchTeamMembers(user));
     const [apptList, status, trainingList, blockList, memberList] = await Promise.all(tasks);
     setAppts(apptList);
     setGoogleStatus(status);
@@ -2639,7 +2659,7 @@ function CalendarBody({ user, onLogAppointment }) {
       setGoogleEvents([]);
     }
     setLoading(false);
-  }, [rangeStart, rangeEnd, user.id, user.role]);
+  }, [rangeStart, rangeEnd, user.id, user.role, user.isLeader]);
 
   useEffect(() => { refresh(); }, [refresh]);
   // Re-check once a Google connection finishes in the background.
@@ -2706,7 +2726,7 @@ function CalendarBody({ user, onLogAppointment }) {
   function trainingsForDay(dateStr) { return trainings.filter(t => trainingLocalDate(t) === dateStr); }
   function scheduleBlocksForDay(dateStr) { return scheduleBlocks.filter(b => b.block_date === dateStr); }
   function ownerName(userId) {
-    if (user.role === 'advisor') return '';
+    if (!seesTeam(user)) return '';
     if (userId === user.id) return user.displayName;
     const m = members.find(mm => mm.id === userId);
     return m ? m.display_name : '';
@@ -2737,7 +2757,7 @@ function CalendarBody({ user, onLogAppointment }) {
           onClick={() => setHighlightTrainings(v => !v)} title="Highlight days with trainings">
           <GraduationCap size={14} /> Trainings
         </button>
-        {user.role !== 'advisor' && (
+        {seesTeam(user) && (
           <select className="tr-cal-personfilter" value={personFilter} onChange={e => setPersonFilter(e.target.value)}>
             <option value="all">Everyone</option>
             <option value="mine">Just me</option>
@@ -6203,7 +6223,7 @@ function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, emptyMe
                           {adv.display_name}
                           {adv.role === 'manager' ? <span className="tr-note"> — manager</span> : null}
                           {adv.role === 'super_admin' ? <span className="tr-note"> — admin</span> : null}
-                          <div className="tr-tenure">Joined {joinedDate(adv.created_at)}</div>
+                          <MemberSubline member={adv} />
                         </td>
                         {DATE_SET_OPTIONS.map((opt, i) => (
                           <td key={opt.value}><MiniBar count={counts[i]} target={opt.target} /></td>
@@ -6449,7 +6469,8 @@ function TeamProspectingBody({ user }) {
                       <tr className="tr-clickable-row" onClick={() => setExpanded(isOpen ? null : m.id)}>
                         <td>
                           {m.display_name}
-                          <div className="tr-tenure">Joined {joinedDate(m.created_at)}</div>
+                          {m.role === 'manager' ? <span className="tr-note"> — manager</span> : null}
+                          <MemberSubline member={m} />
                         </td>
                         <td className="tr-mono">{active.length}</td>
                         <td className="tr-mono">{sale}</td>
@@ -6539,6 +6560,7 @@ function TrackProductionBody({ user }) {
                         {m.display_name}
                         {m.role === 'manager' ? <span className="tr-note"> — manager</span> : null}
                         {m.role === 'super_admin' ? <span className="tr-note"> — admin</span> : null}
+                        {m.reports_to_name ? <div className="tr-tenure">Reports to {m.reports_to_name}</div> : null}
                       </td>
                       <td className="tr-mono">{fmtCurrency(totalPremium)}{sold.length ? <span className="tr-note"> ({sold.length})</span> : null}</td>
                       <td>{recruited.length === 0 ? '—' : recruited.map(a => a.client).join(', ')}</td>
@@ -6668,11 +6690,23 @@ function ManageUsersView({ currentUserId, currentUserName }) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  // A manager or super admin can personally be someone's direct upline —
-  // used for both advisors and other managers reporting further up, so
-  // the org can stack multiple manager levels without needing anything
-  // new added later.
-  const managerAndAdminOptions = users.filter(u => u.role === 'manager' || u.role === 'super_admin');
+  // Anyone can lead people now, so anyone can be picked — except the person
+  // themselves and anyone already under them (that would make a loop; the
+  // database refuses it too).
+  function uplineChoices(u) {
+    const below = new Set(computeDownline(u.id, users).map(p => p.id));
+    const ok = users.filter(p => !below.has(p.id));
+    const label = p => `${p.display_name}${p.role === 'super_admin' ? ' (Super Admin)' : ''}`;
+    const leaders = ok.filter(p => p.role !== 'advisor');
+    const advisors = ok.filter(p => p.role === 'advisor');
+    return (
+      <>
+        <option value="">— none —</option>
+        {leaders.length > 0 && <optgroup label="Managers and admins">{leaders.map(p => <option key={p.id} value={p.id}>{label(p)}</option>)}</optgroup>}
+        {advisors.length > 0 && <optgroup label="Advisors">{advisors.map(p => <option key={p.id} value={p.id}>{label(p)}</option>)}</optgroup>}
+      </>
+    );
+  }
 
   const ROLE_LABELS = { advisor: 'Advisor', manager: 'Manager', super_admin: 'Super Admin' };
   function handleExportRoster() {
@@ -6775,15 +6809,9 @@ function ManageUsersView({ currentUserId, currentUserName }) {
                     </select>
                   </td>
                   <td>
-                    {u.role === 'advisor' ? (
+                    {u.role === 'advisor' || u.role === 'manager' ? (
                       <select value={u.manager_id || ''} disabled={savingId === u.id} onChange={e => handleManagerChange(u.id, e.target.value)}>
-                        <option value="">— none —</option>
-                        {managerAndAdminOptions.map(m => <option key={m.id} value={m.id}>{m.display_name}{m.role === 'super_admin' ? ' (Super Admin)' : ''}</option>)}
-                      </select>
-                    ) : u.role === 'manager' ? (
-                      <select value={u.manager_id || ''} disabled={savingId === u.id} onChange={e => handleManagerChange(u.id, e.target.value)}>
-                        <option value="">— none —</option>
-                        {managerAndAdminOptions.filter(m => m.id !== u.id).map(m => <option key={m.id} value={m.id}>{m.display_name}{m.role === 'super_admin' ? ' (Super Admin)' : ''}</option>)}
+                        {uplineChoices(u)}
                       </select>
                     ) : '—'}
                   </td>
@@ -7020,11 +7048,11 @@ export default function App() {
 
     setProfileLoading(true);
     setProfileError('');
-    supabase.from('profiles').select('*').eq('id', userId).single()
-      .then(({ data, error }) => {
+    Promise.all([supabase.from('profiles').select('*').eq('id', userId).single(), hasDirectReports(userId)])
+      .then(([{ data, error }, leads]) => {
         if (cancelled) return;
         if (error) setProfileError('Could not load your profile. Try refreshing the page.');
-        setProfile(data || null);
+        setProfile(data ? { ...data, _leads: leads } : null);
         setProfileLoading(false);
         fetchedForUserId.current = userId;
       });
@@ -7044,11 +7072,11 @@ export default function App() {
   }
   if (profileLoading || !profile) return <Shell><AndroidBackLeavesApp /><Spinner label="Loading your account…" /></Shell>;
 
-  const user = { id: session.user.id, email: session.user.email || profile.email || '', displayName: profile.display_name, role: profile.role, hierarchyTier: profile.hierarchy_tier, managerId: profile.manager_id, createdAt: profile.created_at };
+  const user = { id: session.user.id, email: session.user.email || profile.email || '', displayName: profile.display_name, role: profile.role, hierarchyTier: profile.hierarchy_tier, managerId: profile.manager_id, createdAt: profile.created_at, isLeader: !!profile._leads };
   return (
     <>
       <ConnectionBanner banner={connectionBanner} onDismiss={() => setConnectionBanner(null)} />
-      {user.role === 'super_admin' ? <AdminView user={user} /> : user.role === 'manager' ? <ManagerView user={user} /> : <AdvisorView user={user} />}
+      {user.role === 'super_admin' ? <AdminView user={user} /> : seesTeam(user) ? <ManagerView user={user} /> : <AdvisorView user={user} />}
     </>
   );
 }
