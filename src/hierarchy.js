@@ -248,3 +248,50 @@ export function computeUpline(userId, allPeople) {
   }
   return result;
 }
+
+// ---------------------------------------------------------------------
+// Fast org-wide helpers (org chart, promotion alerts). Same rules as
+// above, but built for running across everyone at once: the reporting
+// tree is indexed once instead of rescanned for every person.
+// ---------------------------------------------------------------------
+export function buildChildrenMap(people) {
+  const map = new Map();
+  for (const p of people) {
+    if (!p.manager_id) continue;
+    if (!map.has(p.manager_id)) map.set(p.manager_id, []);
+    map.get(p.manager_id).push(p);
+  }
+  return map;
+}
+// Everyone under rootId at any depth (not including rootId). Loop-safe.
+export function downlineIds(rootId, childrenMap) {
+  const out = [];
+  const seen = new Set([rootId]);
+  const queue = [rootId];
+  while (queue.length) {
+    const id = queue.shift();
+    for (const c of childrenMap.get(id) || []) {
+      if (seen.has(c.id)) continue;
+      seen.add(c.id); out.push(c.id); queue.push(c.id);
+    }
+  }
+  return out;
+}
+// Tier progress for each of subjectIds, from one list of people (with
+// hierarchy_tier, npn, etc.) and one list of officially-sold appointments.
+// Returns [{ member, progress }] for everyone who has a next tier.
+export function computeReadiness(people, soldAppointments, subjectIds) {
+  const byUser = new Map(), byTrainee = new Map();
+  const add = (m, k, a) => { if (!k) return; if (!m.has(k)) m.set(k, []); m.get(k).push(a); };
+  for (const a of soldAppointments) { add(byUser, a.userId, a); add(byTrainee, a.traineeId, a); }
+  const children = buildChildrenMap(people);
+  const byId = new Map(people.map(p => [p.id, p]));
+  const out = [];
+  for (const id of subjectIds) {
+    const m = byId.get(id);
+    if (!m || !m.hierarchy_tier || !nextTierAfter(m.hierarchy_tier)) continue;
+    const downAppts = downlineIds(m.id, children).flatMap(d => byUser.get(d) || []);
+    out.push({ member: m, progress: computeTierProgress(m, people, byUser.get(m.id) || [], downAppts, byTrainee.get(m.id) || []) });
+  }
+  return out;
+}

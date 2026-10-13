@@ -895,6 +895,55 @@ export const CSS = `
 .tr-intake-steps-list { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
 .tr-intake-step-num { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 999px; background: var(--paper-dim); color: var(--slate); font-size: 11px; font-weight: 600; margin-right: 8px; flex-shrink: 0; }
 .tr-intake-link-row { display: flex; align-items: center; gap: 8px; }
+/* org chart */
+.tr-org-stats { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.tr-org-stats > span, .tr-org-stat-ready { font-size: 13px; color: var(--slate); background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; }
+.tr-org-stats strong { color: var(--ink); }
+.tr-org-stat-ready { display: inline-flex; align-items: center; gap: 5px; font-family: inherit; cursor: pointer; background: rgba(201,162,75,0.14); border-color: rgba(201,162,75,0.45); color: #7A5C18; }
+.tr-org-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+.tr-org-search { flex: 1; min-width: 200px; margin: 0; }
+.tr-org-card { padding: 8px 10px; }
+.tr-org-tree, .tr-org-children { list-style: none; margin: 0; padding: 0; }
+.tr-org-children { margin-left: 17px; padding-left: 14px; border-left: 1px solid var(--line); }
+.tr-org-row { display: flex; align-items: center; gap: 10px; padding: 9px 8px; border-radius: 8px; }
+.tr-org-row:hover { background: var(--paper); }
+.tr-org-hit { background: rgba(201,162,75,0.12); }
+.tr-org-me .tr-org-avatar { background: var(--ink); color: #fff; }
+.tr-org-toggle { width: 22px; height: 22px; flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; border: none; background: none; color: var(--slate); border-radius: 6px; cursor: pointer; padding: 0; }
+.tr-org-toggle:hover { background: var(--paper-dim); color: var(--ink); }
+.tr-org-toggle-none { cursor: default; }
+.tr-org-toggle-none:hover { background: none; }
+.tr-org-avatar { width: 32px; height: 32px; flex-shrink: 0; border-radius: 999px; background: var(--paper-dim); color: var(--slate); font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; letter-spacing: .02em; }
+.tr-org-main { flex: 1; min-width: 0; }
+.tr-org-name { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 14px; color: var(--ink); }
+.tr-org-you { font-size: 11px; color: var(--slate-light); }
+.tr-org-tier { font-size: 11px; font-weight: 600; letter-spacing: .03em; padding: 1px 7px; border-radius: 999px; background: rgba(20,32,43,0.07); color: var(--ink); }
+.tr-org-role { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); color: var(--slate); }
+.tr-org-ready { display: inline-flex; align-items: center; gap: 4px; font-family: inherit; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(201,162,75,0.5); background: rgba(201,162,75,0.15); color: #7A5C18; cursor: pointer; }
+.tr-org-sub { font-size: 12px; color: var(--slate-light); margin-top: 2px; }
+.tr-org-pace { display: flex; align-items: center; gap: 8px; flex-shrink: 0; font-size: 13px; color: var(--slate); }
+/* promotion alerts on Today */
+.tr-promo-card { margin-top: 14px; padding: 14px 16px; border-color: rgba(201,162,75,0.45); background: linear-gradient(0deg, rgba(201,162,75,0.07), rgba(201,162,75,0.07)), var(--card); }
+.tr-promo-card-self { display: flex; align-items: center; gap: 12px; }
+.tr-promo-head { display: flex; align-items: center; gap: 12px; }
+.tr-promo-icon { width: 36px; height: 36px; flex-shrink: 0; border-radius: 999px; background: rgba(201,162,75,0.2); color: #7A5C18; display: inline-flex; align-items: center; justify-content: center; }
+.tr-promo-body { flex: 1; min-width: 0; }
+.tr-promo-title { font-weight: 600; color: var(--ink); font-size: 14.5px; }
+.tr-promo-sub { font-size: 12.5px; color: var(--slate); margin-top: 2px; }
+.tr-promo-list { list-style: none; margin: 10px 0 0 48px; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; color: var(--slate); }
+.tr-promo-list li { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.tr-promo-list strong { color: var(--ink); }
+.tr-promo-more { color: var(--slate-light); font-size: 12.5px; }
+.tr-promo-ready-cell { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+@media (max-width: 640px) {
+  .tr-org-children { margin-left: 10px; padding-left: 8px; }
+  .tr-org-row { display: grid; grid-template-columns: 22px 28px minmax(0, 1fr); column-gap: 8px; row-gap: 4px; padding: 8px 4px; }
+  .tr-org-avatar { width: 28px; height: 28px; font-size: 11px; }
+  .tr-org-pace { grid-column: 3; }
+  .tr-org-search { flex-basis: 100%; }
+  .tr-promo-card-self, .tr-promo-head { flex-wrap: wrap; }
+  .tr-promo-list { margin-left: 0; }
+}
 .tr-invite-email { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--line); display: flex; flex-direction: column; gap: 6px; }
 .tr-invite-email-label { font-size: 13px; font-weight: 600; color: var(--ink); }
 .tr-invite-email-row { display: flex; align-items: center; gap: 8px; }

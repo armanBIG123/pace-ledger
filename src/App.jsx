@@ -3,7 +3,7 @@ import {
   LogIn, LogOut, Plus, Trash2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Users,
   CalendarDays, ShieldCheck, UserPlus, Loader2, Pencil, ClipboardCheck, TrendingUp, UserCog, DollarSign,
   Download, Search, X, GraduationCap, FileText, Ban, Menu, Award, Calendar, Copy, Check,
-  Sun, Video, Sparkles, Eye, EyeOff, Mail
+  Sun, Video, Sparkles, Eye, EyeOff, Mail, Network
 } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
 import { buildInviteLink, inviteState, fetchInviteForAppointment, createInvite, fetchInvitePreview, emailInvite } from './invites.js';
@@ -27,6 +27,7 @@ async function signOut() {
 import {
   HIERARCHY_TIERS, HIERARCHY_TIER_WINDOW_LABELS, hierarchyTierLabel,
   nextTierAfter, isLicensed, computeTierProgress, computeDownline, computeUpline,
+  buildChildrenMap, downlineIds, computeReadiness,
 } from './hierarchy.js';
 import {
   fetchDocuments, uploadDocument, deleteDocument, updateDocumentTitle,
@@ -512,25 +513,43 @@ const PROSPECT_SOURCES = ['Referral', 'Cold outreach', 'Event', 'Social media', 
 // computeUpline, isLicensed, etc.) now live in ./hierarchy.js — see the
 // import at the top of this file.
 
-// For a manager checking their whole team at once, rather than one
-// person checking their own progress — runs the same engine per member,
-// in parallel, and returns everyone's full progress toward their next
-// tier. Skips anyone with no tier set or already at the top, since
-// there's nothing to compute for them. Filter the result for allMet to
-// get just who's ready.
-async function computeTeamPromotionProgress(members, orgDirectory) {
-  const eligible = members.filter(m => m.hierarchy_tier && nextTierAfter(m.hierarchy_tier));
-  const results = await Promise.all(eligible.map(async m => {
-    const [myAppts, traineeAppts] = await Promise.all([
-      fetchMyAppointments(m.id),
-      fetchAppointmentsAsTrainee(m.id),
-    ]);
-    const downline = computeDownline(m.id, orgDirectory).filter(p => p.id !== m.id);
-    const downlineAppts = await fetchAppointmentsForUserIds(downline.map(p => p.id));
-    const progress = computeTierProgress(m, orgDirectory, myAppts, downlineAppts, traineeAppts);
-    return { member: m, progress };
-  }));
-  return results;
+// Everyone's place in the hierarchy, with the fields tier progress needs.
+// (org_directory has no tiers, so tier-count requirements need this.)
+async function fetchHierarchyPeople() {
+  const { data, error } = await supabase.from('profiles')
+    .select('id, display_name, email, manager_id, role, hierarchy_tier, hierarchy_tier_changed_at, created_at, npn, fg_writing_number')
+    .order('display_name');
+  if (error) { console.error(error); return []; }
+  return data;
+}
+// Officially-sold appointments recent enough to count toward any tier:
+// the rolling 30 days, or this month plus the two before it.
+async function fetchRecentSoldAppointments() {
+  const now = new Date();
+  const monthsBack = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+  const thirtyBack = new Date(now.getTime() - 31 * 864e5);
+  const since = fmtDate(monthsBack < thirtyBack ? monthsBack : thirtyBack);
+  const { data, error } = await supabase.from('appointments').select('*').eq('officially_sold', true).gte('appointment_date', since);
+  if (error) { console.error(error); return []; }
+  return data.map(rowToRecord);
+}
+// Who the viewer can see promotion progress for: admins see everyone;
+// everyone else sees themselves and their downline.
+function promotionSubjects(user, people) {
+  if (user.role === 'super_admin') return people.map(p => p.id);
+  return [user.id, ...downlineIds(user.id, buildChildrenMap(people))];
+}
+async function loadPromotionReadiness(user, subjectIds) {
+  const [people, sold] = await Promise.all([fetchHierarchyPeople(), fetchRecentSoldAppointments()]);
+  const ids = subjectIds || promotionSubjects(user, people);
+  return { people, sold, list: computeReadiness(people, sold, ids) };
+}
+// A super admin approves a promotion: sets the next tier and logs it.
+async function approvePromotion(admin, member, nextTier) {
+  const err = await changeUserTier(member.id, nextTier.key);
+  if (err) return err;
+  await logAuditEvent(admin.id, admin.displayName, 'Promoted', member.display_name, `${member.hierarchy_tier || '—'} → ${nextTier.key}`);
+  return null;
 }
 
 function prospectSaleScore(p) { return SALE_CHARACTERISTICS.filter(c => p[c.key]).length; }
@@ -3472,7 +3491,7 @@ function MyProgressCard({ user }) {
   const refresh = useCallback(async () => {
     setLoading(true);
     const [orgDirectory, licensing, myAppts, traineeAppts] = await Promise.all([
-      fetchOrgDirectory(),
+      fetchHierarchyPeople(),
       fetchMyLicensing(user.id),
       fetchMyAppointments(user.id),
       fetchAppointmentsAsTrainee(user.id),
@@ -5256,6 +5275,69 @@ function TodayTask({ task, children }) {
   );
 }
 
+// "Ready for promotion" on Today: your own news first, then anyone you
+// can see (your downline; everyone for super admins) who has met every
+// requirement for their next tier. Super admins approve from Team Pace →
+// Promotion; leaders can hide a name once they've passed it on.
+function readHiddenPromos() {
+  try { return new Set(JSON.parse(localStorage.getItem('pl_promo_hidden') || '[]')); } catch { return new Set(); }
+}
+function PromotionAlertsCard({ user, onReview, onMilestones }) {
+  const [ready, setReady] = useState(null);
+  const [hidden, setHidden] = useState(readHiddenPromos);
+  useEffect(() => {
+    let alive = true;
+    loadPromotionReadiness(user).then(({ list }) => {
+      if (alive) setReady(list.filter(x => x.progress && x.progress.allMet));
+    }).catch(() => { if (alive) setReady([]); });
+    return () => { alive = false; };
+  }, [user.id, user.role]);
+  if (!ready || ready.length === 0) return null;
+  const keyOf = x => `${x.member.id}:${x.progress.nextTier.key}`;
+  const mine = ready.find(x => x.member.id === user.id);
+  const others = ready.filter(x => x.member.id !== user.id && !hidden.has(keyOf(x)));
+  const isAdmin = user.role === 'super_admin';
+  function hide(x) {
+    const next = new Set(hidden); next.add(keyOf(x)); setHidden(next);
+    try { localStorage.setItem('pl_promo_hidden', JSON.stringify([...next].slice(-200))); } catch { /* ignore */ }
+  }
+  const shown = others.slice(0, 4);
+  return (
+    <>
+      {mine && (
+        <section className="tr-card tr-promo-card tr-promo-card-self" aria-label="You're ready for promotion">
+          <div className="tr-promo-icon" aria-hidden="true"><Award size={20} /></div>
+          <div className="tr-promo-body">
+            <div className="tr-promo-title">You've met every requirement for {mine.progress.nextTier.name} ({mine.progress.nextTier.key})</div>
+            <div className="tr-promo-sub">{isAdmin ? 'Approve it from Team Pace → Promotion.' : 'Your admins can see you’re ready — they approve promotions.'}</div>
+          </div>
+          <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onMilestones}>See progress</button>
+        </section>
+      )}
+      {shown.length > 0 && (
+        <section className="tr-card tr-promo-card" aria-labelledby="tr-promo-title">
+          <div className="tr-promo-head">
+            <div className="tr-promo-icon" aria-hidden="true"><Award size={20} /></div>
+            <div className="tr-promo-body">
+              <div className="tr-promo-title" id="tr-promo-title">{others.length} {others.length === 1 ? 'person is' : 'people are'} ready for promotion</div>
+              <div className="tr-promo-sub">{isAdmin ? 'They’ve met every requirement for their next tier.' : 'They’ve met every requirement for their next tier. Super admins approve promotions.'}</div>
+            </div>
+            {onReview && <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={onReview}>{isAdmin ? 'Review & approve' : 'Review'}</button>}
+          </div>
+          <ul className="tr-promo-list">
+            {shown.map(x => (
+              <li key={keyOf(x)}>
+                <span><strong>{x.member.display_name}</strong> → {x.progress.nextTier.name} ({x.progress.nextTier.key})</span>
+                {!isAdmin && <button type="button" className="tr-link-btn" onClick={() => hide(x)}>Hide</button>}
+              </li>
+            ))}
+            {others.length > shown.length && <li className="tr-promo-more">and {others.length - shown.length} more</li>}
+          </ul>
+        </section>
+      )}
+    </>
+  );
+}
 function TodayBody({ user, onNavigate }) {
   const [loading, setLoading] = useState(true);
   const [appointments, setAppointments] = useState([]);
@@ -5560,6 +5642,7 @@ function TodayBody({ user, onNavigate }) {
       {flash && <div className="tr-flash" role="status">{flash}</div>}
       <RemindersPrompt />
       {showOnboarding && <FirstThirtyDays result={onboarding} day={day} onGo={goStep} onHide={hideOnboarding} />}
+      <PromotionAlertsCard user={user} onMilestones={() => onNavigate('milestones')} onReview={seesTeam(user) ? () => onNavigate('teampromo') : null} />
 
       <div className="tr-today-grid">
         <section className="tr-card tr-today-plan" aria-labelledby="tr-plan-title">
@@ -5770,6 +5853,7 @@ const TEAM_TABS = [
   { id: 'teamsystems', label: 'Team Prospecting', short: 'Prospecting', Icon: Users },
   { id: 'pace', label: 'Team Pace', short: 'Pace', Icon: TrendingUp },
   { id: 'production', label: 'Track Production', short: 'Production', Icon: DollarSign },
+  { id: 'org', label: 'Org Chart', short: 'Org', Icon: Network },
 ];
 const ADMIN_TEAM_TABS = [...TEAM_TABS, { id: 'users', label: 'Manage Team', short: 'Manage', Icon: UserCog }];
 function TabNav({ tabs, tab, onSelect }) {
@@ -6256,21 +6340,38 @@ function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, emptyMe
 // everyone currently stands, so a manager can see who's close too.
 // Expanding a row shows the exact same requirement breakdown their own
 // Milestones page would show them.
-function TeamPromotionSubView({ members, loadingMembers, memberLabel, emptyMessage }) {
+function TeamPromotionSubView({ user, members, loadingMembers, memberLabel, emptyMessage }) {
   const [loading, setLoading] = useState(true);
   const [progressList, setProgressList] = useState([]);
   const [expanded, setExpanded] = useState(null);
+  const [busyId, setBusyId] = useState(null);
+  const [notice, setNotice] = useState(null);
+  const isAdmin = user.role === 'super_admin';
 
   const refresh = useCallback(async () => {
     if (members.length === 0) { setProgressList([]); setLoading(false); return; }
     setLoading(true);
-    const orgDirectory = await fetchOrgDirectory();
-    setProgressList(await computeTeamPromotionProgress(members, orgDirectory));
+    const { list } = await loadPromotionReadiness(user, members.map(m => m.id));
+    // Ready first, then closest to ready.
+    list.sort((a, b) => (b.progress.allMet - a.progress.allMet)
+      || (b.progress.results.filter(r => r.met).length / b.progress.results.length) - (a.progress.results.filter(r => r.met).length / a.progress.results.length)
+      || (a.member.display_name || '').localeCompare(b.member.display_name || ''));
+    setProgressList(list);
     setLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [members]);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  async function approve(member, nextTier) {
+    if (!window.confirm(`Promote ${member.display_name} to ${nextTier.name} (${nextTier.key})?`)) return;
+    setBusyId(member.id); setNotice(null);
+    const err = await approvePromotion(user, member, nextTier);
+    setBusyId(null);
+    if (err) { setNotice({ kind: 'warn', text: `Couldn't promote ${member.display_name}: ${err}` }); return; }
+    setNotice({ kind: 'ok', text: `${member.display_name} is now ${nextTier.name} (${nextTier.key}).` });
+    refresh();
+  }
 
   const readyCount = progressList.filter(r => r.progress?.allMet).length;
   const isLoading = loadingMembers || loading;
@@ -6281,7 +6382,11 @@ function TeamPromotionSubView({ members, loadingMembers, memberLabel, emptyMessa
         <h2 className="tr-h2">Promotion readiness</h2>
         <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
       </div>
-      <p className="tr-subtitle">Live progress toward each person's next tier — the same numbers their own Milestones page shows them.</p>
+      <p className="tr-subtitle">
+        Live progress toward each person's next tier — the same numbers their own Milestones page shows them.
+        {isAdmin ? ' Approve a promotion here when someone is ready.' : ' Super admins approve promotions.'}
+      </p>
+      {notice && <div className={notice.kind === 'ok' ? 'tr-flash' : 'tr-error'} style={{ marginBottom: 12 }}>{notice.text}</div>}
       {isLoading ? <SkeletonTable rows={5} cols={4} /> : members.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">{emptyMessage}</p></div>
       ) : progressList.length === 0 ? (
@@ -6296,7 +6401,7 @@ function TeamPromotionSubView({ members, loadingMembers, memberLabel, emptyMessa
           <div className="tr-card tr-summary-card">
             <div className="tr-table-wrap">
               <table className="tr-table tr-table-summary">
-                <thead><tr><th>{memberLabel}</th><th>Current Tier</th><th>Next Tier</th><th>Progress</th></tr></thead>
+                <thead><tr><th>{memberLabel}</th><th>Current tier</th><th>Next tier</th><th>Progress</th></tr></thead>
                 <tbody>
                   {progressList.map(({ member, progress }) => {
                     const isOpen = expanded === member.id;
@@ -6304,13 +6409,24 @@ function TeamPromotionSubView({ members, loadingMembers, memberLabel, emptyMessa
                     const totalCount = progress.results.length;
                     return (
                       <React.Fragment key={member.id}>
-                        <tr className="tr-clickable-row" onClick={() => setExpanded(isOpen ? null : member.id)}>
-                          <td>{member.display_name}</td>
+                        <tr className={`tr-clickable-row ${isOpen ? 'tr-row-open' : ''}`} onClick={() => setExpanded(isOpen ? null : member.id)}>
+                          <td>
+                            <span className="tr-row-toggle">{isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</span>
+                            {member.display_name}
+                          </td>
                           <td>{hierarchyTierLabel(member.hierarchy_tier)}</td>
                           <td>{progress.nextTier.name} ({progress.nextTier.key})</td>
                           <td>
                             {progress.allMet ? (
-                              <span className="tr-type-badge tr-type-badge-both">✓ Ready!</span>
+                              <span className="tr-promo-ready-cell">
+                                <span className="tr-type-badge tr-type-badge-both">✓ Ready!</span>
+                                {isAdmin && (
+                                  <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" disabled={busyId === member.id}
+                                    onClick={e => { e.stopPropagation(); approve(member, progress.nextTier); }}>
+                                    {busyId === member.id ? 'Saving…' : `Promote to ${progress.nextTier.key}`}
+                                  </button>
+                                )}
+                              </span>
                             ) : (
                               <span className="tr-mono">{metCount} / {totalCount} met</span>
                             )}
@@ -6333,8 +6449,8 @@ function TeamPromotionSubView({ members, loadingMembers, memberLabel, emptyMessa
     </>
   );
 }
-function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, memberLabel }) {
-  const [view, setView] = useState('pace'); // 'pace' | 'promotion'
+function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, memberLabel, initialView }) {
+  const [view, setView] = useState(initialView === 'promotion' ? 'promotion' : 'pace'); // 'pace' | 'promotion'
   const [members, setMembers] = useState([]);
   const [loadingMembers, setLoadingMembers] = useState(true);
 
@@ -6366,7 +6482,7 @@ function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, membe
             user={user} members={members} loadingMembers={loadingMembers}
             heading={heading} Icon={Icon} emptyMessage={emptyMessage} memberLabel={memberLabel} />
         ) : (
-          <TeamPromotionSubView members={members} loadingMembers={loadingMembers} memberLabel={memberLabel} emptyMessage={emptyMessage} />
+          <TeamPromotionSubView user={user} members={members} loadingMembers={loadingMembers} memberLabel={memberLabel} emptyMessage={emptyMessage} />
         )}
       </div>
     </div>
@@ -6375,7 +6491,8 @@ function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, membe
 // Super admins can narrow Team Pace down to just the managers who report
 // directly to them (formerly a separate "Direct Managers" tab). Regular
 // managers never see this toggle — they only ever have one scope.
-function TeamPaceBody({ user }) {
+function TeamPaceBody({ user, initialView, onIntentConsumed }) {
+  useEffect(() => { if (initialView) onIntentConsumed?.(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [scope, setScope] = useState('all'); // 'all' | 'directs'
   const isSuperAdmin = user.role === 'super_admin';
   const showDirects = isSuperAdmin && scope === 'directs';
@@ -6395,7 +6512,7 @@ function TeamPaceBody({ user }) {
         </div>
       )}
       <PeoplePaceBody
-        key={scope} user={user} fetchMembers={fetchMembers} heading={heading} Icon={Icon} memberLabel={memberLabel}
+        key={scope} user={user} fetchMembers={fetchMembers} heading={heading} Icon={Icon} memberLabel={memberLabel} initialView={initialView}
         emptyMessage={emptyMessage} />
     </>
   );
@@ -6576,6 +6693,195 @@ function TrackProductionBody({ user }) {
   );
 }
 
+// ---------------------------------------------------------------------
+// org chart — who reports to whom, with this week's pace rolled up
+// ---------------------------------------------------------------------
+function personInitials(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  return ((parts[0] || '')[0] || '?').toUpperCase() + ((parts.length > 1 ? parts[parts.length - 1][0] : '') || '').toUpperCase();
+}
+function OrgChartBody({ user, onOpenPromotion }) {
+  const [people, setPeople] = useState([]);
+  const [weekAppts, setWeekAppts] = useState([]);
+  const [readyIds, setReadyIds] = useState(new Map());
+  const [loading, setLoading] = useState(true);
+  const [weekMonday, setWeekMonday] = useState(weekStartOf(todayStr()));
+  const [open, setOpen] = useState(null); // Set of expanded ids; null = default
+  const [query, setQuery] = useState('');
+  const isAdmin = user.role === 'super_admin';
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const [list, appts, sold] = await Promise.all([fetchHierarchyPeople(), fetchAppointmentsForWeek(weekMonday), fetchRecentSoldAppointments()]);
+    setPeople(list);
+    setWeekAppts(appts);
+    const ready = computeReadiness(list, sold, promotionSubjects(user, list)).filter(x => x.progress && x.progress.allMet);
+    setReadyIds(new Map(ready.map(x => [x.member.id, x.progress.nextTier])));
+    setLoading(false);
+  }, [weekMonday, user.id, user.role]);
+  useEffect(() => { load(); }, [load]);
+
+  const children = React.useMemo(() => {
+    const m = buildChildrenMap(people);
+    for (const list of m.values()) list.sort((a, b) => (a.display_name || '').localeCompare(b.display_name || ''));
+    return m;
+  }, [people]);
+  const byId = React.useMemo(() => new Map(people.map(p => [p.id, p])), [people]);
+  // Admins see the whole organization from the top; everyone else sees
+  // themselves at the top of their own tree.
+  const roots = React.useMemo(() => {
+    if (!isAdmin) return byId.has(user.id) ? [byId.get(user.id)] : [];
+    return people.filter(p => !p.manager_id || !byId.has(p.manager_id));
+  }, [people, byId, isAdmin, user.id]);
+
+  // This week's pace per person, then rolled up per team.
+  const stats = React.useMemo(() => {
+    const out = new Map();
+    for (const p of people) {
+      const list = weekAppts.filter(a => a.userId === p.id && !a.isFollowUp);
+      const counts = DATE_SET_OPTIONS.map(opt => list.filter(a => a.dateSetOption === opt.value).length);
+      out.set(p.id, { total: counts.reduce((x, y) => x + y, 0), status: getStatus(counts, weekMonday) });
+    }
+    return out;
+  }, [people, weekAppts, weekMonday]);
+  const teamOf = React.useCallback(id => downlineIds(id, children), [children]);
+
+  const visibleIds = React.useMemo(() => {
+    const ids = new Set();
+    roots.forEach(r => { ids.add(r.id); teamOf(r.id).forEach(i => ids.add(i)); });
+    return ids;
+  }, [roots, teamOf]);
+  const visiblePeople = people.filter(p => visibleIds.has(p.id));
+
+  // Searching opens the path down to every match.
+  const q = query.trim().toLowerCase();
+  const matchPath = React.useMemo(() => {
+    if (!q) return null;
+    const keep = new Set();
+    for (const p of visiblePeople) {
+      if (!(p.display_name || '').toLowerCase().includes(q)) continue;
+      let cur = p, guard = 0;
+      while (cur && visibleIds.has(cur.id) && guard++ < 60) { keep.add(cur.id); cur = cur.manager_id ? byId.get(cur.manager_id) : null; }
+    }
+    return keep;
+  }, [q, visiblePeople, visibleIds, byId]);
+
+  // Opens on the top levels, plus the path down to anyone ready for promotion.
+  const pathToReady = React.useMemo(() => {
+    const keep = new Set();
+    for (const id of readyIds.keys()) {
+      let cur = byId.get(id), guard = 0;
+      while (cur && cur.manager_id && guard++ < 60) { keep.add(cur.manager_id); cur = byId.get(cur.manager_id); }
+    }
+    return keep;
+  }, [readyIds, byId]);
+  function defaultOpen(id, depth) { return depth < (isAdmin ? 1 : 2) || pathToReady.has(id); }
+  function isOpen(id, depth) {
+    if (matchPath) return matchPath.has(id);
+    return open ? open.has(id) : defaultOpen(id, depth);
+  }
+  function toggle(id, depth) {
+    const base = open ? new Set(open) : new Set(visiblePeople.filter(p => defaultOpen(p.id, depthOf(p.id))).map(p => p.id));
+    if (isOpen(id, depth)) base.delete(id); else base.add(id);
+    setOpen(base);
+  }
+  function depthOf(id) {
+    let d = 0, cur = byId.get(id), guard = 0;
+    while (cur && !roots.some(r => r.id === cur.id) && cur.manager_id && guard++ < 60) { d++; cur = byId.get(cur.manager_id); }
+    return d;
+  }
+
+  const onPace = visiblePeople.filter(p => (stats.get(p.id) || {}).status === 'met').length;
+  const leaders = visiblePeople.filter(p => (children.get(p.id) || []).length > 0).length;
+  const readyHere = visiblePeople.filter(p => readyIds.has(p.id)).length;
+
+  function renderNode(person, depth) {
+    const kids = (children.get(person.id) || []).filter(k => !matchPath || matchPath.has(k.id));
+    const team = teamOf(person.id);
+    const teamOnPace = team.filter(id => (stats.get(id) || {}).status === 'met').length;
+    const st = stats.get(person.id) || { total: 0, status: 'progress' };
+    const expanded = kids.length > 0 && isOpen(person.id, depth);
+    const ready = readyIds.get(person.id);
+    const hit = q && (person.display_name || '').toLowerCase().includes(q);
+    return (
+      <li className="tr-org-node" key={person.id}>
+        <div className={`tr-org-row ${hit ? 'tr-org-hit' : ''} ${person.id === user.id ? 'tr-org-me' : ''}`}>
+          {kids.length > 0 ? (
+            <button type="button" className="tr-org-toggle" aria-expanded={expanded} aria-label={`${expanded ? 'Hide' : 'Show'} ${person.display_name}'s team`} onClick={() => toggle(person.id, depth)}>
+              {expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+            </button>
+          ) : <span className="tr-org-toggle tr-org-toggle-none" aria-hidden="true" />}
+          <span className="tr-org-avatar" aria-hidden="true">{personInitials(person.display_name)}</span>
+          <div className="tr-org-main">
+            <div className="tr-org-name">
+              <strong>{person.display_name}</strong>{person.id === user.id ? <span className="tr-org-you">you</span> : null}
+              {person.hierarchy_tier ? <span className="tr-org-tier" title={hierarchyTierLabel(person.hierarchy_tier)}>{person.hierarchy_tier}</span> : null}
+              {person.role === 'manager' ? <span className="tr-org-role">Manager</span> : person.role === 'super_admin' ? <span className="tr-org-role">Admin</span> : null}
+              {ready ? (
+                <button type="button" className="tr-org-ready" onClick={onOpenPromotion} title="Open promotion readiness">
+                  <Award size={12} /> Ready for {ready.key}
+                </button>
+              ) : null}
+            </div>
+            <div className="tr-org-sub">
+              Joined {joinedDate(person.created_at)}
+              {team.length > 0 ? <> · Team of {team.length} · {teamOnPace} on pace</> : null}
+            </div>
+          </div>
+          <div className="tr-org-pace">
+            <span className="tr-mono">{st.total}/{WEEKLY_TOTAL_TARGET}</span>
+            <StatusBadge status={st.status} />
+          </div>
+        </div>
+        {expanded && (
+          <ul className="tr-org-children">
+            {kids.map(k => renderNode(k, depth + 1))}
+          </ul>
+        )}
+      </li>
+    );
+  }
+
+  return (
+    <>
+      <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
+      <div className="tr-row-head">
+        <h2 className="tr-h2"><Network size={18} /> Org chart</h2>
+        <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={load}>Refresh</button>
+      </div>
+      <p className="tr-subtitle">Who reports to whom, with each person's appointment pace for the week. Open a name to see their team.</p>
+      {loading ? <SkeletonTable rows={6} cols={3} /> : visiblePeople.length === 0 ? (
+        <div className="tr-card"><p className="tr-empty">No one to show yet.</p></div>
+      ) : (
+        <>
+          <div className="tr-org-stats">
+            <span><strong>{visiblePeople.length}</strong> {visiblePeople.length === 1 ? 'person' : 'people'}</span>
+            <span><strong>{leaders}</strong> leading others</span>
+            <span><strong>{onPace}</strong> on pace this week</span>
+            {readyHere > 0 && <button type="button" className="tr-org-stat-ready" onClick={onOpenPromotion}><Award size={13} /> <strong>{readyHere}</strong> ready for promotion</button>}
+          </div>
+          <div className="tr-org-tools">
+            <div className="tr-search-row tr-org-search">
+              <Search size={15} className="tr-search-icon" />
+              <input className="tr-search-input" type="text" value={query} onChange={e => setQuery(e.target.value)} placeholder="Find someone…" aria-label="Find someone in the org chart" />
+              {query && <button type="button" className="tr-icon-btn" onClick={() => setQuery('')} title="Clear search"><X size={15} /></button>}
+            </div>
+            <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setOpen(new Set(visiblePeople.map(p => p.id)))}>Expand all</button>
+            <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setOpen(new Set())}>Collapse all</button>
+          </div>
+          <div className="tr-card tr-org-card">
+            {matchPath && matchPath.size === 0 ? <p className="tr-empty">No one matches “{query}”.</p> : (
+              <ul className="tr-org-tree">
+                {roots.filter(r => !matchPath || matchPath.has(r.id)).map(r => renderNode(r, 0))}
+              </ul>
+            )}
+          </div>
+        </>
+      )}
+    </>
+  );
+}
+
 function ManagerView({ user }) {
   useAppointmentReminders(user);
   const [group, setGroup] = useState('mine'); // 'mine' | 'team'
@@ -6585,6 +6891,9 @@ function ManagerView({ user }) {
   // "3 appointments with no outcome logged" opens Follow Up on that filter).
   const [navIntent, setNavIntent] = useState(null);
   function go(t, intent = null) {
+    if (t === 'teampromo') {
+      setGroup('team'); setNavIntent({ tab: 'pace', intent: 'promotion' }); setTab('pace'); window.scrollTo(0, 0); return;
+    }
     if (t === 'mine' && intent === 'new') setPrefillData({});
     // Today's "Book" button hands over a prospect to prefill the form.
     if (t === 'mine' && intent && typeof intent === 'object') { setPrefillData(intent.prefill || {}); intent = null; }
@@ -6618,8 +6927,9 @@ function ManagerView({ user }) {
         {tab === 'milestones' && <MilestonesBody user={user} initialIntent={intentFor('milestones')} onIntentConsumed={() => setNavIntent(null)} />}
         {tab === 'documents' && <DocumentsBody user={user} />}
         {tab === 'teamsystems' && <TeamProspectingBody user={user} />}
-        {tab === 'pace' && <TeamPaceBody user={user} />}
+        {tab === 'pace' && <TeamPaceBody user={user} initialView={intentFor('pace')} onIntentConsumed={() => setNavIntent(null)} />}
         {tab === 'production' && <TrackProductionBody user={user} />}
+        {tab === 'org' && <OrgChartBody user={user} onOpenPromotion={() => go('teampromo')} />}
       </main>
     </Shell>
   );
@@ -6884,6 +7194,9 @@ function AdminView({ user }) {
   // "3 appointments with no outcome logged" opens Follow Up on that filter).
   const [navIntent, setNavIntent] = useState(null);
   function go(t, intent = null) {
+    if (t === 'teampromo') {
+      setGroup('team'); setNavIntent({ tab: 'pace', intent: 'promotion' }); setTab('pace'); window.scrollTo(0, 0); return;
+    }
     if (t === 'mine' && intent === 'new') setPrefillData({});
     // Today's "Book" button hands over a prospect to prefill the form.
     if (t === 'mine' && intent && typeof intent === 'object') { setPrefillData(intent.prefill || {}); intent = null; }
@@ -6917,8 +7230,9 @@ function AdminView({ user }) {
         {tab === 'milestones' && <MilestonesBody user={user} initialIntent={intentFor('milestones')} onIntentConsumed={() => setNavIntent(null)} />}
         {tab === 'documents' && <DocumentsBody user={user} />}
         {tab === 'teamsystems' && <TeamProspectingBody user={user} />}
-        {tab === 'pace' && <TeamPaceBody user={user} />}
+        {tab === 'pace' && <TeamPaceBody user={user} initialView={intentFor('pace')} onIntentConsumed={() => setNavIntent(null)} />}
         {tab === 'production' && <TrackProductionBody user={user} />}
+        {tab === 'org' && <OrgChartBody user={user} onOpenPromotion={() => go('teampromo')} />}
         {tab === 'users' && <ManageUsersView currentUserId={user.id} currentUserName={user.displayName} />}
       </main>
     </Shell>
