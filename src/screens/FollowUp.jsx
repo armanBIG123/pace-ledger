@@ -37,6 +37,10 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
   const [orgDirectory, setOrgDirectory] = useState([]);
 
   useEffect(() => { if (initialIntent) onIntentConsumed?.(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Requests that arrive while this tab is already open (+ New → Log how it went).
+  useEffect(() => {
+    if (['nolog', 'needs', 'reschedule'].includes(initialIntent)) { setView(initialIntent); onIntentConsumed?.(); }
+  }, [initialIntent]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     let alive = true;
     Promise.all([fetchMyAppointments(user.id), fetchMyFollowUpNotes(user.id), fetchClientIntakeCandidates(), fetchOrgDirectory()]).then(([a, n, c, org]) => {

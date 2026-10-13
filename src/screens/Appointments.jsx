@@ -563,7 +563,7 @@ export function OpenRequirementsBody({ view, user }) {
   );
 }
 
-export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed }) {
+export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initialIntent, onIntentConsumed }) {
   const [appointments, setAppointments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [weekMonday, setWeekMonday] = useState(weekStartOf(todayStr()));
@@ -598,6 +598,19 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefillData]);
+
+  // Arriving from search: show that client's appointments.
+  useEffect(() => {
+    if (!initialIntent) return;
+    if (typeof initialIntent === 'object' && initialIntent.search) {
+      setStatusView(null);
+      setShowForm(false);
+      setEditingAppt(null);
+      setSearchQuery(initialIntent.search);
+    }
+    if (onIntentConsumed) onIntentConsumed();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialIntent]);
 
   const searchResults = searchQuery.trim()
     ? appointments

@@ -1,12 +1,13 @@
 // Tab lists, the tab bar / phone bottom bar, and the Android back button.
 import { useEffect, useRef, useState } from 'react';
-import { Award, Calendar, CalendarDays, ChevronRight, ClipboardCheck, DollarSign, FileText, Menu, Network, Sun, TrendingUp, UserCog, UserPlus, Users } from 'lucide-react';
+import { Award, Calendar, CalendarDays, ChevronRight, ClipboardCheck, DollarSign, FileText, LayoutDashboard, Menu, Network, Plus, Sun, TrendingUp, UserCog, UserPlus, Users } from 'lucide-react';
 import { minimizeAndroidApp, onAndroidBack } from '../native.js';
 
 // ---------------------------------------------------------------------
 // Tab navigation — a tab strip on desktop/tablet, and an app-style bar
 // fixed to the bottom of the screen on phones (first four tabs plus a
-// "More" sheet for the rest), so nothing hides off the edge of the screen.
+// "More" sheet for the rest, and a + in the middle for adding or logging
+// anything), so nothing hides off the edge of the screen.
 // ---------------------------------------------------------------------
 export const MY_WORK_TABS = [
   { id: 'overview', label: 'Today', short: 'Today', Icon: Sun },
@@ -20,7 +21,8 @@ export const MY_WORK_TABS = [
 ];
 
 export const TEAM_TABS = [
-  { id: 'teamsystems', label: 'Team Prospecting', short: 'Prospecting', Icon: Users },
+  { id: 'teamhome', label: 'Overview', short: 'Overview', Icon: LayoutDashboard },
+  { id: 'teamsystems', label: 'Team Prospecting', short: 'Prospects', Icon: Users },
   { id: 'pace', label: 'Team Pace', short: 'Pace', Icon: TrendingUp },
   { id: 'production', label: 'Track Production', short: 'Production', Icon: DollarSign },
   { id: 'org', label: 'Org Chart', short: 'Org', Icon: Network },
@@ -28,7 +30,7 @@ export const TEAM_TABS = [
 
 export const ADMIN_TEAM_TABS = [...TEAM_TABS, { id: 'users', label: 'Manage Team', short: 'Manage', Icon: UserCog }];
 
-export function TabNav({ tabs, tab, onSelect }) {
+export function TabNav({ tabs, tab, onSelect, onNew }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const primary = tabs.length > 5 ? tabs.slice(0, 4) : tabs;
   const overflow = tabs.length > 5 ? tabs.slice(4) : [];
@@ -46,16 +48,25 @@ export function TabNav({ tabs, tab, onSelect }) {
         ))}
       </div>
       <nav className="tr-bottomnav" aria-label="Main">
-        {primary.map(({ id, short, Icon }) => (
-          <button key={id} type="button" className={tab === id ? 'tr-bottomnav-on' : ''} onClick={() => pick(id)} aria-current={tab === id ? 'page' : undefined}>
-            <Icon size={21} /><span>{short}</span>
-          </button>
-        ))}
-        {overflow.length > 0 && (
-          <button type="button" className={inOverflow || moreOpen ? 'tr-bottomnav-on' : ''} onClick={() => setMoreOpen(o => !o)} aria-expanded={moreOpen}>
-            <Menu size={21} /><span>{inOverflow ? overflow.find(t => t.id === tab).short : 'More'}</span>
-          </button>
-        )}
+        {(() => {
+          const items = primary.map(({ id, short, Icon }) => (
+            <button key={id} type="button" className={tab === id ? 'tr-bottomnav-on' : ''} onClick={() => pick(id)} aria-current={tab === id ? 'page' : undefined}>
+              <Icon size={21} /><span>{short}</span>
+            </button>
+          ));
+          if (overflow.length > 0) items.push(
+            <button key="more" type="button" className={inOverflow || moreOpen ? 'tr-bottomnav-on' : ''} onClick={() => setMoreOpen(o => !o)} aria-expanded={moreOpen}>
+              <Menu size={21} /><span>{inOverflow ? overflow.find(t => t.id === tab).short : 'More'}</span>
+            </button>
+          );
+          // + sits in the middle of the bar.
+          if (onNew) items.splice(Math.floor(items.length / 2), 0,
+            <button key="new" type="button" className="tr-bottomnav-new" onClick={() => { setMoreOpen(false); onNew(null); }} aria-label="Add or log something" aria-haspopup="menu">
+              <span className="tr-bottomnav-plus"><Plus size={24} strokeWidth={2.4} /></span>
+            </button>
+          );
+          return items;
+        })()}
       </nav>
       {moreOpen && (
         <div className="tr-sheet-backdrop" onClick={() => setMoreOpen(false)}>
@@ -88,7 +99,9 @@ export function useAndroidBackButton(tab, goHome) {
   const homeRef = useRef(goHome);
   homeRef.current = goHome;
   useEffect(() => onAndroidBack(() => {
-    const overlays = document.querySelectorAll('.tr-modal-backdrop, .tr-sheet-backdrop');
+    const searchCancel = document.querySelector('.tr-search-cancel');
+    if (searchCancel) { searchCancel.click(); return; }
+    const overlays = document.querySelectorAll('.tr-modal-backdrop, .tr-sheet-backdrop, .tr-new-backdrop');
     if (overlays.length) { overlays[overlays.length - 1].click(); return; }
     if (tabRef.current !== 'overview') { homeRef.current(); window.scrollTo(0, 0); return; }
     minimizeAndroidApp();

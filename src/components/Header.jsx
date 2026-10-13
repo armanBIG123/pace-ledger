@@ -1,23 +1,27 @@
 // The top bar and the Your account sheet.
 import { useEffect, useState } from 'react';
-import { LogOut, ShieldCheck, UserPlus, X } from 'lucide-react';
+import { LogOut, Plus, ShieldCheck, UserPlus, X } from 'lucide-react';
 import { createInvite } from '../invites.js';
 import { fetchMyOnboarding, onboardingDay, setOnboardingVisibility, shouldShowOnboarding } from '../onboarding.js';
 import { PUBLIC_SITE_URL } from '../native.js';
 import { deleteMyAccount, signOut } from '../data/auth.js';
 import { InviteShare } from './invites.jsx';
 
-// The navy band at the top: brand + account on one row, and (when a view
-// passes `nav`) the section tabs on a second row, so navigation reads as
-// part of the frame rather than floating over the page.
-export function Header({ user, nav }) {
+// The navy band at the top: brand, search, + New and account on one row,
+// and (when a view passes `nav`) the section tabs on a second row, so
+// navigation reads as part of the frame rather than floating over the page.
+// `search` is the view's search box; `onNew` opens its + New menu (on a
+// phone, + New lives in the bottom bar instead).
+export function Header({ user, nav, search, onNew }) {
   const [accountOpen, setAccountOpen] = useState(false);
   return (
     <>
     <header className={`tr-header ${nav ? 'tr-header-with-nav' : ''}`}>
       <div className="tr-header-row">
         <div className="tr-brand"><ShieldCheck size={20} /> <span>Pace<em>Ledger</em></span></div>
+        {search || null}
         <div className="tr-header-user">
+          {onNew ? <button type="button" className="tr-btn tr-btn-brass tr-btn-sm tr-header-new" onClick={onNew} aria-haspopup="menu"><Plus size={15} /> New</button> : null}
           <button type="button" className="tr-header-account" onClick={() => setAccountOpen(true)} title="Your account">
             <span className="tr-header-name">{user.displayName}</span>
             <span className="tr-header-firstname">{(user.displayName || '').trim().split(/\s+/)[0]}</span>
@@ -37,8 +41,8 @@ export function Header({ user, nav }) {
 // Invite anyone onto your own team (for recruits who aren't tied to a
 // logged appointment). The link is personal, single-use and puts them
 // directly under you.
-export function InviteSomeone({ user }) {
-  const [open, setOpen] = useState(false);
+export function InviteSomeone({ user, startOpen = false, onCancel }) {
+  const [open, setOpen] = useState(startOpen);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [invite, setInvite] = useState(null);
@@ -75,7 +79,7 @@ export function InviteSomeone({ user }) {
           </label>
           {err && <div className="tr-error">{err}</div>}
           <div className="tr-form-actions" style={{ marginTop: 8 }}>
-            <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setOpen(false)}>Cancel</button>
+            <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => { setOpen(false); if (onCancel) onCancel(); }}>Cancel</button>
             <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={make} disabled={busy}>{busy ? 'Creating…' : 'Create link'}</button>
           </div>
         </>
