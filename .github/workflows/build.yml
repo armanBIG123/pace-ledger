@@ -1,0 +1,26 @@
+# Checks every branch and pull request before it can go live:
+#  1. the site builds, exactly as Cloudflare will build it;
+#  2. no file uses a name it never imported (that would show a blank screen).
+name: Build check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install
+        run: npm install --no-audit --no-fund
+      - name: Build
+        run: npm run build
+      - name: Check names
+        run: |
+          npm install --no-save --no-audit --no-fund typescript@5.6.3
+          node scripts/check-names.cjs

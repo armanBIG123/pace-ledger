@@ -1,0 +1,498 @@
+// Calendar: month and list views, trainings and manager availability.
+import { useCallback, useEffect, useState } from 'react';
+import { Ban, CalendarDays, ChevronLeft, ChevronRight, GraduationCap, Plus, Trash2 } from 'lucide-react';
+import { isNativeApp, openInBrowserSheet, PUBLIC_SITE_URL } from '../native.js';
+import { createScheduleBlock, deleteScheduleBlock, deleteScheduleBlockSeries, fetchScheduleBlocksInRange } from '../schedule.js';
+import { addDays, apptLocalDate, apptLocalTimeKey, buildMonthGrid, detectTimezone, fmtApptDateTime, fmtDate, fmtDisplayDate, fmtTime, monthStartOf, parseDate, shiftMonth, timezoneOptionsWithDetected, todayStr, trainingLocalDate, trainingLocalTimeKey } from '../lib/dates.js';
+import { fetchAppointmentsInRange, isRecruitType, isSaleType, typeLabel } from '../data/appointments.js';
+import { createTraining, deleteTraining, deleteTrainingSeries, fetchTrainingsInRange } from '../data/trainings.js';
+import { fetchTeamMembers, seesTeam } from '../data/team.js';
+import { connectGoogleCalendar, disconnectGoogleCalendar, fetchGoogleConnectionStatus, fetchGoogleEvents, googleEventTimeKey } from '../data/integrations.js';
+import { Modal, openPicker, PageHead, SkeletonCalendar } from '../components/ui.jsx';
+import { GoogleCalendarConnect } from '../components/integrations.jsx';
+
+// ---------------------------------------------------------------------
+// trainings — org-wide announcements, visible to everyone regardless of
+// role or reporting structure, posted by super admins only
+// ---------------------------------------------------------------------
+export function TrainingPostCard({ user, onPosted }) {
+  const [showForm, setShowForm] = useState(false);
+  const [title, setTitle] = useState('');
+  const [date, setDate] = useState('');
+  const [time, setTime] = useState('');
+  const [timezone, setTimezone] = useState(detectTimezone());
+  const [zoomUrl, setZoomUrl] = useState('');
+  const [notes, setNotes] = useState('');
+  const [recurring, setRecurring] = useState(false);
+  const [repeatUntil, setRepeatUntil] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+  const timezoneOptions = timezoneOptionsWithDetected();
+
+  async function submit() {
+    if (!title.trim() || !date || !time) { setErr('Fill in the title, date, and time.'); return; }
+    if (recurring && (!repeatUntil || repeatUntil < date)) { setErr('Pick a "repeat until" date on or after the first training date.'); return; }
+    setSaving(true); setErr('');
+    const res = await createTraining({
+      title: title.trim(), date, time, timezone, zoomUrl: zoomUrl.trim(), notes: notes.trim(),
+      userId: user.id, userName: user.displayName, recurring, repeatUntil: recurring ? repeatUntil : null,
+    });
+    setSaving(false);
+    if (!res.ok) { setErr(res.error || 'Could not post. Try again.'); return; }
+    setTitle(''); setDate(''); setTime(''); setZoomUrl(''); setNotes(''); setRecurring(false); setRepeatUntil('');
+    setShowForm(false);
+    res.records.forEach(onPosted);
+  }
+
+  return (
+    <div className="tr-card tr-training-post">
+      <div className="tr-row-head" style={{ marginBottom: showForm ? 14 : 0 }}>
+        <h3 className="tr-h3" style={{ margin: 0 }}><GraduationCap size={16} /> Post a training</h3>
+        <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setShowForm(v => !v)}>{showForm ? 'Cancel' : '+ New training'}</button>
+      </div>
+      {showForm && (
+        <>
+          <div className="tr-form-grid">
+            <label className="tr-field tr-field-wide">
+              <span>Title</span>
+              <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. New Product Training" />
+            </label>
+            <label className="tr-field">
+              <span>Date</span>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)} onClick={openPicker} />
+            </label>
+            <label className="tr-field">
+              <span>Time</span>
+              <input type="time" value={time} onChange={e => setTime(e.target.value)} onClick={openPicker} />
+            </label>
+            <label className="tr-field">
+              <span>Time zone</span>
+              <select value={timezone} onChange={e => setTimezone(e.target.value)}>
+                {timezoneOptions.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+              </select>
+            </label>
+            <label className="tr-field">
+              <span>Zoom link (optional)</span>
+              <input value={zoomUrl} onChange={e => setZoomUrl(e.target.value)} placeholder="https://zoom.us/j/..." />
+            </label>
+            <label className="tr-field tr-field-wide">
+              <span>Notes (optional)</span>
+              <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Anything else worth noting" />
+            </label>
+            <label className="tr-field tr-field-wide tr-checkbox-field">
+              <input type="checkbox" checked={recurring} onChange={e => setRecurring(e.target.checked)} />
+              <span>Repeat weekly (same day of week and time)</span>
+            </label>
+            {recurring && (
+              <label className="tr-field">
+                <span>Repeat until</span>
+                <input type="date" value={repeatUntil} onChange={e => setRepeatUntil(e.target.value)} min={date || undefined} onClick={openPicker} />
+              </label>
+            )}
+          </div>
+          {err && <div className="tr-error">{err}</div>}
+          <div className="tr-form-actions">
+            <button type="button" className="tr-btn tr-btn-brass" onClick={submit} disabled={saving}>{saving ? 'Posting…' : 'Post training'}</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------
+// my schedule — a manager blocking out times they're not free, so
+// advisors booking an appointment with them as presenter can be stopped
+// from double-booking that time (see checkAppointmentConflict).
+// ---------------------------------------------------------------------
+export function SchedulePostCard({ user, onPosted }) {
+  const [showForm, setShowForm] = useState(false);
+  const [label, setLabel] = useState('');
+  const [date, setDate] = useState('');
+  const [startTime, setStartTime] = useState('');
+  const [endTime, setEndTime] = useState('');
+  const [timezone, setTimezone] = useState(detectTimezone());
+  const [recurring, setRecurring] = useState(false);
+  const [repeatUntil, setRepeatUntil] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+  const timezoneOptions = timezoneOptionsWithDetected();
+
+  async function submit() {
+    if (!date || !startTime || !endTime) { setErr('Fill in the date, start time, and end time.'); return; }
+    if (endTime <= startTime) { setErr('End time needs to be after the start time.'); return; }
+    if (recurring && (!repeatUntil || repeatUntil < date)) { setErr('Pick a "repeat until" date on or after the first blocked date.'); return; }
+    setSaving(true); setErr('');
+    const res = await createScheduleBlock({
+      userId: user.id, userName: user.displayName, date, startTime, endTime, label: label.trim(), timezone,
+      recurring, repeatUntil: recurring ? repeatUntil : null,
+    });
+    setSaving(false);
+    if (!res.ok) { setErr(res.error || 'Could not save. Try again.'); return; }
+    setLabel(''); setDate(''); setStartTime(''); setEndTime(''); setRecurring(false); setRepeatUntil('');
+    setShowForm(false);
+    res.records.forEach(onPosted);
+  }
+
+  return (
+    <div className="tr-card tr-training-post">
+      <div className="tr-row-head" style={{ marginBottom: showForm ? 14 : 0 }}>
+        <h3 className="tr-h3" style={{ margin: 0 }}><Ban size={16} /> My schedule</h3>
+        <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setShowForm(v => !v)}>{showForm ? 'Cancel' : '+ Block out time'}</button>
+      </div>
+      {showForm && (
+        <>
+          <div className="tr-form-grid">
+            <label className="tr-field tr-field-wide">
+              <span>Reason (optional)</span>
+              <input value={label} onChange={e => setLabel(e.target.value)} placeholder="e.g. Team meeting, out of office" />
+            </label>
+            <label className="tr-field">
+              <span>Date</span>
+              <input type="date" value={date} onChange={e => setDate(e.target.value)} onClick={openPicker} />
+            </label>
+            <label className="tr-field">
+              <span>Start time</span>
+              <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} onClick={openPicker} />
+            </label>
+            <label className="tr-field">
+              <span>End time</span>
+              <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} onClick={openPicker} />
+            </label>
+            <label className="tr-field">
+              <span>Time zone</span>
+              <select value={timezone} onChange={e => setTimezone(e.target.value)}>
+                {timezoneOptions.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+              </select>
+            </label>
+            <label className="tr-field tr-field-wide tr-checkbox-field">
+              <input type="checkbox" checked={recurring} onChange={e => setRecurring(e.target.checked)} />
+              <span>Repeat weekly (same day of week and times)</span>
+            </label>
+            {recurring && (
+              <label className="tr-field">
+                <span>Repeat until</span>
+                <input type="date" value={repeatUntil} onChange={e => setRepeatUntil(e.target.value)} min={date || undefined} onClick={openPicker} />
+              </label>
+            )}
+          </div>
+          {err && <div className="tr-error">{err}</div>}
+          <div className="tr-form-actions">
+            <button type="button" className="tr-btn tr-btn-brass" onClick={submit} disabled={saving}>{saving ? 'Saving…' : 'Block out time'}</button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+export function calendarItems(appts, googleEvents, trainings, scheduleBlocks) {
+  return [
+    ...appts.map(a => ({ kind: 'appt', data: a, timeKey: apptLocalTimeKey(a) })),
+    ...googleEvents.map(e => ({ kind: 'google', data: e, timeKey: googleEventTimeKey(e) })),
+    ...trainings.map(t => ({ kind: 'training', data: t, timeKey: trainingLocalTimeKey(t) })),
+    ...scheduleBlocks.map(b => ({ kind: 'block', data: b, timeKey: b.start_time.slice(0, 5) })),
+  ].sort((a, b) => a.timeKey.localeCompare(b.timeKey));
+}
+
+export function CalendarDay({ cell, appts, googleEvents, trainings, scheduleBlocks, highlightTrainings, ownerName, onOpen }) {
+  const isToday = cell.date === todayStr();
+  const items = calendarItems(appts, googleEvents, trainings, scheduleBlocks);
+  const visible = items.slice(0, 3);
+  const extra = items.length - visible.length;
+  const isHighlighted = highlightTrainings && trainings.length > 0;
+  return (
+    <div
+      className={`tr-cal-day ${cell.inMonth ? '' : 'tr-cal-day-out'} ${isToday ? 'tr-cal-day-today' : ''} ${isHighlighted ? 'tr-cal-day-training-highlight' : ''}`}
+      onClick={() => onOpen(cell.date, appts, googleEvents, trainings, scheduleBlocks)}>
+      <div className="tr-cal-daynum"><span>{cell.dayNum}</span></div>
+      <div className="tr-cal-appts">
+        {visible.map((item, i) => item.kind === 'appt' ? (
+          <div key={item.data.id} className={`tr-cal-appt ${isRecruitType(item.data) && isSaleType(item.data) ? 'tr-cal-appt-both' : isRecruitType(item.data) ? 'tr-cal-appt-recruit' : isSaleType(item.data) ? 'tr-cal-appt-sale' : ''}`}>
+            {fmtTime(item.timeKey)} {item.data.client}
+          </div>
+        ) : item.kind === 'training' ? (
+          <div key={item.data.id} className="tr-cal-appt tr-cal-appt-training">
+            <GraduationCap size={9} /> {fmtTime(item.timeKey)} {item.data.title}
+          </div>
+        ) : item.kind === 'block' ? (
+          <div key={item.data.id} className="tr-cal-appt tr-cal-appt-unavailable">
+            <Ban size={9} /> {fmtTime(item.timeKey)} {item.data.user_name || 'Unavailable'}
+          </div>
+        ) : (
+          <div key={item.data.id} className="tr-cal-appt tr-cal-appt-google">
+            {item.data.allDay ? item.data.title : `${fmtTime(item.timeKey)} ${item.data.title}`}
+          </div>
+        ))}
+        {extra > 0 && <div className="tr-cal-more">+{extra} more</div>}
+      </div>
+    </div>
+  );
+}
+
+export function CalendarBody({ user, onLogAppointment }) {
+  const [monthStartStr, setMonthStartStr] = useState(monthStartOf(todayStr()));
+  // The month grid gets cramped on a phone, so phones start on the list.
+  const [calView, setCalView] = useState(() => (typeof window !== 'undefined' && window.innerWidth < 640 ? 'agenda' : 'month'));
+  const [appts, setAppts] = useState([]);
+  const [members, setMembers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [dayModal, setDayModal] = useState(null);
+  const [googleStatus, setGoogleStatus] = useState({ connected: false });
+  const [googleEvents, setGoogleEvents] = useState([]);
+  const [googleConnecting, setGoogleConnecting] = useState(false);
+  const [trainings, setTrainings] = useState([]);
+  const [scheduleBlocks, setScheduleBlocks] = useState([]);
+  const [highlightTrainings, setHighlightTrainings] = useState(false);
+  // 'all' | 'mine' | a specific person's userId — only meaningful for
+  // managers/admins, who see more than just their own appointments here.
+  const [personFilter, setPersonFilter] = useState('all');
+
+  const cells = buildMonthGrid(monthStartStr);
+  const rangeStart = cells[0].date;
+  const rangeEnd = cells[cells.length - 1].date;
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    // One extra day each side: appointments are placed by your local date,
+    // which can differ by a day from the stored date across timezones.
+    const tasks = [fetchAppointmentsInRange(fmtDate(addDays(parseDate(rangeStart), -1)), fmtDate(addDays(parseDate(rangeEnd), 1))), fetchGoogleConnectionStatus(), fetchTrainingsInRange(rangeStart, rangeEnd), fetchScheduleBlocksInRange(rangeStart, rangeEnd)];
+    if (seesTeam(user)) tasks.push(fetchTeamMembers(user));
+    const [apptList, status, trainingList, blockList, memberList] = await Promise.all(tasks);
+    setAppts(apptList);
+    setGoogleStatus(status);
+    setTrainings(trainingList);
+    setScheduleBlocks(blockList);
+    if (memberList) setMembers(memberList);
+    if (status.connected) {
+      const g = await fetchGoogleEvents(rangeStart, rangeEnd);
+      setGoogleEvents(g.events || []);
+      if (g.connected === false) setGoogleStatus({ connected: false }); // token was revoked server-side
+    } else {
+      setGoogleEvents([]);
+    }
+    setLoading(false);
+  }, [rangeStart, rangeEnd, user.id, user.role, user.isLeader]);
+
+  useEffect(() => { refresh(); }, [refresh]);
+  // Re-check once a Google connection finishes in the background.
+  useEffect(() => {
+    window.addEventListener('paceledger:google-connected', refresh);
+    return () => window.removeEventListener('paceledger:google-connected', refresh);
+  }, [refresh]);
+
+  async function handleConnect() {
+    if (isNativeApp()) {
+      // Google doesn't allow its sign-in inside an app's web view, so the
+      // connection is made on the website in a Safari sheet.
+      await openInBrowserSheet(`${PUBLIC_SITE_URL}/?connect=google&for=${encodeURIComponent(user.id)}`, () => refresh());
+      return;
+    }
+    setGoogleConnecting(true);
+    await connectGoogleCalendar();
+  }
+  async function handleDisconnect() {
+    const ok = await disconnectGoogleCalendar();
+    if (ok) { setGoogleStatus({ connected: false }); setGoogleEvents([]); }
+  }
+  async function handleDeleteTraining(training) {
+    if (training.recurring_group_id) {
+      const deleteAll = window.confirm(
+        "This is part of a weekly series.\n\nOK = delete this and all future occurrences\nCancel = just this one date"
+      );
+      if (deleteAll) {
+        const ok = await deleteTrainingSeries(training.recurring_group_id, training.training_date);
+        if (ok) setTrainings(prev => prev.filter(t => !(t.recurring_group_id === training.recurring_group_id && t.training_date >= training.training_date)));
+        return;
+      }
+    }
+    if (!window.confirm('Remove this training for everyone? This can\'t be undone.')) return;
+    const ok = await deleteTraining(training.id);
+    if (ok) setTrainings(prev => prev.filter(t => t.id !== training.id));
+  }
+  async function handleDeleteScheduleBlock(block) {
+    if (block.recurring_group_id) {
+      const deleteAll = window.confirm(
+        "This is part of a weekly series.\n\nOK = delete this and all future occurrences\nCancel = just this one date"
+      );
+      if (deleteAll) {
+        const ok = await deleteScheduleBlockSeries(block.recurring_group_id, block.block_date);
+        if (ok) setScheduleBlocks(prev => prev.filter(b => !(b.recurring_group_id === block.recurring_group_id && b.block_date >= block.block_date)));
+        return;
+      }
+    }
+    if (!window.confirm('Remove this blocked time?')) return;
+    const ok = await deleteScheduleBlock(block.id);
+    if (ok) setScheduleBlocks(prev => prev.filter(b => b.id !== block.id));
+  }
+
+  function apptsForDay(dateStr) {
+    let list = appts.filter(a => apptLocalDate(a) === dateStr);
+    if (personFilter === 'mine') list = list.filter(a => a.userId === user.id);
+    else if (personFilter !== 'all') list = list.filter(a => a.userId === personFilter);
+    return list;
+  }
+  function googleForDay(dateStr) {
+    if (personFilter !== 'all' && personFilter !== 'mine') return []; // Google events are always mine, not theirs
+    return googleEvents.filter(e => (e.start || '').slice(0, 10) === dateStr);
+  }
+  function trainingsForDay(dateStr) { return trainings.filter(t => trainingLocalDate(t) === dateStr); }
+  function scheduleBlocksForDay(dateStr) { return scheduleBlocks.filter(b => b.block_date === dateStr); }
+  function ownerName(userId) {
+    if (!seesTeam(user)) return '';
+    if (userId === user.id) return user.displayName;
+    const m = members.find(mm => mm.id === userId);
+    return m ? m.display_name : '';
+  }
+
+  const monthLabel = parseDate(monthStartStr).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  return (
+    <>
+      <PageHead title="Calendar" sub="Your appointments, team trainings and Google events in one place." />
+      <GoogleCalendarConnect status={googleStatus} connecting={googleConnecting} onConnect={handleConnect} onDisconnect={handleDisconnect} />
+      {user.role === 'super_admin' && <TrainingPostCard user={user} onPosted={t => setTrainings(prev => [...prev, t])} />}
+      {(user.role === 'manager' || user.role === 'super_admin') && (
+        <SchedulePostCard user={user} onPosted={b => setScheduleBlocks(prev => [...prev, b])} />
+      )}
+      <div className="tr-weeknav">
+        <div className="tr-seg" role="group" aria-label="Calendar view">
+          <button type="button" className={calView === 'month' ? 'tr-seg-on' : ''} onClick={() => setCalView('month')}>Month</button>
+          <button type="button" className={calView === 'agenda' ? 'tr-seg-on' : ''} onClick={() => setCalView('agenda')}>List</button>
+        </div>
+        <button className="tr-icon-btn" onClick={() => setMonthStartStr(shiftMonth(monthStartStr, -1))} title="Previous month"><ChevronLeft size={18} /></button>
+        <div className="tr-weeknav-label"><CalendarDays size={16} /><span>{monthLabel}</span></div>
+        <button className="tr-icon-btn" onClick={() => setMonthStartStr(shiftMonth(monthStartStr, 1))} title="Next month"><ChevronRight size={18} /></button>
+        <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setMonthStartStr(monthStartOf(todayStr()))}>This month</button>
+        <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+        <button
+          type="button" className={`tr-btn tr-btn-sm ${highlightTrainings ? 'tr-btn-brass' : 'tr-btn-ghost'}`}
+          onClick={() => setHighlightTrainings(v => !v)} title="Highlight days with trainings">
+          <GraduationCap size={14} /> Trainings
+        </button>
+        {seesTeam(user) && (
+          <select className="tr-cal-personfilter" value={personFilter} onChange={e => setPersonFilter(e.target.value)}>
+            <option value="all">Everyone</option>
+            <option value="mine">Just me</option>
+            {members.filter(m => m.id !== user.id).map(m => (
+              <option key={m.id} value={m.id}>{m.display_name}</option>
+            ))}
+          </select>
+        )}
+      </div>
+      {loading ? <SkeletonCalendar /> : calView === 'agenda' ? (() => {
+        // List view: every day in this month that has something on it,
+        // starting from today when you're looking at the current month.
+        const today = todayStr();
+        const monthEnd = fmtDate(addDays(parseDate(shiftMonth(monthStartStr, 1)), -1));
+        const fromDate = today > monthStartStr && today <= monthEnd ? today : monthStartStr;
+        const days = cells.filter(c => c.inMonth && c.date >= fromDate).map(c => {
+          const dayAppts = apptsForDay(c.date), dayGoogle = googleForDay(c.date), dayTrainings = trainingsForDay(c.date), dayBlocks = scheduleBlocksForDay(c.date);
+          return { date: c.date, dayAppts, dayGoogle, dayTrainings, dayBlocks, items: calendarItems(dayAppts, dayGoogle, dayTrainings, dayBlocks) };
+        }).filter(d => d.items.length > 0);
+        return (
+          <div className="tr-card tr-agenda">
+            {days.length === 0 ? <p className="tr-empty" style={{ margin: 0 }}>Nothing on the calendar {fromDate === today ? 'for the rest of this month' : 'this month'}.</p> : days.map(d => (
+              <div key={d.date} className={`tr-agenda-day ${d.date === today ? 'tr-agenda-today' : ''}`}>
+                <button type="button" className="tr-agenda-date" onClick={() => setDayModal({ date: d.date, appts: d.dayAppts, googleEvents: d.dayGoogle, trainings: d.dayTrainings, blocks: d.dayBlocks })}>
+                  {d.date === today ? 'Today' : fmtDisplayDate(d.date)}
+                </button>
+                {d.items.map(item => (
+                  <div key={`${item.kind}-${item.data.id}`} className={`tr-agenda-item tr-agenda-${item.kind} ${item.kind === 'appt' ? (isRecruitType(item.data) && !isSaleType(item.data) ? 'tr-agenda-recruit' : 'tr-agenda-sale') : ''}`}>
+                    <span className="tr-agenda-time">{item.kind === 'google' && item.data.allDay ? 'All day' : fmtTime(item.timeKey)}</span>
+                    <span className="tr-agenda-what">
+                      {item.kind === 'appt' && <><strong>{item.data.client}</strong>{typeLabel(item.data) ? ` · ${typeLabel(item.data)}` : ''}{ownerName(item.data.userId) && item.data.userId !== user.id ? ` · ${ownerName(item.data.userId)}` : ''}</>}
+                      {item.kind === 'training' && <><GraduationCap size={12} /> <strong>{item.data.title}</strong> · Training</>}
+                      {item.kind === 'block' && <><Ban size={12} /> {item.data.user_name || 'Someone'} unavailable{item.data.label ? ` — ${item.data.label}` : ''}</>}
+                      {item.kind === 'google' && <>{item.data.title} <span className="tr-empty">· Google</span></>}
+                    </span>
+                    {(item.data.zoomUrl || item.data.zoom_url) && <a className="tr-btn tr-btn-ghost tr-btn-sm" href={item.data.zoomUrl || item.data.zoom_url} target="_blank" rel="noopener noreferrer">Join Zoom</a>}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        );
+      })() : (
+        <div className="tr-card tr-cal-card">
+          <div className="tr-cal-grid">
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(d => <div key={d} className="tr-cal-headcell">{d}</div>)}
+            {cells.map(cell => (
+              <CalendarDay
+                key={cell.date} cell={cell} appts={apptsForDay(cell.date)} googleEvents={googleForDay(cell.date)} trainings={trainingsForDay(cell.date)}
+                scheduleBlocks={scheduleBlocksForDay(cell.date)}
+                highlightTrainings={highlightTrainings}
+                ownerName={ownerName}
+                onOpen={(date, dayAppts, dayGoogle, dayTrainings, dayBlocks) => setDayModal({ date, appts: dayAppts, googleEvents: dayGoogle, trainings: dayTrainings, blocks: dayBlocks })} />
+            ))}
+          </div>
+        </div>
+      )}
+      <div className="tr-cal-legend">
+        <span><i className="tr-lg tr-lg-sale" /> Sale</span>
+        <span><i className="tr-lg tr-lg-recruit" /> Recruit</span>
+        <span><i className="tr-lg tr-lg-training" /> Training</span>
+        <span><i className="tr-lg tr-lg-block" /> Unavailable</span>
+        {googleStatus.connected && <span><i className="tr-lg tr-lg-google" /> Google</span>}
+        <span className="tr-cal-legend-hint">Click any day to see details{onLogAppointment ? ' or book an appointment' : ''}.</span>
+      </div>
+      {dayModal && (
+        <Modal onClose={() => setDayModal(null)}>
+          <div className="tr-row-head">
+            <h3 className="tr-h3" style={{ margin: 0 }}>{fmtDisplayDate(dayModal.date)}</h3>
+            {onLogAppointment && dayModal.date >= todayStr() && (
+              <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={() => { const date = dayModal.date; setDayModal(null); onLogAppointment({ appointmentDate: date }); }}>
+                <Plus size={14} /> Log appointment this day
+              </button>
+            )}
+          </div>
+          {dayModal.appts.length + dayModal.trainings.length + dayModal.blocks.length + dayModal.googleEvents.length === 0 && (
+            <p className="tr-empty">Nothing scheduled.</p>
+          )}
+          <div className="tr-notes-list" style={{ maxHeight: '60vh', marginTop: 12 }}>
+            {dayModal.trainings.map(t => (
+              <div key={t.id} className="tr-note-item tr-note-item-training">
+                <div className="tr-note-meta"><GraduationCap size={12} /> {fmtTime(trainingLocalTimeKey(t))} · Training{t.recurring_group_id ? ' · Weekly' : ''}</div>
+                <div><strong>{t.title}</strong></div>
+                {t.zoom_url && <div><a href={t.zoom_url} target="_blank" rel="noopener noreferrer" className="tr-note tr-link">Join Zoom</a></div>}
+                {t.notes && <div className="tr-note">{t.notes}</div>}
+                <div className="tr-note">Posted by {t.created_by_name}</div>
+                {user.role === 'super_admin' && (
+                  <button type="button" className="tr-icon-btn" style={{ marginTop: 4 }} onClick={() => handleDeleteTraining(t)} title="Remove training"><Trash2 size={13} /></button>
+                )}
+              </div>
+            ))}
+            {dayModal.blocks.map(b => (
+              <div key={b.id} className="tr-note-item tr-note-item-unavailable">
+                <div className="tr-note-meta"><Ban size={12} /> {fmtTime(b.start_time.slice(0, 5))}–{fmtTime(b.end_time.slice(0, 5))} · Unavailable{b.recurring_group_id ? ' · Weekly' : ''}</div>
+                <div><strong>{b.user_name || 'Someone'}</strong>{b.label ? ` — ${b.label}` : ''}</div>
+                {(user.id === b.user_id || user.role === 'super_admin') && (
+                  <button type="button" className="tr-icon-btn" style={{ marginTop: 4 }} onClick={() => handleDeleteScheduleBlock(b)} title="Remove blocked time"><Trash2 size={13} /></button>
+                )}
+              </div>
+            ))}
+            {dayModal.appts.map(a => (
+              <div key={a.id} className="tr-note-item">
+                <div className="tr-note-meta">
+                  {fmtApptDateTime(a)}
+                  {typeLabel(a) ? ` · ${typeLabel(a)}` : ''}
+                  {a.isFollowUp ? ' · Follow-up' : ''}
+                </div>
+                <div><strong>{a.client}</strong> — {a.presenter}{a.trainee ? ` (training ${a.trainee})` : ''}</div>
+                {a.zoomUrl && <div><a href={a.zoomUrl} target="_blank" rel="noopener noreferrer" className="tr-note tr-link">Join Zoom</a></div>}
+                {ownerName(a.userId) && <div className="tr-note">Logged by {ownerName(a.userId)}</div>}
+                {a.notes && <div className="tr-note">{a.notes}</div>}
+              </div>
+            ))}
+            {dayModal.googleEvents.map(e => (
+              <div key={e.id} className="tr-note-item tr-note-item-google">
+                <div className="tr-note-meta">{e.allDay ? 'All day' : fmtTime(googleEventTimeKey(e))} · Google Calendar</div>
+                <div><strong>{e.title}</strong></div>
+              </div>
+            ))}
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
