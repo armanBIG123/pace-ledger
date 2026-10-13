@@ -1,9 +1,13 @@
-// Milestones: promotion guidelines and progress, licensing tracker and incentives.
+// Milestones: your level and path (My path), promotion guidelines and progress, licensing tracker and incentives.
 import { useCallback, useEffect, useState } from 'react';
 import { Check, Pencil } from 'lucide-react';
 import { daysBetween, examWhen, fetchLicensingProgress, LICENSING_STEPS, licensingStatus, saveLicensingProgress, US_STATES } from '../licensing.js';
-import { computeDownline, computeTierProgress, HIERARCHY_TIER_WINDOW_LABELS, HIERARCHY_TIERS, hierarchyTierLabel, isLicensed, nextTierAfter } from '../hierarchy.js';
-import { fmtShortDate, todayStr } from '../lib/dates.js';
+import { computeDownline, computeReadiness, computeTierProgress, HIERARCHY_TIER_WINDOW_LABELS, HIERARCHY_TIERS, hierarchyTierLabel, isLicensed, nextTierAfter } from '../hierarchy.js';
+import { fmtShortDate, todayStr, weekStartOf } from '../lib/dates.js';
+import { DATE_SET_OPTIONS, getStatus, WEEKLY_TOTAL_TARGET } from '../lib/pace.js';
+import { closestDirect, milestoneSummary, progressPct, tierInfo } from '../lib/milestones.js';
+import { bodyName, bodyScale, CelestialBody, CelestialDefs, JourneyStrip, makeStars, PaceRing, ringRadius } from '../components/CelestialBody.jsx';
+import { GapCallout, NextLevel } from '../components/milestones.jsx';
 import { lowerFirst } from '../lib/format.js';
 import { fetchAppointmentsAsTrainee, fetchAppointmentsForUserIds, fetchMyAppointments } from '../data/appointments.js';
 import { fetchHierarchyPeople, fetchMyLicensing, saveLicensing } from '../data/team.js';
@@ -86,53 +90,110 @@ export function RequirementRow({ req }) {
   return null;
 }
 
+// My path: your own level drawn as its body, this week's pace ring, the
+// people in your orbit, and the whole journey from comet to galaxy.
+const HERO_STARS = makeStars(46, 400, 170, 3);
+const LEVEL_KEYS = HIERARCHY_TIERS.map(t => t.key);
+export function MyPathHero({ tierKey, pace, moons }) {
+  const tier = tierInfo(tierKey);
+  if (!tier) return null;
+  const r = 30 * bodyScale(tier.key);
+  const ringR = ringRadius(tier.key, r);
+  const article = /^[AEIOU]/.test(tier.name) ? 'an' : 'a';
+  return (
+    <div className="tr-path-hero">
+      <CelestialDefs />
+      <svg className="tr-path-hero-stars" viewBox="0 0 400 170" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+        {HERO_STARS.map((st, i) => <circle key={i} cx={st.x} cy={st.y} r={st.r * 0.8} fill="#fff" opacity={st.o * 0.8} />)}
+      </svg>
+      <div className="tr-path-hero-top">
+        <svg className="tr-path-hero-body" viewBox="-62 -62 124 124" aria-hidden="true">
+          <CelestialBody tier={tier.key} r={r} />
+          <PaceRing r={ringR} done={pace.total} target={WEEKLY_TOTAL_TARGET} status={pace.status} width={3.4} />
+          {Array.from({ length: Math.min(6, moons) }, (_, m) => {
+            const a = (m / Math.min(6, moons)) * Math.PI * 2 - Math.PI / 4;
+            return <circle key={m} cx={Math.cos(a) * (ringR + 9)} cy={Math.sin(a) * (ringR + 9)} r="3.4" fill="#C9D6E3" />;
+          })}
+        </svg>
+        <div>
+          <div className="tr-path-hero-k">You're {article}</div>
+          <div className="tr-path-hero-h">{tier.name}</div>
+          <div className="tr-path-hero-s">{bodyName(tier.key)} · {tier.commission}% commission</div>
+          <div className={`tr-path-hero-p tr-path-hero-p-${pace.status}`}>{pace.total}/{WEEKLY_TOTAL_TARGET} this week{moons ? ` · ${moons} in your orbit` : ''}</div>
+        </div>
+      </div>
+      <JourneyStrip tiers={LEVEL_KEYS} current={tier.key} />
+    </div>
+  );
+}
+
 export function MyProgressCard({ user }) {
   const [loading, setLoading] = useState(true);
   const [progress, setProgress] = useState(null);
+  const [summary, setSummary] = useState(null);
+  const [hero, setHero] = useState(null); // { pace, moons }
   const [notSet, setNotSet] = useState(false);
   const [atTop, setAtTop] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const [orgDirectory, licensing, myAppts, traineeAppts] = await Promise.all([
+    const [orgDirectory, licensing, myAppts, traineeAppts, licProgress] = await Promise.all([
       fetchHierarchyPeople(),
       fetchMyLicensing(user.id),
       fetchMyAppointments(user.id),
       fetchAppointmentsAsTrainee(user.id),
+      fetchLicensingProgress(user.id),
     ]);
     const person = { ...(orgDirectory.find(p => p.id === user.id) || { id: user.id, manager_id: null }), hierarchy_tier: user.hierarchyTier, ...licensing };
-    if (!person.hierarchy_tier) { setNotSet(true); setAtTop(false); setProgress(null); setLoading(false); return; }
-    if (!nextTierAfter(person.hierarchy_tier)) { setAtTop(true); setNotSet(false); setProgress(null); setLoading(false); return; }
+    // This week's pace and the people who report to you, for My path.
+    const week = weekStartOf(todayStr());
+    const thisWeek = myAppts.filter(a => a.weekOf === week && !a.isFollowUp);
+    const counts = DATE_SET_OPTIONS.map(opt => thisWeek.filter(a => a.dateSetOption === opt.value).length);
+    const directs = orgDirectory.filter(p => p.manager_id === user.id);
+    setHero({ pace: { total: counts.reduce((x, y) => x + y, 0), status: getStatus(counts, week) }, moons: directs.length });
+    if (!person.hierarchy_tier) { setNotSet(true); setAtTop(false); setProgress(null); setSummary(null); setLoading(false); return; }
+    if (!nextTierAfter(person.hierarchy_tier)) { setAtTop(true); setNotSet(false); setProgress(null); setSummary(null); setLoading(false); return; }
     const downline = computeDownline(user.id, orgDirectory).filter(p => p.id !== user.id);
     const downlineAppts = await fetchAppointmentsForUserIds(downline.map(p => p.id));
     setNotSet(false); setAtTop(false);
-    setProgress(computeTierProgress(person, orgDirectory, myAppts, downlineAppts, traineeAppts));
+    const mine = computeTierProgress(person, orgDirectory, myAppts, downlineAppts, traineeAppts);
+    // How close each person who reports to you is, for "Closest: …".
+    const sold = [...myAppts, ...downlineAppts].filter(a => a.officiallySold);
+    const directPct = new Map(computeReadiness(orgDirectory, sold, directs.map(d => d.id)).map(x => [x.member.id, progressPct(x.progress)]));
+    setProgress(mine);
+    setSummary(milestoneSummary(person, mine, {
+      licensing: licProgress && licProgress.error ? null : licensingStatus(licProgress, person),
+      closestFor: tierKey => closestDirect(directs, tierKey, id => directPct.get(id) ?? null),
+    }));
     setLoading(false);
   }, [user.id, user.hierarchyTier]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
   if (loading) return <SkeletonCards count={2} />;
+  const heroEl = hero && user.hierarchyTier ? <MyPathHero tierKey={user.hierarchyTier} pace={hero.pace} moons={hero.moons} /> : null;
   if (notSet) {
     return <div className="tr-card"><p className="tr-empty">Your hierarchy tier hasn't been set yet — ask a super admin to set it in Manage Team.</p></div>;
   }
   if (atTop) {
-    return <div className="tr-card"><p className="tr-empty">You've reached the top of the ladder — Executive Vice Chairman.</p></div>;
+    return <>{heroEl}<div className="tr-card"><p className="tr-empty">You've reached the top of the ladder — Executive Vice Chairman.</p></div></>;
   }
-  if (!progress) return null;
+  if (!progress) return heroEl;
 
   return (
-    <div className="tr-card tr-progress-card">
-      <div className="tr-row-head" style={{ marginBottom: 2 }}>
-        <h3 className="tr-h3" style={{ margin: 0 }}>Your progress toward {progress.nextTier.name} ({progress.nextTier.key})</h3>
-        <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+    <>
+      {heroEl}
+      <div className="tr-card tr-progress-card">
+        <div className="tr-row-head" style={{ marginBottom: 2 }}>
+          <h3 className="tr-h3" style={{ margin: 0 }}>Your progress toward {progress.nextTier.name} ({progress.nextTier.key})</h3>
+          <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+        </div>
+        <p className="tr-subtitle" style={{ margin: '2px 0 12px' }}>{HIERARCHY_TIER_WINDOW_LABELS[progress.nextTier.window]}</p>
+        {summary ? <div className="tr-progress-summary"><NextLevel summary={summary} /></div> : null}
+        {progress.results.map((req, i) => <RequirementRow key={i} req={req} />)}
+        <GapCallout summary={summary} />
       </div>
-      <p className="tr-subtitle" style={{ margin: '2px 0 14px' }}>{HIERARCHY_TIER_WINDOW_LABELS[progress.nextTier.window]}</p>
-      {progress.results.map((req, i) => <RequirementRow key={i} req={req} />)}
-      {progress.allMet && (
-        <div className="tr-badge tr-badge-weekday" style={{ marginTop: 12 }}>All requirements met — ready for promotion!</div>
-      )}
-    </div>
+    </>
   );
 }
 
