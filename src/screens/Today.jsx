@@ -1,6 +1,6 @@
-// Today: the daily plan, First 30 days, promotion and licensing cards.
+// Today: the daily plan, First 30 days, and one "Needs you" list (promotion and licensing).
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Award, CalendarDays, Check, ChevronDown, ChevronRight, ChevronUp, ClipboardCheck, Plus, Sparkles, UserPlus, Users, Video, X } from 'lucide-react';
+import { Award, CalendarDays, Check, ChevronDown, ChevronRight, ChevronUp, ClipboardCheck, GraduationCap, Sparkles, UserPlus, Users, Video, X } from 'lucide-react';
 import { supabase } from '../supabaseClient.js';
 import { examWhen, fetchLicensingProgress, licensingStatus } from '../licensing.js';
 import { computeOnboarding, fetchMyOnboarding, ONBOARDING_DAYS, ONBOARDING_WEEKS, onboardingDay, saveOnboardingSnapshot, setOnboardingVisibility, shouldShowOnboarding, weekForDay } from '../onboarding.js';
@@ -122,16 +122,18 @@ export function TodayTask({ task, children }) {
   );
 }
 
-// "Ready for promotion" on Today: your own news first, then anyone you
-// can see (your downline; everyone for super admins) who has met every
-// requirement for their next tier. Super admins approve from Team Pace →
-// Promotion; leaders can hide a name once they've passed it on.
+// "Needs you" on Today: one short list instead of a stack of banners.
+// Your own promotion news first, then anyone you can see (your downline;
+// everyone for super admins) who has met every requirement for their next
+// tier, then where you are on the path to licensed. Leaders can hide a
+// name once they've passed it on.
 export function readHiddenPromos() {
   try { return new Set(JSON.parse(localStorage.getItem('pl_promo_hidden') || '[]')); } catch { return new Set(); }
 }
 
-export function PromotionAlertsCard({ user, onReview, onMilestones }) {
+export function NeedsYouCard({ user, showLicensing, onMilestones, onReview, onLicensing }) {
   const [ready, setReady] = useState(null);
+  const [lic, setLic] = useState(null);
   const [hidden, setHidden] = useState(readHiddenPromos);
   useEffect(() => {
     let alive = true;
@@ -140,79 +142,78 @@ export function PromotionAlertsCard({ user, onReview, onMilestones }) {
     }).catch(() => { if (alive) setReady([]); });
     return () => { alive = false; };
   }, [user.id, user.role]);
-  if (!ready || ready.length === 0) return null;
-  const keyOf = x => `${x.member.id}:${x.progress.nextTier.key}`;
-  const mine = ready.find(x => x.member.id === user.id);
-  const others = ready.filter(x => x.member.id !== user.id && !hidden.has(keyOf(x)));
-  const isAdmin = user.role === 'super_admin';
-  function hide(x) {
-    const next = new Set(hidden); next.add(keyOf(x)); setHidden(next);
-    try { localStorage.setItem('pl_promo_hidden', JSON.stringify([...next].slice(-200))); } catch { /* ignore */ }
-  }
-  const shown = others.slice(0, 4);
-  return (
-    <>
-      {mine && (
-        <section className="tr-card tr-promo-card tr-promo-card-self" aria-label="You're ready for promotion">
-          <div className="tr-promo-icon" aria-hidden="true"><Award size={20} /></div>
-          <div className="tr-promo-body">
-            <div className="tr-promo-title">You've met every requirement for {mine.progress.nextTier.name} ({mine.progress.nextTier.key})</div>
-            <div className="tr-promo-sub">{isAdmin ? 'Approve it from Team Pace → Promotion.' : 'Your admins can see you’re ready — they approve promotions.'}</div>
-          </div>
-          <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onMilestones}>See progress</button>
-        </section>
-      )}
-      {shown.length > 0 && (
-        <section className="tr-card tr-promo-card" aria-labelledby="tr-promo-title">
-          <div className="tr-promo-head">
-            <div className="tr-promo-icon" aria-hidden="true"><Award size={20} /></div>
-            <div className="tr-promo-body">
-              <div className="tr-promo-title" id="tr-promo-title">{others.length} {others.length === 1 ? 'person is' : 'people are'} ready for promotion</div>
-              <div className="tr-promo-sub">{isAdmin ? 'They’ve met every requirement for their next tier.' : 'They’ve met every requirement for their next tier. Super admins approve promotions.'}</div>
-            </div>
-            {onReview && <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={onReview}>{isAdmin ? 'Review & approve' : 'Review'}</button>}
-          </div>
-          <ul className="tr-promo-list">
-            {shown.map(x => (
-              <li key={keyOf(x)}>
-                <span><strong>{x.member.display_name}</strong> → {x.progress.nextTier.name} ({x.progress.nextTier.key})</span>
-                {!isAdmin && <button type="button" className="tr-link-btn" onClick={() => hide(x)}>Hide</button>}
-              </li>
-            ))}
-            {others.length > shown.length && <li className="tr-promo-more">and {others.length - shown.length} more</li>}
-          </ul>
-        </section>
-      )}
-    </>
-  );
-}
-
-// Today: where you are on the path to licensed, until you're done.
-export function LicensingTodayCard({ user, onOpen }) {
-  const [state, setState] = useState(null);
   useEffect(() => {
     let alive = true;
-    const load = () => Promise.all([fetchMyLicensing(user.id), fetchLicensingProgress(user.id)]).then(([lic, prog]) => {
+    const load = () => Promise.all([fetchMyLicensing(user.id), fetchLicensingProgress(user.id)]).then(([l, prog]) => {
       if (!alive || (prog && prog.error)) return;
-      setState({ st: licensingStatus(prog, lic), prog: prog || {} });
+      setLic({ st: licensingStatus(prog, l), prog: prog || {} });
     });
     load();
     window.addEventListener('paceledger:onboarding-changed', load);
     return () => { alive = false; window.removeEventListener('paceledger:onboarding-changed', load); };
   }, [user.id]);
-  if (!state || state.st.licensed || user.role === 'super_admin') return null;
-  const { st, prog } = state;
-  const examSoon = prog.exam_on && !st.done.examPassed && prog.exam_on >= todayStr();
+
+  const isAdmin = user.role === 'super_admin';
+  const keyOf = x => `${x.member.id}:${x.progress.nextTier.key}`;
+  function hide(x) {
+    const next = new Set(hidden); next.add(keyOf(x)); setHidden(next);
+    try { localStorage.setItem('pl_promo_hidden', JSON.stringify([...next].slice(-200))); } catch { /* ignore */ }
+  }
+  const rows = [];
+  const mine = ready ? ready.find(x => x.member.id === user.id) : null;
+  if (mine) rows.push({
+    key: 'me', Icon: Award, tone: 'brass',
+    title: <>You've met every requirement for <strong>{mine.progress.nextTier.name}</strong></>,
+    sub: isAdmin ? 'Approve it from Team Pace → Promotion.' : 'Your admins can see you’re ready. They approve promotions.',
+    action: { label: 'See my progress', run: onMilestones },
+  });
+  const others = ready ? ready.filter(x => x.member.id !== user.id && !hidden.has(keyOf(x))) : [];
+  others.slice(0, 3).forEach(x => rows.push({
+    key: keyOf(x), Icon: Users, tone: 'blue',
+    title: <><strong>{x.member.display_name}</strong> is ready for {x.progress.nextTier.name} ({x.progress.nextTier.key})</>,
+    sub: isAdmin ? 'Every requirement met. Approve it in Team Pace → Promotion.' : 'Every requirement met. Super admins approve promotions.',
+    action: onReview ? { label: isAdmin ? 'Review & approve' : 'Review', run: onReview, primary: true } : null,
+    onHide: isAdmin ? null : () => hide(x),
+  }));
+  if (others.length > 3) rows.push({
+    key: 'more', Icon: Users, tone: 'blue',
+    title: <>and {others.length - 3} more ready for promotion</>, sub: '',
+    action: onReview ? { label: 'See all', run: onReview } : null,
+  });
+  if (showLicensing && lic && !lic.st.licensed && !isAdmin) {
+    const { st, prog } = lic;
+    const examSoon = prog.exam_on && !st.done.examPassed && prog.exam_on >= todayStr();
+    rows.push({
+      key: 'lic', Icon: GraduationCap, tone: 'blue', ring: st,
+      title: examSoon ? <>Your licensing exam is <strong>{examWhen(prog.exam_on)}</strong></> : <>Licensing: {lowerFirst(st.next.title)}</>,
+      sub: examSoon ? `${fmtShortDate(prog.exam_on)}. Mark it on Licensing as soon as you get your result.` : `Step ${st.nextIndex + 1} of ${st.total}. Getting licensed is the first step to promotion.`,
+      action: { label: 'Open Licensing', run: onLicensing },
+    });
+  }
+  if (!rows.length) return null;
   return (
-    <section className="tr-card tr-lic-today" aria-label="Licensing">
-      <div className="tr-lic-today-ring" aria-hidden="true">
-        <ProgressRing done={st.doneCount} total={st.total} size={44} stroke={4}><strong>{st.doneCount}</strong><span>/{st.total}</span></ProgressRing>
+    <section className="tr-card tr-needs" aria-labelledby="tr-needs-title">
+      <div className="tr-needs-head">
+        <h3 className="tr-needs-title" id="tr-needs-title">Needs you</h3>
+        <span className="tr-needs-count">{rows.length === 1 ? '1 thing' : `${rows.length} things`}</span>
       </div>
-      <div className="tr-promo-body">
-        <div className="tr-promo-title">{examSoon ? `Your licensing exam is ${examWhen(prog.exam_on)}` : `Licensing: ${lowerFirst(st.next.title)}`}</div>
-        <div className="tr-promo-sub">{examSoon ? `${fmtShortDate(prog.exam_on)}. Mark it on Licensing as soon as you get your result.` : `Step ${st.nextIndex + 1} of ${st.total}. Getting licensed is the first step to promotion.`}</div>
-      </div>
-      <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onOpen}>Open Licensing</button>
+      <ul className="tr-needs-list">
+        {rows.map(r => (
+          <li key={r.key} className="tr-needs-row">
+            {r.ring ? (
+              <span className="tr-needs-ring" aria-hidden="true"><ProgressRing done={r.ring.doneCount} total={r.ring.total} size={36} stroke={3.5}><strong>{r.ring.doneCount}</strong><span>/{r.ring.total}</span></ProgressRing></span>
+            ) : <span className={`tr-needs-icon tr-needs-icon-${r.tone}`} aria-hidden="true"><r.Icon size={17} /></span>}
+            <div className="tr-needs-body">
+              <div className="tr-needs-row-title">{r.title}</div>
+              {r.sub ? <div className="tr-needs-row-sub">{r.sub}</div> : null}
+            </div>
+            <div className="tr-needs-actions">
+              {r.action ? <button type="button" className={`tr-btn tr-btn-sm ${r.action.primary ? 'tr-btn-brass' : 'tr-btn-ghost'}`} onClick={r.action.run}>{r.action.label}</button> : null}
+              {r.onHide ? <button type="button" className="tr-link-btn tr-needs-hide" onClick={r.onHide}>Hide</button> : null}
+            </div>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
@@ -512,17 +513,13 @@ export function TodayBody({ user, onNavigate }) {
             {now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} · {todaysAppts.length === 0 ? 'no appointments today' : `${todaysAppts.length} appointment${todaysAppts.length === 1 ? '' : 's'} today`}
           </p>
         </div>
-        <div className="tr-ov-hello-actions">
-          <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => onNavigate('systems', 'new')}><Plus size={14} /> Add prospect</button>
-          <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={() => onNavigate('mine', 'new')}><Plus size={14} /> Log appointment</button>
-        </div>
       </div>
 
       {flash && <div className="tr-flash" role="status">{flash}</div>}
       <RemindersPrompt />
       {showOnboarding && <FirstThirtyDays result={onboarding} day={day} onGo={goStep} onHide={hideOnboarding} />}
-      <PromotionAlertsCard user={user} onMilestones={() => onNavigate('milestones')} onReview={seesTeam(user) ? () => onNavigate('teampromo') : null} />
-      {!showOnboarding && <LicensingTodayCard user={user} onOpen={() => onNavigate('milestones', 'licensing')} />}
+      <NeedsYouCard user={user} showLicensing={!showOnboarding} onMilestones={() => onNavigate('milestones')}
+        onReview={seesTeam(user) ? () => onNavigate('teampromo') : null} onLicensing={() => onNavigate('milestones', 'licensing')} />
 
       <div className="tr-today-grid">
         <section className="tr-card tr-today-plan" aria-labelledby="tr-plan-title">

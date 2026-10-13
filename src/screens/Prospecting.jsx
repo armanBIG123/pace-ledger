@@ -1,5 +1,5 @@
 // Prospecting: the prospect list, scoring form, funnel and Memory Jogger.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CalendarDays, ChevronDown, ChevronUp, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { daysAgoLabel, fmtDisplayDate } from '../lib/dates.js';
 import { isValidEmail } from '../lib/format.js';
@@ -261,7 +261,7 @@ export function SystemsBody({ user, onLogAppointment, initialIntent, onIntentCon
   const [flash, setFlash] = useState('');
   const [leaningFilter, setLeaningFilter] = useState('all'); // 'all' | 'sale' | 'recruit' | 'both'
   const [sortBy, setSortBy] = useState('score'); // 'score' | 'newest' | 'oldest'
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState(initialIntent && typeof initialIntent === 'object' && initialIntent.search ? initialIntent.search : '');
   const [editingProspect, setEditingProspect] = useState(null);
   const [formKey, setFormKey] = useState(0);
   const [quickFirst, setQuickFirst] = useState('');
@@ -269,6 +269,17 @@ export function SystemsBody({ user, onLogAppointment, initialIntent, onIntentCon
   const [staleOnly, setStaleOnly] = useState(initialIntent === 'stale');
 
   useEffect(() => { if (initialIntent) onIntentConsumed?.(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Requests that arrive while this tab is already open (+ New, search).
+  const firstIntent = useRef(true);
+  useEffect(() => {
+    if (firstIntent.current) { firstIntent.current = false; return; }
+    if (!initialIntent) return;
+    if (initialIntent === 'new') { setEditingProspect(null); setSystemsView('prospect'); }
+    else if (initialIntent === 'jogger') setSystemsView('jogger');
+    else if (initialIntent === 'stale') { setSystemsView('list'); setStaleOnly(true); }
+    else if (typeof initialIntent === 'object' && initialIntent.search) { setSystemsView('list'); setStaleOnly(false); setSearchQuery(initialIntent.search); }
+    onIntentConsumed?.();
+  }, [initialIntent]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refresh = useCallback(async () => {
     setLoading(true);

@@ -21,9 +21,11 @@ import { MilestoneCard } from './MilestoneCard.jsx';
 export const SOLAR_STARS = makeStars(70, 600, 600);
 const LEVEL_KEYS = HIERARCHY_TIERS.map(t => t.key);
 
-export function SolarSystemView({ user, isAdmin, roots, byId, children, stats, readyIds, licensing, teamOf, focusId, onFocus, onOpenPromotion, summaries, weekMonday }) {
+export function SolarSystemView({ user, isAdmin, roots, byId, children, stats, readyIds, licensing, teamOf, focusId, onFocus, onOpenPromotion, summaries, weekMonday, selectRequest }) {
   const [selected, setSelected] = useState(null);
   useEffect(() => { setSelected(null); }, [focusId]);
+  // Arriving from search: open that person's card (runs after the reset above).
+  useEffect(() => { if (selectRequest) setSelected(selectRequest.id); }, [selectRequest]);
   // Phones draw the same picture smaller, so bodies get bigger to stay tappable.
   const [compact, setCompact] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640);
   useEffect(() => {
@@ -262,7 +264,7 @@ export function SolarSystemView({ user, isAdmin, roots, byId, children, stats, r
   );
 }
 
-export function OrgChartBody({ user, onOpenPromotion }) {
+export function OrgChartBody({ user, onOpenPromotion, initialIntent, onIntentConsumed }) {
   const [people, setPeople] = useState([]);
   const [weekAppts, setWeekAppts] = useState([]);
   const [readyIds, setReadyIds] = useState(new Map());
@@ -274,7 +276,14 @@ export function OrgChartBody({ user, onOpenPromotion }) {
   const [query, setQuery] = useState('');
   const [mode, setMode] = useState(() => { try { return localStorage.getItem('pl_org_view') === 'solar' ? 'solar' : 'tree'; } catch { return 'tree'; } });
   const [solarFocus, setSolarFocus] = useState(null);
+  const [pendingPerson, setPendingPerson] = useState(null); // from search
+  const [selectRequest, setSelectRequest] = useState(null);
   const isAdmin = user.role === 'super_admin';
+  useEffect(() => {
+    if (!initialIntent) return;
+    if (typeof initialIntent === 'object' && initialIntent.person) setPendingPerson(initialIntent.person);
+    if (onIntentConsumed) onIntentConsumed();
+  }, [initialIntent]); // eslint-disable-line react-hooks/exhaustive-deps
   function pickMode(m) { setMode(m); try { localStorage.setItem('pl_org_view', m); } catch { /* ignore */ } }
 
   const load = useCallback(async () => {
@@ -322,6 +331,20 @@ export function OrgChartBody({ user, onOpenPromotion }) {
     return ids;
   }, [roots, teamOf]);
   const visiblePeople = people.filter(p => visibleIds.has(p.id));
+
+  // Search picked someone: show them in the solar system with their card open.
+  useEffect(() => {
+    if (!pendingPerson || loading) return;
+    const p = byId.get(pendingPerson);
+    if (p && visibleIds.has(p.id)) {
+      setMode('solar');
+      setQuery('');
+      const isRoot = roots.some(r => r.id === p.id);
+      setSolarFocus(isRoot || !p.manager_id || !visibleIds.has(p.manager_id) ? p.id : p.manager_id);
+      setSelectRequest({ id: p.id, at: Date.now() });
+    }
+    setPendingPerson(null);
+  }, [pendingPerson, loading, byId, visibleIds, roots]);
 
   // Each person's milestone card: % to their next level and the biggest gap.
   const summaries = React.useMemo(() => {
@@ -473,7 +496,7 @@ export function OrgChartBody({ user, onOpenPromotion }) {
                 </div>
               )}
               <SolarSystemView user={user} isAdmin={isAdmin} roots={roots} byId={byId} children={children} stats={stats} readyIds={readyIds} licensing={licensing}
-                teamOf={teamOf} focusId={solarFocus} onFocus={setSolarFocus} onOpenPromotion={onOpenPromotion} summaries={summaries} weekMonday={weekMonday} />
+                teamOf={teamOf} focusId={solarFocus} onFocus={setSolarFocus} onOpenPromotion={onOpenPromotion} summaries={summaries} weekMonday={weekMonday} selectRequest={selectRequest} />
             </>
           ) : (
           <div className="tr-card tr-org-card">
