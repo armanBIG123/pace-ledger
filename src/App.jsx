@@ -6,6 +6,7 @@ import {
   Sun, Video, Sparkles, Eye, EyeOff, Mail, Network
 } from 'lucide-react';
 import { supabase } from './supabaseClient.js';
+import { LICENSING_STEPS, US_STATES, licensingStatus, daysBetween, examWhen, fetchLicensingProgress, saveLicensingProgress, fetchLicensingForUsers } from './licensing.js';
 import { buildInviteLink, inviteState, fetchInviteForAppointment, createInvite, fetchInvitePreview, emailInvite } from './invites.js';
 import {
   ONBOARDING_DAYS, ONBOARDING_WEEKS, onboardingDay, weekForDay, computeOnboarding, shouldShowOnboarding,
@@ -517,7 +518,7 @@ const PROSPECT_SOURCES = ['Referral', 'Cold outreach', 'Event', 'Social media', 
 // (org_directory has no tiers, so tier-count requirements need this.)
 async function fetchHierarchyPeople() {
   const { data, error } = await supabase.from('profiles')
-    .select('id, display_name, email, manager_id, role, hierarchy_tier, hierarchy_tier_changed_at, created_at, npn, fg_writing_number')
+    .select('id, display_name, email, manager_id, role, hierarchy_tier, hierarchy_tier_changed_at, created_at, npn, fg_writing_number, licensed_at')
     .order('display_name');
   if (error) { console.error(error); return []; }
   return data;
@@ -3399,7 +3400,7 @@ function ProspectCard({ prospect, rank, onDelete, onToggleOutcome, onLogAppointm
 // progress tracking; Incentives is still a placeholder
 // ---------------------------------------------------------------------
 async function fetchMyLicensing(userId) {
-  const { data, error } = await supabase.from('profiles').select('npn, fg_writing_number, hierarchy_tier_changed_at').eq('id', userId).single();
+  const { data, error } = await supabase.from('profiles').select('npn, fg_writing_number, hierarchy_tier_changed_at, licensed_at').eq('id', userId).single();
   if (error) { console.error(error); return { npn: '', fg_writing_number: '' }; }
   return data;
 }
@@ -3552,9 +3553,161 @@ function IncentivesBody() {
     </>
   );
 }
+// The step-by-step path to licensed, above the license-number form.
+function lowerFirst(t) { return t ? t.charAt(0).toLowerCase() + t.slice(1) : ''; }
+function fmtShortDate(d) {
+  return d ? new Date(`${String(d).slice(0, 10)}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : '';
+}
+function LicensingTracker({ user, profile }) {
+  const [progress, setProgress] = useState(undefined);
+  const [provider, setProvider] = useState('');
+  const [examDate, setExamDate] = useState('');
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  useEffect(() => {
+    fetchLicensingProgress(user.id).then(r => {
+      const row = r && !r.error ? r : null;
+      setProgress(row);
+      setProvider((row && row.course_provider) || '');
+      setExamDate((row && row.exam_on) || '');
+    });
+  }, [user.id]);
+  if (progress === undefined) return <SkeletonCards count={1} />;
+  const p = progress || {};
+  const st = licensingStatus(p, profile);
+  const today = todayStr();
+  const joinedDays = user.createdAt ? daysBetween(user.createdAt, new Date()) + 1 : null;
+
+  async function save(key, patch) {
+    setBusy(key); setError('');
+    const res = await saveLicensingProgress(user.id, patch);
+    setBusy('');
+    if (!res.ok) { setError("That didn't save. Check your connection and try again."); return; }
+    setProgress(prev => ({ ...(prev || {}), ...res.row }));
+    window.dispatchEvent(new Event('paceledger:onboarding-changed'));
+  }
+  function scrollToNumbers() {
+    const el = document.getElementById('tr-license-numbers');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  const derived = k => (k === 'course' || k === 'courseDone' || k === 'examBooked' || k === 'examPassed') && (st.done.npn || st.licensed);
+
+  function detail(step) {
+    switch (step.key) {
+      case 'course':
+        return st.done.course
+          ? <span>{p.course_started_on ? `Started ${fmtShortDate(p.course_started_on)}` : 'Done'}{p.course_provider ? ` · ${p.course_provider}` : ''}</span>
+          : <span>Your state requires a pre-licensing course before the exam. Your upline can tell you which one the team uses.</span>;
+      case 'courseDone':
+        return st.done.courseDone
+          ? <span>{p.course_completed_on ? `Finished ${fmtShortDate(p.course_completed_on)}` : 'Done'}</span>
+          : <span>Keep your course certificate: you'll need it to book the exam.</span>;
+      case 'examBooked':
+        return p.exam_on && !st.done.examPassed
+          ? <span><strong>Exam {fmtShortDate(p.exam_on)}</strong> · {examWhen(p.exam_on)}</span>
+          : st.done.examBooked ? <span>{p.exam_on ? `Booked for ${fmtShortDate(p.exam_on)}` : 'Done'}</span>
+          : <span>Book it with your state's testing provider, then add the date here.</span>;
+      case 'examPassed':
+        return st.done.examPassed
+          ? <span>{p.exam_passed_on ? `Passed ${fmtShortDate(p.exam_passed_on)} 🎉` : 'Done'}{p.exam_attempts ? ` · after ${p.exam_attempts + 1} attempts` : ''}</span>
+          : p.exam_attempts > 0 ? <span>Attempt {p.exam_attempts + 1}. Lots of people pass on a retake: book your next date above.</span>
+          : <span>Mark it here as soon as you get your result.</span>;
+      case 'npn':
+        return st.done.npn ? <span>On file</span> : <span>Your state sends this once your license is issued. Add it in the form below.</span>;
+      case 'appointed':
+        return st.done.appointed ? <span>On file</span> : <span>Your writing number arrives once the carrier appoints you. Add it below.</span>;
+      default: return null;
+    }
+  }
+  function action(step, isNext) {
+    const k = step.key;
+    if (st.done[k]) {
+      // Only the latest finished step can be undone (to fix a mis-tap).
+      if (derived(k) || k === 'npn' || k === 'appointed' || LICENSING_STEPS.indexOf(step) !== st.nextIndex - 1) return null;
+      const undo = {
+        course: { course_started_on: null },
+        courseDone: { course_completed_on: null },
+        examBooked: { exam_on: null },
+        examPassed: { exam_passed_on: null },
+      }[k];
+      return <button type="button" className="tr-link-btn" disabled={busy === k} onClick={() => { if (k === 'examBooked') setExamDate(''); save(k, undo); }}>Undo</button>;
+    }
+    if (!isNext && k !== 'examBooked') return null;
+    switch (k) {
+      case 'course':
+        return (
+          <div className="tr-lic-inline">
+            <input value={provider} onChange={e => setProvider(e.target.value)} placeholder="Course provider (optional)" aria-label="Course provider" maxLength={80} />
+            <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" disabled={busy === k} onClick={() => save(k, { course_provider: provider.trim() || null, course_started_on: today })}>I've started</button>
+          </div>
+        );
+      case 'courseDone':
+        return <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" disabled={busy === k} onClick={() => save(k, { course_completed_on: today, course_started_on: p.course_started_on || today })}>Mark finished</button>;
+      case 'examBooked':
+        if (!isNext && !(p.exam_attempts > 0 && !p.exam_on)) return null;
+        return (
+          <div className="tr-lic-inline">
+            <input type="date" value={examDate} min={today} onChange={e => setExamDate(e.target.value)} aria-label="Exam date" />
+            <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" disabled={!examDate || busy === k} onClick={() => save(k, { exam_on: examDate })}>Save date</button>
+          </div>
+        );
+      case 'examPassed':
+        return (
+          <div className="tr-lic-inline">
+            <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" disabled={busy === k} onClick={() => save(k, { exam_passed_on: today })}>I passed!</button>
+            <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" disabled={busy === k} onClick={() => { setExamDate(''); save(k, { exam_attempts: (p.exam_attempts || 0) + 1, exam_on: null }); }}>Didn't pass this time</button>
+          </div>
+        );
+      case 'npn':
+      case 'appointed':
+        return <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={scrollToNumbers}>Add it below</button>;
+      default: return null;
+    }
+  }
+
+  return (
+    <div className="tr-card tr-lic-card">
+      <div className="tr-row-head" style={{ marginBottom: 4 }}>
+        <h3 className="tr-h3" style={{ margin: 0 }}>Your path to licensed</h3>
+        <span className={`tr-lic-count ${st.licensed ? 'tr-lic-count-done' : ''}`}>{st.doneCount} of {st.total}</span>
+      </div>
+      <div className="tr-lic-bar" aria-hidden="true"><div style={{ width: `${(st.doneCount / st.total) * 100}%` }} /></div>
+      <p className="tr-subtitle" style={{ margin: '8px 0 12px' }}>
+        {st.licensed
+          ? <>You're licensed and appointed.{profile.licensed_at && user.createdAt ? ` It took ${daysBetween(user.createdAt, profile.licensed_at)} days from joining.` : ''} Promotion's next: see Promotion Guidelines.</>
+          : <>{joinedDays ? `Day ${joinedDays} since you joined. ` : ''}Next: <strong>{lowerFirst(st.next.title)}</strong>. Your upline can see this, so they know when to help.</>}
+      </p>
+      <label className="tr-field tr-lic-state">
+        <span>Your resident state</span>
+        <select value={p.resident_state || ''} disabled={busy === 'state'} onChange={e => save('state', { resident_state: e.target.value || null })}>
+          <option value="">Choose your state</option>
+          {US_STATES.map(x => <option key={x} value={x}>{x}</option>)}
+        </select>
+      </label>
+      <ol className="tr-lic-steps">
+        {LICENSING_STEPS.map((step, i) => {
+          const done = st.done[step.key];
+          const isNext = !done && i === st.nextIndex;
+          return (
+            <li key={step.key} className={`tr-lic-step ${done ? 'tr-lic-done' : isNext ? 'tr-lic-next' : 'tr-lic-later'}`}>
+              <span className="tr-lic-dot" aria-hidden="true">{done ? <Check size={13} strokeWidth={3} /> : i + 1}</span>
+              <div className="tr-lic-main">
+                <div className="tr-lic-title">{step.title}{done ? <span className="tr-sr-only"> (done)</span> : null}</div>
+                <div className="tr-lic-detail">{detail(step)}</div>
+                {action(step, isNext)}
+              </div>
+            </li>
+          );
+        })}
+      </ol>
+      {error && <div className="tr-error" style={{ marginTop: 8 }}>{error}</div>}
+    </div>
+  );
+}
 function LicensingBody({ user }) {
   const [savedNpn, setSavedNpn] = useState('');
   const [savedFgNumber, setSavedFgNumber] = useState('');
+  const [savedLicensedAt, setSavedLicensedAt] = useState(null);
   const [npn, setNpn] = useState('');
   const [fgNumber, setFgNumber] = useState('');
   const [editing, setEditing] = useState(true);
@@ -3565,7 +3718,7 @@ function LicensingBody({ user }) {
   useEffect(() => {
     fetchMyLicensing(user.id).then(data => {
       const n = data.npn || '', f = data.fg_writing_number || '';
-      setSavedNpn(n); setSavedFgNumber(f);
+      setSavedNpn(n); setSavedFgNumber(f); setSavedLicensedAt(data.licensed_at || null);
       setNpn(n); setFgNumber(f);
       setEditing(!(n && f)); // only start locked if already fully licensed
       setLoaded(true);
@@ -3578,7 +3731,9 @@ function LicensingBody({ user }) {
     setSaving(false);
     if (!res.ok) { setError(res.error || 'Could not save. Try again.'); return; }
     setSavedNpn(npn.trim()); setSavedFgNumber(fgNumber.trim());
+    if (npn.trim() && fgNumber.trim() && !savedLicensedAt) setSavedLicensedAt(new Date().toISOString());
     setEditing(false); // lock once saved — matches what's now actually on file
+    window.dispatchEvent(new Event('paceledger:onboarding-changed'));
   }
   function cancelEdit() {
     setNpn(savedNpn); setFgNumber(savedFgNumber);
@@ -3596,11 +3751,12 @@ function LicensingBody({ user }) {
 
   return (
     <>
-      <PageHead title="Licensing" sub="Field Associates start right away, even before they're licensed. Record your numbers here once you are." />
+      <PageHead title="Licensing" sub="You can start right away, even before you're licensed. Track each step here, and add your numbers once you have them." />
+      {loaded && <LicensingTracker user={user} profile={{ npn: savedNpn, fg_writing_number: savedFgNumber, licensed_at: savedLicensedAt }} />}
       {!loaded ? <SkeletonCards count={1} /> : (
-        <div className="tr-card">
+        <div className="tr-card" id="tr-license-numbers" style={{ marginTop: 14 }}>
           <div className="tr-row-head" style={{ marginBottom: 14 }}>
-            <h3 className="tr-h3" style={{ margin: 0 }}>Your licensing info</h3>
+            <h3 className="tr-h3" style={{ margin: 0 }}>Your license and writing numbers</h3>
             {licensed && <span className="tr-type-badge tr-type-badge-both">✓ Licensed</span>}
           </div>
           {editing ? (
@@ -5338,6 +5494,35 @@ function PromotionAlertsCard({ user, onReview, onMilestones }) {
     </>
   );
 }
+// Today: where you are on the path to licensed, until you're done.
+function LicensingTodayCard({ user, onOpen }) {
+  const [state, setState] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () => Promise.all([fetchMyLicensing(user.id), fetchLicensingProgress(user.id)]).then(([lic, prog]) => {
+      if (!alive || (prog && prog.error)) return;
+      setState({ st: licensingStatus(prog, lic), prog: prog || {} });
+    });
+    load();
+    window.addEventListener('paceledger:onboarding-changed', load);
+    return () => { alive = false; window.removeEventListener('paceledger:onboarding-changed', load); };
+  }, [user.id]);
+  if (!state || state.st.licensed || user.role === 'super_admin') return null;
+  const { st, prog } = state;
+  const examSoon = prog.exam_on && !st.done.examPassed && prog.exam_on >= todayStr();
+  return (
+    <section className="tr-card tr-lic-today" aria-label="Licensing">
+      <div className="tr-lic-today-ring" aria-hidden="true">
+        <ProgressRing done={st.doneCount} total={st.total} size={44} stroke={4}><strong>{st.doneCount}</strong><span>/{st.total}</span></ProgressRing>
+      </div>
+      <div className="tr-promo-body">
+        <div className="tr-promo-title">{examSoon ? `Your licensing exam is ${examWhen(prog.exam_on)}` : `Licensing: ${lowerFirst(st.next.title)}`}</div>
+        <div className="tr-promo-sub">{examSoon ? `${fmtShortDate(prog.exam_on)}. Mark it on Licensing as soon as you get your result.` : `Step ${st.nextIndex + 1} of ${st.total}. Getting licensed is the first step to promotion.`}</div>
+      </div>
+      <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onOpen}>Open Licensing</button>
+    </section>
+  );
+}
 function TodayBody({ user, onNavigate }) {
   const [loading, setLoading] = useState(true);
   const [appointments, setAppointments] = useState([]);
@@ -5643,6 +5828,7 @@ function TodayBody({ user, onNavigate }) {
       <RemindersPrompt />
       {showOnboarding && <FirstThirtyDays result={onboarding} day={day} onGo={goStep} onHide={hideOnboarding} />}
       <PromotionAlertsCard user={user} onMilestones={() => onNavigate('milestones')} onReview={seesTeam(user) ? () => onNavigate('teampromo') : null} />
+      {!showOnboarding && <LicensingTodayCard user={user} onOpen={() => onNavigate('milestones', 'licensing')} />}
 
       <div className="tr-today-grid">
         <section className="tr-card tr-today-plan" aria-labelledby="tr-plan-title">
@@ -6449,8 +6635,92 @@ function TeamPromotionSubView({ user, members, loadingMembers, memberLabel, empt
     </>
   );
 }
+// Team Pace → Licensing: everyone not yet licensed, where they are, and
+// who's stuck; plus how long licensing has been taking.
+const LICENSING_STUCK_DAYS = 10;
+function TeamLicensingSubView({ members, loadingMembers, memberLabel, emptyMessage }) {
+  const [rows, setRows] = useState(null);
+  const refresh = useCallback(async () => {
+    if (!members.length) { setRows([]); return; }
+    setRows(null);
+    const ids = members.map(m => m.id);
+    const [people, prog] = await Promise.all([fetchHierarchyPeople(), fetchLicensingForUsers(ids)]);
+    const byId = new Map(people.map(p => [p.id, p]));
+    setRows(members.map(m => {
+      const person = byId.get(m.id) || m;
+      const pr = prog.get(m.id) || null;
+      const st = licensingStatus(pr, person);
+      const lastMove = pr && pr.updated_at ? pr.updated_at : person.created_at;
+      const idle = lastMove ? daysBetween(lastMove, new Date()) : 0;
+      return { member: m, person, pr, st, idle, stuck: !st.licensed && idle >= LICENSING_STUCK_DAYS };
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [members]);
+  useEffect(() => { refresh(); }, [refresh]);
+
+  if (loadingMembers || rows === null) return <SkeletonTable rows={5} cols={5} />;
+  if (members.length === 0) return <div className="tr-card"><p className="tr-empty">{emptyMessage}</p></div>;
+  const open = rows.filter(r => !r.st.licensed)
+    .sort((a, b) => (b.stuck - a.stuck) || (b.st.nextIndex - a.st.nextIndex) || (a.member.display_name || '').localeCompare(b.member.display_name || ''));
+  const weekAhead = fmtDate(addDays(parseDate(todayStr()), 7));
+  const examsSoon = open.filter(r => r.pr && r.pr.exam_on && !r.st.done.examPassed && r.pr.exam_on >= todayStr() && r.pr.exam_on <= weekAhead).length;
+  const recent = rows.filter(r => r.st.licensed && r.person.licensed_at && daysBetween(r.person.licensed_at, new Date()) <= 90 && r.person.created_at);
+  const avgDays = recent.length ? Math.round(recent.reduce((t, r) => t + daysBetween(r.person.created_at, r.person.licensed_at), 0) / recent.length) : null;
+  const stuck = open.filter(r => r.stuck).length;
+
+  return (
+    <>
+      <div className="tr-row-head">
+        <h2 className="tr-h2">Licensing</h2>
+        <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+      </div>
+      <p className="tr-subtitle">Where everyone on your team is on the path to licensed. "Stuck" means no progress in {LICENSING_STUCK_DAYS}+ days, so it's a good time to check in.</p>
+      <div className="tr-org-stats">
+        <span><strong>{open.length}</strong> not licensed yet</span>
+        {stuck > 0 && <span className="tr-lic-stat-warn"><strong>{stuck}</strong> stuck</span>}
+        <span><strong>{examsSoon}</strong> exam{examsSoon === 1 ? '' : 's'} in the next 7 days</span>
+        <span>{avgDays != null ? <><strong>{avgDays} days</strong> to licensed on average (last 90 days)</> : 'Days to licensed: not enough data yet'}</span>
+      </div>
+      {open.length === 0 ? (
+        <div className="tr-card"><p className="tr-empty">Everyone here is licensed and appointed. 🎉</p></div>
+      ) : (
+        <div className="tr-card tr-summary-card">
+          <div className="tr-table-wrap">
+            <table className="tr-table tr-table-summary">
+              <thead><tr><th>{memberLabel}</th><th>Progress</th><th>Next step</th><th>Exam</th><th>Status</th></tr></thead>
+              <tbody>
+                {open.map(r => (
+                  <tr key={r.member.id}>
+                    <td>{r.member.display_name}<MemberSubline member={r.member} /></td>
+                    <td>
+                      <div className="tr-minibar-wrap">
+                        <div className="tr-minibar-track"><div className="tr-minibar-fill" style={{ width: `${(r.st.doneCount / r.st.total) * 100}%` }} /></div>
+                        <span className="tr-mono tr-minibar-num">{r.st.doneCount}/{r.st.total}</span>
+                      </div>
+                    </td>
+                    <td>{r.st.next.short === 'Course started' ? 'Start the course' : r.st.next.title}{r.pr && r.pr.resident_state ? <div className="tr-tenure">{r.pr.resident_state}</div> : null}</td>
+                    <td>{r.pr && r.pr.exam_on && !r.st.done.examPassed ? <>{fmtShortDate(r.pr.exam_on)}<div className="tr-tenure">{examWhen(r.pr.exam_on)}</div></> : r.pr && r.pr.exam_attempts ? <span className="tr-tenure">Retake needed</span> : '—'}</td>
+                    <td>{r.stuck ? <span className="tr-status tr-status-rust">Stuck {r.idle} days</span> : <span className="tr-status tr-status-green">Moving</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+      {recent.length > 0 && (
+        <div className="tr-card tr-lic-recent">
+          <h3 className="tr-h3" style={{ marginTop: 0 }}>Licensed in the last 90 days</h3>
+          <ul className="tr-promo-list" style={{ marginLeft: 0 }}>
+            {recent.map(r => <li key={r.member.id}><span><strong>{r.member.display_name}</strong> · {daysBetween(r.person.created_at, r.person.licensed_at)} days from joining</span></li>)}
+          </ul>
+        </div>
+      )}
+    </>
+  );
+}
 function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, memberLabel, initialView }) {
-  const [view, setView] = useState(initialView === 'promotion' ? 'promotion' : 'pace'); // 'pace' | 'promotion'
+  const [view, setView] = useState(['promotion', 'licensing'].includes(initialView) ? initialView : 'pace'); // 'pace' | 'promotion' | 'licensing'
   const [members, setMembers] = useState([]);
   const [loadingMembers, setLoadingMembers] = useState(true);
 
@@ -6475,12 +6745,19 @@ function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, membe
           onClick={() => setView('promotion')}>
           <span>Promotion</span>
         </button>
+        <button
+          type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'licensing' ? 'tr-sidebar-item-active' : ''}`}
+          onClick={() => setView('licensing')}>
+          <span>Licensing</span>
+        </button>
       </nav>
       <div className="tr-appts-main">
         {view === 'pace' ? (
           <TeamPaceSubView
             user={user} members={members} loadingMembers={loadingMembers}
             heading={heading} Icon={Icon} emptyMessage={emptyMessage} memberLabel={memberLabel} />
+        ) : view === 'licensing' ? (
+          <TeamLicensingSubView members={members} loadingMembers={loadingMembers} memberLabel={memberLabel} emptyMessage={emptyMessage} />
         ) : (
           <TeamPromotionSubView user={user} members={members} loadingMembers={loadingMembers} memberLabel={memberLabel} emptyMessage={emptyMessage} />
         )}
@@ -6715,7 +6992,7 @@ function shortName(name) {
   if (parts.length <= 1) return parts[0] || '';
   return `${parts[0]} ${parts[parts.length - 1][0]}.`;
 }
-function SolarSystemView({ user, isAdmin, roots, byId, children, stats, readyIds, teamOf, focusId, onFocus, onOpenPromotion }) {
+function SolarSystemView({ user, isAdmin, roots, byId, children, stats, readyIds, licensing, teamOf, focusId, onFocus, onOpenPromotion }) {
   const [selected, setSelected] = useState(null);
   useEffect(() => { setSelected(null); }, [focusId]);
   // Phones draw the same picture smaller, so planets get bigger to stay tappable.
@@ -6881,7 +7158,7 @@ function SolarSystemView({ user, isAdmin, roots, byId, children, stats, readyIds
                     <strong>{p.display_name}</strong>
                     {p.hierarchy_tier ? <span className="tr-org-tier">{p.hierarchy_tier}</span> : null}
                     {ready ? <button type="button" className="tr-org-ready" onClick={onOpenPromotion}><Award size={12} /> Ready for {ready.key}</button> : null}
-                    <span className="tr-solar-list-sub">{st.total}/{WEEKLY_TOTAL_TARGET} this week{team ? ` · team of ${team}` : ''}</span>
+                    <span className="tr-solar-list-sub">{st.total}/{WEEKLY_TOTAL_TARGET} this week{team ? ` · team of ${team}` : ''}{licensing && licensing.get(p.id) && !licensing.get(p.id).licensed && p.role !== 'super_admin' ? ` · licensing ${licensing.get(p.id).doneCount}/${licensing.get(p.id).total}` : ''}</span>
                   </span>
                   {(children.get(p.id) || []).length > 0
                     ? <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => onFocus(p.id)}>Open system</button>
@@ -6899,6 +7176,7 @@ function OrgChartBody({ user, onOpenPromotion }) {
   const [people, setPeople] = useState([]);
   const [weekAppts, setWeekAppts] = useState([]);
   const [readyIds, setReadyIds] = useState(new Map());
+  const [licensing, setLicensing] = useState(new Map());
   const [loading, setLoading] = useState(true);
   const [weekMonday, setWeekMonday] = useState(weekStartOf(todayStr()));
   const [open, setOpen] = useState(null); // Set of expanded ids; null = default
@@ -6915,6 +7193,8 @@ function OrgChartBody({ user, onOpenPromotion }) {
     setWeekAppts(appts);
     const ready = computeReadiness(list, sold, promotionSubjects(user, list)).filter(x => x.progress && x.progress.allMet);
     setReadyIds(new Map(ready.map(x => [x.member.id, x.progress.nextTier])));
+    const prog = await fetchLicensingForUsers(list.map(p => p.id));
+    setLicensing(new Map(list.map(p => [p.id, licensingStatus(prog.get(p.id), p)])));
     setLoading(false);
   }, [weekMonday, user.id, user.role]);
   useEffect(() => { load(); }, [load]);
@@ -7015,6 +7295,9 @@ function OrgChartBody({ user, onOpenPromotion }) {
               <strong>{person.display_name}</strong>{person.id === user.id ? <span className="tr-org-you">you</span> : null}
               {person.hierarchy_tier ? <span className="tr-org-tier" title={hierarchyTierLabel(person.hierarchy_tier)}>{person.hierarchy_tier}</span> : null}
               {person.role === 'manager' ? <span className="tr-org-role">Manager</span> : person.role === 'super_admin' ? <span className="tr-org-role">Admin</span> : null}
+              {licensing.get(person.id) && !licensing.get(person.id).licensed && person.role !== 'super_admin' ? (
+                <span className="tr-org-lic" title={`Next: ${licensing.get(person.id).next.title}`}>Licensing {licensing.get(person.id).doneCount}/{licensing.get(person.id).total}</span>
+              ) : null}
               {ready ? (
                 <button type="button" className="tr-org-ready" onClick={onOpenPromotion} title="Open promotion readiness">
                   <Award size={12} /> Ready for {ready.key}
@@ -7083,7 +7366,7 @@ function OrgChartBody({ user, onOpenPromotion }) {
                   {!visiblePeople.some(p => (p.display_name || '').toLowerCase().includes(q)) && <span className="tr-empty">No one matches “{query}”.</span>}
                 </div>
               )}
-              <SolarSystemView user={user} isAdmin={isAdmin} roots={roots} byId={byId} children={children} stats={stats} readyIds={readyIds}
+              <SolarSystemView user={user} isAdmin={isAdmin} roots={roots} byId={byId} children={children} stats={stats} readyIds={readyIds} licensing={licensing}
                 teamOf={teamOf} focusId={solarFocus} onFocus={setSolarFocus} onOpenPromotion={onOpenPromotion} />
             </>
           ) : (
