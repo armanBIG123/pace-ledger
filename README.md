@@ -70,11 +70,29 @@ In that Pages project → **Custom domains** → **Set up a custom domain** →
 enter the domain you registered. Since it's already on Cloudflare DNS, this
 is usually automatic, including HTTPS.
 
-## Notes
+## How changes go live
 
-- The manager sign-up code is set in `src/App.jsx` as `MANAGER_CODE`. Change
-  it to something private before sharing this with your team, and only tell
-  it to people who should see everyone's data.
-- Every time you want to change the app, edit the code, `git add . && git
-  commit -m "..." && git push` — Cloudflare Pages rebuilds and redeploys
-  automatically within a minute or two.
+Changes are made on a separate branch and opened as a pull request on GitHub.
+Every branch is checked automatically (**Actions → Build check**): the site
+must build, and no file may use something it never imported. Merging the pull
+request into `main` is what puts it live: Cloudflare rebuilds the site in a
+minute or two, and the phone apps pick it up on their next launch.
+
+## Code layout
+
+Everything the app shows lives in `src/`:
+
+| Folder | What's in it |
+|---|---|
+| `App.jsx` | Entry point: loads the session and profile, then shows the right layout. |
+| `views/` | The three layouts: advisor, manager/leader, super admin. |
+| `screens/` | One file per tab (Today, Prospecting, My Appointments, Follow Up, Business Plan, Calendar, Milestones, Documents). |
+| `screens/team/` | Team tabs: Team Pace, Team Prospecting, Track Production, Org Chart, Manage Team. |
+| `components/` | Pieces shared by several screens: page layout, header, navigation, invites, reminders, pace widgets. |
+| `data/` | Reading and saving data in Supabase: appointments, prospects, team, trainings, Google/Zoom. |
+| `lib/` | Plain helpers with no screens or data: dates, formatting, pace targets. |
+| other `src/*.js` | Feature helpers that predate this layout (hierarchy and promotions, licensing, invites, onboarding, business plan, documents, schedule, client intake, follow-up notes, phone-app features) and `styles.js` (all CSS). |
+
+Database changes come as `migration-*.sql` files, run in the
+Supabase SQL Editor before the website change that needs them.
+`supabase-schema.sql` is the full schema for a brand-new project.
