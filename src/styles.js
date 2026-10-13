@@ -936,15 +936,18 @@ export const CSS = `
 @keyframes tr-solar-twinkle { from { opacity: .15; } }
 .tr-solar-orbit { fill: none; stroke: rgba(255,255,255,0.16); stroke-width: 1; stroke-dasharray: 3 7; animation: tr-solar-drift 60s linear infinite; }
 @keyframes tr-solar-drift { to { stroke-dashoffset: -400; } }
-.tr-solar-sun circle:nth-child(2) { filter: drop-shadow(0 0 18px rgba(242,200,102,0.55)); }
+.tr-solar-sun:not(.tr-solar-sun-person) circle:nth-child(2) { filter: drop-shadow(0 0 18px rgba(242,200,102,0.55)); }
 .tr-solar-sun-text { font-size: 22px; font-weight: 700; fill: #14202B; letter-spacing: .02em; }
 .tr-solar-ready { fill: none; stroke: #F2C866; stroke-width: 2; stroke-dasharray: 4 4; animation: tr-solar-drift 12s linear infinite; }
 .tr-solar-planet { cursor: pointer; animation: tr-solar-planet-in .55s cubic-bezier(.2,.8,.3,1) both; outline: none; }
 @keyframes tr-solar-planet-in { from { transform: translate(300px, 300px) scale(.2); opacity: 0; } }
-.tr-solar-planet > circle:not(.tr-solar-moon):not(.tr-solar-moonpath):not(.tr-solar-ready) { transition: filter .15s; }
-.tr-solar-planet:hover > circle, .tr-solar-planet:focus-visible > circle, .tr-solar-planet-on > circle { filter: brightness(1.18) drop-shadow(0 0 8px rgba(255,255,255,0.35)); }
-.tr-solar-planet:focus-visible .tr-solar-label { text-decoration: underline; }
-.tr-solar-planet-initials { fill: #fff; font-weight: 700; pointer-events: none; }
+.tr-solar-planet .tr-body, .tr-solar-sun-person .tr-body { transition: filter .15s; }
+.tr-solar-planet:hover .tr-body, .tr-solar-planet:focus-visible .tr-body, .tr-solar-planet-on .tr-body,
+.tr-solar-sun-person:hover .tr-body, .tr-solar-sun-person:focus-visible .tr-body { filter: brightness(1.15); }
+.tr-solar-planet:focus-visible .tr-solar-label, .tr-solar-sun-person:focus-visible .tr-solar-label { text-decoration: underline; }
+.tr-solar-sun-person { cursor: pointer; outline: none; }
+.tr-solar-halo { fill: rgba(255,255,255,0.08); stroke: rgba(255,255,255,0.6); stroke-width: 1.2; }
+.tr-solar-sublabel-ready { fill: #F2C866; }
 .tr-solar-label { fill: #fff; font-size: 12.5px; font-weight: 600; pointer-events: none; }
 .tr-solar-sublabel { fill: rgba(255,255,255,0.6); font-size: 10.5px; pointer-events: none; }
 .tr-solar-moonpath { fill: none; stroke: rgba(255,255,255,0.12); stroke-width: 1; }
@@ -954,6 +957,9 @@ export const CSS = `
 .tr-solar-legend i { width: 10px; height: 10px; border-radius: 999px; display: inline-block; }
 .tr-solar-legend .tr-solar-legend-ring { border: 2px dashed #F2C866; width: 12px; height: 12px; background: none; }
 .tr-solar-legend .tr-solar-legend-moon { background: #C9D6E3; width: 6px; height: 6px; }
+.tr-solar-legend .tr-solar-legend-pace { width: 12px; height: 12px; background: none; border: 2px solid #4FB286; border-right-color: rgba(255,255,255,0.2); }
+.tr-solar-levels { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 12px; padding: 0 14px 14px; font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.7); }
+.tr-solar-levels span { display: inline-flex; align-items: center; gap: 3px; }
 .tr-solar-panel { padding: 14px 16px; }
 .tr-solar-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .tr-solar-panel-title { font-weight: 600; color: var(--ink); font-size: 15px; }
@@ -964,6 +970,82 @@ export const CSS = `
 .tr-solar-list-name { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 14px; color: var(--ink); }
 .tr-solar-list-sub { flex-basis: 100%; font-size: 12px; color: var(--slate-light); }
 .tr-solar-results { display: flex; flex-wrap: wrap; gap: 6px; }
+.tr-solar-sortnote { font-size: 12px; color: var(--slate-light); margin-top: 10px; }
+.tr-solar-list li.tr-solar-li-on { background: var(--brass-tint); border-radius: 10px; border-top-color: transparent; padding-left: 8px; padding-right: 8px; }
+.tr-solar-name-btn { font: inherit; color: inherit; background: none; border: none; padding: 0; cursor: pointer; text-align: left; }
+.tr-solar-name-btn:hover strong { text-decoration: underline; }
+.tr-solar-list-bar { flex-basis: 100%; height: 4px; border-radius: 999px; background: var(--paper-dim); overflow: hidden; max-width: 260px; }
+.tr-solar-list-bar i { display: block; height: 100%; border-radius: 999px; background: var(--brass); }
+/* level bodies */
+.tr-body-icon { display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; border-radius: 999px; background: #0D1620; overflow: hidden; }
+.tr-body-icon svg { overflow: visible; }
+/* milestone card: a popover beside the picture on wide screens, a bottom sheet on phones */
+.tr-solar-pop { position: absolute; top: 14px; width: 316px; max-width: calc(100% - 28px); max-height: calc(100% - 28px); overflow-y: auto; z-index: 3; border-radius: 14px; box-shadow: 0 18px 44px rgba(0,0,0,0.45); background: var(--card); }
+.tr-solar-pop-right { right: 14px; }
+.tr-solar-pop-left { left: 14px; }
+@media (prefers-reduced-motion: no-preference) {
+  .tr-solar-pop { animation: tr-pop .18s ease-out; }
+}
+.tr-ms-card { padding: 14px 16px 16px; font-size: 13px; color: var(--slate); }
+.tr-ms-head { display: flex; align-items: center; gap: 10px; }
+.tr-ms-who { flex: 1; min-width: 0; }
+.tr-ms-name { font-weight: 600; color: var(--ink); font-size: 16px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.tr-ms-sub { font-size: 12.5px; color: var(--slate-light); }
+.tr-ms-head .tr-icon-btn { align-self: flex-start; }
+.tr-ms-note { margin: 12px 0 0; font-size: 13px; color: var(--slate); }
+.tr-ms-next { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.tr-ms-next .tr-label { font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--slate-light); font-weight: 600; }
+.tr-ms-nextrow { display: flex; align-items: center; gap: 5px; margin-top: 5px; color: var(--slate-light); }
+.tr-ms-nextrow strong { color: var(--ink); font-size: 14px; margin-left: 2px; }
+.tr-ms-bar { height: 7px; border-radius: 999px; background: var(--paper-dim); overflow: hidden; margin: 8px 0 3px; }
+.tr-ms-bar i { display: block; height: 100%; border-radius: 999px; background: var(--brass); }
+.tr-ms-bar i.tr-ms-bar-done, .tr-solar-list-bar i.tr-ms-bar-done { background: var(--green); }
+.tr-ms-bar-sm { height: 5px; margin: 4px 0 1px; }
+.tr-ms-meta { font-size: 12px; color: var(--slate-light); }
+.tr-ms-reqs { margin-top: 8px; }
+.tr-ms-req { padding: 5px 0; }
+.tr-ms-req-top { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; }
+.tr-ms-req-top strong { color: var(--ink); font-weight: 600; white-space: nowrap; }
+.tr-ms-req-gap .tr-ms-req-top span { color: #9B4A1E; font-weight: 600; }
+.tr-ms-req-gap .tr-ms-bar i { background: #C9702E; }
+.tr-ms-req-met .tr-ms-req-top span { color: var(--slate-light); }
+.tr-ms-months { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
+.tr-ms-months span { font-size: 11.5px; padding: 2px 8px; border-radius: 999px; background: var(--paper-dim); color: var(--slate); }
+.tr-ms-months span.tr-ms-month-met { background: rgba(46,125,91,0.12); color: #23654A; }
+.tr-ms-window { font-size: 11.5px; color: var(--slate-light); margin-top: 2px; }
+.tr-ms-gap { display: flex; gap: 8px; align-items: flex-start; background: var(--brass-tint); border-radius: 9px; padding: 9px 11px; margin-top: 10px; font-size: 12.5px; color: #5B4510; line-height: 1.45; }
+.tr-ms-gap strong { color: #3F2F07; }
+.tr-ms-gap svg { color: var(--brass-dark); margin-top: 2px; flex-shrink: 0; }
+.tr-ms-gap-ready { background: rgba(46,125,91,0.1); color: #1E5A40; }
+.tr-ms-gap-ready strong { color: #164532; }
+.tr-ms-gap-ready svg { color: var(--green); }
+.tr-ms-week { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px; font-size: 12.5px; }
+.tr-ms-week > span:first-child { display: inline-flex; align-items: center; gap: 5px; }
+.tr-ms-week strong { color: var(--ink); }
+.tr-ms-lic { color: var(--slate-light); }
+.tr-ms-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
+.tr-ms-actions:empty { display: none; }
+.tr-ms-actions .tr-ms-on { background: var(--paper-dim); }
+.tr-ms-card .tr-coaching-panel { margin-top: 12px; padding-top: 12px; }
+.tr-ms-open { width: 100%; margin-top: 10px; }
+.tr-ms-sheet .tr-modal-card { padding: 4px 0 calc(8px + env(safe-area-inset-bottom, 0px)); }
+.tr-ms-sheet .tr-modal-card::before { content: ''; display: block; width: 40px; height: 5px; border-radius: 999px; background: var(--line-strong); margin: 6px auto 0; }
+/* My path: your own level on Milestones */
+.tr-path-hero { position: relative; overflow: hidden; border-radius: 14px; padding: 18px 20px 12px; background: radial-gradient(ellipse at 20% 30%, #1C2F42 0%, #111C27 55%, #0A121A 100%); color: #fff; }
+.tr-path-hero-stars { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.tr-path-hero-top { position: relative; display: flex; align-items: center; gap: 18px; }
+.tr-path-hero-body { width: 140px; height: 140px; flex-shrink: 0; overflow: visible; }
+.tr-path-hero-k { font-size: 12.5px; color: #9FB0C0; }
+.tr-path-hero-h { font-family: 'Newsreader', serif; font-size: 26px; font-weight: 600; line-height: 1.15; color: #fff; }
+.tr-path-hero-s { font-size: 13px; color: #B9C6D2; margin-top: 2px; }
+.tr-path-hero-p { font-size: 13px; margin-top: 6px; color: #9FE0BF; }
+.tr-path-hero-p.tr-path-hero-p-progress { color: #F2C866; }
+.tr-path-hero-p.tr-path-hero-p-missed { color: #F0A090; }
+.tr-journey { position: relative; display: block; width: 100%; max-width: 420px; margin: 10px 0 0; overflow: visible; }
+.tr-journey-label { fill: #7F8E9C; font-size: 10px; font-weight: 600; }
+.tr-journey-you { fill: #F2C866; font-weight: 700; }
+.tr-progress-summary { margin: 2px 0 12px; }
+.tr-progress-summary .tr-ms-next { margin-top: 0; padding-top: 0; border-top: none; }
 @media (prefers-reduced-motion: reduce) {
   .tr-solar-svg, .tr-solar-star, .tr-solar-orbit, .tr-solar-ready, .tr-solar-planet { animation: none; }
 }
@@ -972,7 +1054,10 @@ export const CSS = `
   .tr-solar-legend { font-size: 10.5px; gap: 4px 10px; }
   .tr-solar-label { font-size: 19px; }
   .tr-solar-sublabel { font-size: 15px; }
-  .tr-solar-moon { r: 4; }
+  .tr-path-hero { padding: 14px 14px 10px; }
+  .tr-path-hero-top { gap: 12px; }
+  .tr-path-hero-body { width: 96px; height: 96px; }
+  .tr-path-hero-h { font-size: 22px; }
 }
 /* licensing tracker */
 .tr-lic-card { padding: 18px 20px; }

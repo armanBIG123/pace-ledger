@@ -87,10 +87,10 @@ Everything the app shows lives in `src/`:
 | `App.jsx` | Entry point: loads the session and profile, then shows the right layout. |
 | `views/` | The three layouts: advisor, manager/leader, super admin. |
 | `screens/` | One file per tab (Today, Prospecting, My Appointments, Follow Up, Business Plan, Calendar, Milestones, Documents). |
-| `screens/team/` | Team tabs: Team Pace, Team Prospecting, Track Production, Org Chart, Manage Team. |
-| `components/` | Pieces shared by several screens: page layout, header, navigation, invites, reminders, pace widgets. |
+| `screens/team/` | Team tabs: Team Pace, Team Prospecting, Track Production, Org Chart (with its milestone card), Manage Team. |
+| `components/` | Pieces shared by several screens: page layout, header, navigation, invites, reminders, pace widgets, level bodies (comet to galaxy) and milestone pieces. |
 | `data/` | Reading and saving data in Supabase: appointments, prospects, team, trainings, Google/Zoom. |
-| `lib/` | Plain helpers with no screens or data: dates, formatting, pace targets. |
+| `lib/` | Plain helpers with no screens or data: dates, formatting, pace targets, milestones (progress to the next level and the biggest gap). |
 | other `src/*.js` | Feature helpers that predate this layout (hierarchy and promotions, licensing, invites, onboarding, business plan, documents, schedule, client intake, follow-up notes, phone-app features) and `styles.js` (all CSS). |
 
 Database changes come as `migration-*.sql` files, run in the
