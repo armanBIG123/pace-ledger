@@ -922,6 +922,58 @@ export const CSS = `
 .tr-org-ready { display: inline-flex; align-items: center; gap: 4px; font-family: inherit; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; border: 1px solid rgba(201,162,75,0.5); background: rgba(201,162,75,0.15); color: #7A5C18; cursor: pointer; }
 .tr-org-sub { font-size: 12px; color: var(--slate-light); margin-top: 2px; }
 .tr-org-pace { display: flex; align-items: center; gap: 8px; flex-shrink: 0; font-size: 13px; color: var(--slate); }
+/* org chart: solar system view */
+.tr-solar { display: flex; flex-direction: column; gap: 12px; }
+.tr-solar-trail { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 13px; }
+.tr-solar-trail button { font-family: inherit; font-size: 13px; border: none; background: none; color: var(--slate); padding: 4px 8px; border-radius: 6px; cursor: pointer; }
+.tr-solar-trail button:hover { background: var(--paper-dim); color: var(--ink); }
+.tr-solar-trail .tr-solar-crumb-on { color: var(--ink); font-weight: 600; background: var(--card); border: 1px solid var(--line); }
+.tr-solar-crumb-sep { color: var(--slate-light); }
+.tr-solar-space { position: relative; border-radius: 16px; overflow: hidden; background: radial-gradient(ellipse at 50% 45%, #1C2F42 0%, #111C27 55%, #0A121A 100%); border: 1px solid #0A121A; box-shadow: inset 0 0 80px rgba(0,0,0,0.35); }
+.tr-solar-svg { display: block; width: 100%; max-width: 640px; margin: 0 auto; height: auto; animation: tr-solar-zoom .45s ease-out; }
+@keyframes tr-solar-zoom { from { opacity: 0; transform: scale(.9); } to { opacity: 1; transform: none; } }
+.tr-solar-star { animation: tr-solar-twinkle 4s ease-in-out infinite alternate; }
+@keyframes tr-solar-twinkle { from { opacity: .15; } }
+.tr-solar-orbit { fill: none; stroke: rgba(255,255,255,0.16); stroke-width: 1; stroke-dasharray: 3 7; animation: tr-solar-drift 60s linear infinite; }
+@keyframes tr-solar-drift { to { stroke-dashoffset: -400; } }
+.tr-solar-sun circle:nth-child(2) { filter: drop-shadow(0 0 18px rgba(242,200,102,0.55)); }
+.tr-solar-sun-text { font-size: 22px; font-weight: 700; fill: #14202B; letter-spacing: .02em; }
+.tr-solar-ready { fill: none; stroke: #F2C866; stroke-width: 2; stroke-dasharray: 4 4; animation: tr-solar-drift 12s linear infinite; }
+.tr-solar-planet { cursor: pointer; animation: tr-solar-planet-in .55s cubic-bezier(.2,.8,.3,1) both; outline: none; }
+@keyframes tr-solar-planet-in { from { transform: translate(300px, 300px) scale(.2); opacity: 0; } }
+.tr-solar-planet > circle:not(.tr-solar-moon):not(.tr-solar-moonpath):not(.tr-solar-ready) { transition: filter .15s; }
+.tr-solar-planet:hover > circle, .tr-solar-planet:focus-visible > circle, .tr-solar-planet-on > circle { filter: brightness(1.18) drop-shadow(0 0 8px rgba(255,255,255,0.35)); }
+.tr-solar-planet:focus-visible .tr-solar-label { text-decoration: underline; }
+.tr-solar-planet-initials { fill: #fff; font-weight: 700; pointer-events: none; }
+.tr-solar-label { fill: #fff; font-size: 12.5px; font-weight: 600; pointer-events: none; }
+.tr-solar-sublabel { fill: rgba(255,255,255,0.6); font-size: 10.5px; pointer-events: none; }
+.tr-solar-moonpath { fill: none; stroke: rgba(255,255,255,0.12); stroke-width: 1; }
+.tr-solar-moon { fill: #C9D6E3; }
+.tr-solar-legend { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px 14px; padding: 4px 14px 14px; font-size: 11.5px; color: rgba(255,255,255,0.72); }
+.tr-solar-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.tr-solar-legend i { width: 10px; height: 10px; border-radius: 999px; display: inline-block; }
+.tr-solar-legend .tr-solar-legend-ring { border: 2px dashed #F2C866; width: 12px; height: 12px; background: none; }
+.tr-solar-legend .tr-solar-legend-moon { background: #C9D6E3; width: 6px; height: 6px; }
+.tr-solar-panel { padding: 14px 16px; }
+.tr-solar-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.tr-solar-panel-title { font-weight: 600; color: var(--ink); font-size: 15px; }
+.tr-solar-panel-sub { font-size: 12.5px; color: var(--slate); margin-top: 2px; }
+.tr-solar-list { list-style: none; margin: 10px 0 0; padding: 0; }
+.tr-solar-list li { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-top: 1px solid var(--line); }
+.tr-solar-dot { width: 10px; height: 10px; border-radius: 999px; flex-shrink: 0; }
+.tr-solar-list-name { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 14px; color: var(--ink); }
+.tr-solar-list-sub { flex-basis: 100%; font-size: 12px; color: var(--slate-light); }
+.tr-solar-results { display: flex; flex-wrap: wrap; gap: 6px; }
+@media (prefers-reduced-motion: reduce) {
+  .tr-solar-svg, .tr-solar-star, .tr-solar-orbit, .tr-solar-ready, .tr-solar-planet { animation: none; }
+}
+@media (max-width: 640px) {
+  .tr-solar-space { border-radius: 12px; margin: 0 -4px; }
+  .tr-solar-legend { font-size: 10.5px; gap: 4px 10px; }
+  .tr-solar-label { font-size: 19px; }
+  .tr-solar-sublabel { font-size: 15px; }
+  .tr-solar-moon { r: 4; }
+}
 /* promotion alerts on Today */
 .tr-promo-card { margin-top: 14px; padding: 14px 16px; border-color: rgba(201,162,75,0.45); background: linear-gradient(0deg, rgba(201,162,75,0.07), rgba(201,162,75,0.07)), var(--card); }
 .tr-promo-card-self { display: flex; align-items: center; gap: 12px; }

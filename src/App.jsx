@@ -6700,6 +6700,201 @@ function personInitials(name) {
   const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
   return ((parts[0] || '')[0] || '?').toUpperCase() + ((parts.length > 1 ? parts[parts.length - 1][0] : '') || '').toUpperCase();
 }
+// Solar system view of the org chart: the person in focus is the sun, the
+// people who report to them orbit as planets (bigger planet = bigger team,
+// colour = this week's pace, moons = their own direct reports). Click a
+// planet to fly into their system; the trail at the top goes back up.
+const SOLAR_STATUS_COLORS = { met: '#4FB286', progress: '#E0A84A', missed: '#D8644E' };
+const SOLAR_STARS = (() => {
+  let seed = 7;
+  const rnd = () => { seed = (seed * 9301 + 49297) % 233280; return seed / 233280; };
+  return Array.from({ length: 70 }, () => ({ x: rnd() * 600, y: rnd() * 600, r: rnd() * 1.1 + 0.3, o: rnd() * 0.5 + 0.25, d: rnd() * 4 }));
+})();
+function shortName(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (parts.length <= 1) return parts[0] || '';
+  return `${parts[0]} ${parts[parts.length - 1][0]}.`;
+}
+function SolarSystemView({ user, isAdmin, roots, byId, children, stats, readyIds, teamOf, focusId, onFocus, onOpenPromotion }) {
+  const [selected, setSelected] = useState(null);
+  useEffect(() => { setSelected(null); }, [focusId]);
+  // Phones draw the same picture smaller, so planets get bigger to stay tappable.
+  const [compact, setCompact] = useState(() => typeof window !== 'undefined' && window.innerWidth < 640);
+  useEffect(() => {
+    const onResize = () => setCompact(window.innerWidth < 640);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  const gap = compact ? 8 : 0;
+  const top = isAdmin && roots.length !== 1 ? 'org' : (roots[0] ? roots[0].id : user.id);
+  const focus = focusId || top;
+  const isOrg = focus === 'org';
+  const sun = isOrg ? null : byId.get(focus);
+  const planetsAll = (isOrg ? roots : (children.get(focus) || [])).slice()
+    .sort((a, b) => teamOf(b.id).length - teamOf(a.id).length || (a.display_name || '').localeCompare(b.display_name || ''));
+  const MAX = 20;
+  const planets = planetsAll.slice(0, MAX);
+  const teamIds = isOrg ? [...roots.map(r => r.id), ...roots.flatMap(r => teamOf(r.id))] : teamOf(focus);
+  const teamOnPace = teamIds.filter(id => (stats.get(id) || {}).status === 'met').length;
+
+  // Trail from the top of what you can see down to the sun.
+  const trail = [];
+  if (!isOrg) {
+    let cur = sun, guard = 0;
+    while (cur && guard++ < 60) {
+      trail.unshift(cur);
+      if (cur.id === top) break;
+      const up = cur.manager_id ? byId.get(cur.manager_id) : null;
+      if (!up || (!isAdmin && !teamOf(top).includes(up.id) && up.id !== top)) break;
+      cur = up;
+    }
+  }
+
+  // Up to 8 on the inner orbit, the rest on the outer one.
+  const C = 300;
+  const rings = planets.length <= 8 ? [{ r: 172, list: planets }] : [{ r: 138, list: planets.slice(0, 8) }, { r: 232, list: planets.slice(8) }];
+  const placed = rings.flatMap((ring, ri) => ring.list.map((p, i) => {
+    const angle = (i / ring.list.length) * Math.PI * 2 - Math.PI / 2 + (ri ? Math.PI / ring.list.length : 0);
+    const team = teamOf(p.id).length;
+    return { p, x: C + Math.cos(angle) * ring.r, y: C + Math.sin(angle) * ring.r, size: (compact ? 19 : 13) + Math.min(15, Math.sqrt(team) * 4.5), team, moons: Math.min(6, (children.get(p.id) || []).length), delay: (ri * 8 + i) * 45 };
+  }));
+  const sel = selected ? byId.get(selected) : null;
+
+  function open(p) {
+    if ((children.get(p.id) || []).length > 0) onFocus(p.id);
+    else setSelected(p.id === selected ? null : p.id);
+  }
+  function info(p) {
+    const st = stats.get(p.id) || { total: 0, status: 'progress' };
+    const team = teamOf(p.id).length;
+    return `${p.display_name}${p.hierarchy_tier ? ` · ${p.hierarchy_tier}` : ''} · ${st.total}/${WEEKLY_TOTAL_TARGET} this week${team ? ` · team of ${team}` : ''}`;
+  }
+
+  return (
+    <div className="tr-solar">
+      <nav className="tr-solar-trail" aria-label="Where you are in the org">
+        {isAdmin && roots.length !== 1 && (
+          <button type="button" className={isOrg ? 'tr-solar-crumb-on' : ''} onClick={() => onFocus('org')}>Organization</button>
+        )}
+        {trail.map((p, i) => (
+          <React.Fragment key={p.id}>
+            {(i > 0 || (isAdmin && roots.length !== 1)) && <ChevronRight size={13} className="tr-solar-crumb-sep" />}
+            <button type="button" className={p.id === focus ? 'tr-solar-crumb-on' : ''} onClick={() => onFocus(p.id)}>{p.display_name}</button>
+          </React.Fragment>
+        ))}
+      </nav>
+
+      <div className="tr-solar-space">
+        <svg key={focus} viewBox="0 0 600 600" className="tr-solar-svg" role="img" aria-label={`${isOrg ? 'The organization' : `${sun ? sun.display_name : ''}'s team`}: ${planets.length} people in orbit`}>
+          <defs>
+            <radialGradient id="trSunGrad" cx="40%" cy="35%" r="70%">
+              <stop offset="0%" stopColor="#FFE7A3" /><stop offset="55%" stopColor="#E6B54E" /><stop offset="100%" stopColor="#B8862E" />
+            </radialGradient>
+            <radialGradient id="trSunGlow" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="#F2C866" stopOpacity="0.55" /><stop offset="100%" stopColor="#F2C866" stopOpacity="0" />
+            </radialGradient>
+            <radialGradient id="trPlanetShade" cx="35%" cy="30%" r="75%">
+              <stop offset="0%" stopColor="#fff" stopOpacity="0.45" /><stop offset="60%" stopColor="#fff" stopOpacity="0" /><stop offset="100%" stopColor="#000" stopOpacity="0.25" />
+            </radialGradient>
+          </defs>
+          {SOLAR_STARS.map((st, i) => <circle key={i} cx={st.x} cy={st.y} r={st.r} fill="#fff" opacity={st.o} className="tr-solar-star" style={{ animationDelay: `${st.d}s` }} />)}
+          {rings.map(ring => <circle key={ring.r} cx={C} cy={C} r={ring.r} className="tr-solar-orbit" />)}
+
+          <g className="tr-solar-sun">
+            <circle cx={C} cy={C} r="92" fill="url(#trSunGlow)" />
+            <circle cx={C} cy={C} r="48" fill="url(#trSunGrad)" />
+            {isOrg ? (
+              <text x={C} y={C + 6} textAnchor="middle" className="tr-solar-sun-text" style={{ fontSize: 15 }}>Org</text>
+            ) : (
+              <>
+                <text x={C} y={C + 7} textAnchor="middle" className="tr-solar-sun-text">{personInitials(sun ? sun.display_name : '')}</text>
+                {sun && readyIds.has(sun.id) && <circle cx={C} cy={C} r="55" className="tr-solar-ready" />}
+              </>
+            )}
+          </g>
+
+          {placed.map(({ p, x, y, size, team, moons, delay }) => {
+            const st = stats.get(p.id) || { status: 'progress', total: 0 };
+            const ready = readyIds.get(p.id);
+            const hasTeam = (children.get(p.id) || []).length > 0;
+            return (
+              <g key={p.id} className={`tr-solar-planet ${selected === p.id ? 'tr-solar-planet-on' : ''} ${hasTeam ? 'tr-solar-planet-team' : ''}`}
+                style={{ transform: `translate(${x}px, ${y}px)`, animationDelay: `${delay}ms` }}
+                role="button" tabIndex={0} aria-label={`${info(p)}${hasTeam ? '. Open their system' : ''}`}
+                onClick={() => open(p)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(p); } }}>
+                <title>{info(p)}</title>
+                <circle r={size + 18} fill="transparent" />
+                {moons > 0 && <circle r={size + 9} className="tr-solar-moonpath" />}
+                {Array.from({ length: moons }, (_, m) => {
+                  const a = (m / moons) * Math.PI * 2 - Math.PI / 4;
+                  return <circle key={m} cx={Math.cos(a) * (size + 9)} cy={Math.sin(a) * (size + 9)} r="3" className="tr-solar-moon" />;
+                })}
+                {ready && <circle r={size + 5} className="tr-solar-ready" />}
+                <circle r={size} fill={SOLAR_STATUS_COLORS[st.status] || SOLAR_STATUS_COLORS.progress} />
+                <circle r={size} fill="url(#trPlanetShade)" />
+                <text y="4" textAnchor="middle" className="tr-solar-planet-initials" style={{ fontSize: Math.max(10, size * 0.62) }}>{personInitials(p.display_name)}</text>
+                <text y={size + (moons ? 24 : 16) + gap} textAnchor="middle" className="tr-solar-label">{shortName(p.display_name)}</text>
+                <text y={size + (moons ? 37 : 29) + gap * 2} textAnchor="middle" className="tr-solar-sublabel">{st.total}/{WEEKLY_TOTAL_TARGET}{team ? ` · ${team}` : ''}</text>
+              </g>
+            );
+          })}
+          {planets.length === 0 && (
+            <text x={C} y={C + 110} textAnchor="middle" className="tr-solar-sublabel" style={{ fontSize: 14 }}>No one in orbit yet</text>
+          )}
+        </svg>
+
+        <div className="tr-solar-legend" aria-hidden="true">
+          <span><i style={{ background: SOLAR_STATUS_COLORS.met }} /> On pace</span>
+          <span><i style={{ background: SOLAR_STATUS_COLORS.progress }} /> In progress</span>
+          <span><i style={{ background: SOLAR_STATUS_COLORS.missed }} /> Behind</span>
+          <span><i className="tr-solar-legend-ring" /> Ready for promotion</span>
+          <span><i className="tr-solar-legend-moon" /> Moons = their direct reports</span>
+          <span>Bigger planet = bigger team</span>
+        </div>
+      </div>
+
+      <div className="tr-card tr-solar-panel">
+        <div className="tr-solar-panel-head">
+          <div>
+            <div className="tr-solar-panel-title">{isOrg ? 'The whole organization' : sel ? sel.display_name : sun ? `${sun.display_name}'s system` : ''}</div>
+            <div className="tr-solar-panel-sub">
+              {sel ? <>{info(sel)} · no one reports to them yet</>
+                : <>{teamIds.length} {teamIds.length === 1 ? 'person' : 'people'} in this system · {teamOnPace} on pace this week{planetsAll.length > MAX ? ` · showing the ${MAX} biggest teams in orbit` : ''}</>}
+            </div>
+          </div>
+          {!isOrg && sun && sun.id !== top && !sel && (
+            <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => onFocus(sun.manager_id && (isAdmin || teamOf(top).includes(sun.manager_id) || sun.manager_id === top) ? sun.manager_id : top)}>
+              <ChevronLeft size={14} /> Up a level
+            </button>
+          )}
+        </div>
+        {planetsAll.length > 0 && (
+          <ul className="tr-solar-list">
+            {planetsAll.map(p => {
+              const st = stats.get(p.id) || { total: 0, status: 'progress' };
+              const team = teamOf(p.id).length;
+              const ready = readyIds.get(p.id);
+              return (
+                <li key={p.id}>
+                  <span className="tr-solar-dot" style={{ background: SOLAR_STATUS_COLORS[st.status] }} />
+                  <span className="tr-solar-list-name">
+                    <strong>{p.display_name}</strong>
+                    {p.hierarchy_tier ? <span className="tr-org-tier">{p.hierarchy_tier}</span> : null}
+                    {ready ? <button type="button" className="tr-org-ready" onClick={onOpenPromotion}><Award size={12} /> Ready for {ready.key}</button> : null}
+                    <span className="tr-solar-list-sub">{st.total}/{WEEKLY_TOTAL_TARGET} this week{team ? ` · team of ${team}` : ''}</span>
+                  </span>
+                  {(children.get(p.id) || []).length > 0
+                    ? <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => onFocus(p.id)}>Open system</button>
+                    : null}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
 function OrgChartBody({ user, onOpenPromotion }) {
   const [people, setPeople] = useState([]);
   const [weekAppts, setWeekAppts] = useState([]);
@@ -6708,7 +6903,10 @@ function OrgChartBody({ user, onOpenPromotion }) {
   const [weekMonday, setWeekMonday] = useState(weekStartOf(todayStr()));
   const [open, setOpen] = useState(null); // Set of expanded ids; null = default
   const [query, setQuery] = useState('');
+  const [mode, setMode] = useState(() => { try { return localStorage.getItem('pl_org_view') === 'solar' ? 'solar' : 'tree'; } catch { return 'tree'; } });
+  const [solarFocus, setSolarFocus] = useState(null);
   const isAdmin = user.role === 'super_admin';
+  function pickMode(m) { setMode(m); try { localStorage.setItem('pl_org_view', m); } catch { /* ignore */ } }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -6861,14 +7059,34 @@ function OrgChartBody({ user, onOpenPromotion }) {
             {readyHere > 0 && <button type="button" className="tr-org-stat-ready" onClick={onOpenPromotion}><Award size={13} /> <strong>{readyHere}</strong> ready for promotion</button>}
           </div>
           <div className="tr-org-tools">
+            <div className="tr-seg" role="group" aria-label="Org chart view">
+              <button type="button" className={mode === 'tree' ? 'tr-seg-on' : ''} onClick={() => pickMode('tree')}>Tree</button>
+              <button type="button" className={mode === 'solar' ? 'tr-seg-on' : ''} onClick={() => pickMode('solar')}>Solar system</button>
+            </div>
             <div className="tr-search-row tr-org-search">
               <Search size={15} className="tr-search-icon" />
               <input className="tr-search-input" type="text" value={query} onChange={e => setQuery(e.target.value)} placeholder="Find someone…" aria-label="Find someone in the org chart" />
               {query && <button type="button" className="tr-icon-btn" onClick={() => setQuery('')} title="Clear search"><X size={15} /></button>}
             </div>
-            <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setOpen(new Set(visiblePeople.map(p => p.id)))}>Expand all</button>
-            <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setOpen(new Set())}>Collapse all</button>
+            {mode === 'tree' && <>
+              <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setOpen(new Set(visiblePeople.map(p => p.id)))}>Expand all</button>
+              <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setOpen(new Set())}>Collapse all</button>
+            </>}
           </div>
+          {mode === 'solar' ? (
+            <>
+              {q && (
+                <div className="tr-solar-results">
+                  {visiblePeople.filter(p => (p.display_name || '').toLowerCase().includes(q)).slice(0, 8).map(p => (
+                    <button key={p.id} type="button" className="tr-pill-btn" onClick={() => { setSolarFocus((children.get(p.id) || []).length ? p.id : (p.manager_id && visibleIds.has(p.manager_id) ? p.manager_id : p.id)); setQuery(''); }}>{p.display_name}</button>
+                  ))}
+                  {!visiblePeople.some(p => (p.display_name || '').toLowerCase().includes(q)) && <span className="tr-empty">No one matches “{query}”.</span>}
+                </div>
+              )}
+              <SolarSystemView user={user} isAdmin={isAdmin} roots={roots} byId={byId} children={children} stats={stats} readyIds={readyIds}
+                teamOf={teamOf} focusId={solarFocus} onFocus={setSolarFocus} onOpenPromotion={onOpenPromotion} />
+            </>
+          ) : (
           <div className="tr-card tr-org-card">
             {matchPath && matchPath.size === 0 ? <p className="tr-empty">No one matches “{query}”.</p> : (
               <ul className="tr-org-tree">
@@ -6876,6 +7094,7 @@ function OrgChartBody({ user, onOpenPromotion }) {
               </ul>
             )}
           </div>
+          )}
         </>
       )}
     </>
