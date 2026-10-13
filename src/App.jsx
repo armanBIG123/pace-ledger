@@ -1077,7 +1077,7 @@ function AccountSheet({ user, onClose }) {
               <p className="tr-account-warn">
                 This deletes your login and everything you've added: appointments, prospects, follow-up notes, your business plan,
                 client intake forms you sent, and your Google Calendar and Zoom connections. It can't be undone.
-                Anyone who reports to you will need a new manager assigned by an admin.
+                Anyone who reports to you will move up to report to your upline.
               </p>
               <label className="tr-field">
                 <span>Type DELETE to confirm</span>
@@ -7166,9 +7166,26 @@ async function changeUserRole(id, newRole) {
   const { error } = await supabase.from('profiles').update({ role: newRole }).eq('id', id);
   return !error ? null : error.message;
 }
+// Permanently deletes someone's account (login and everything they own)
+// through the delete-account function, which only super admins may use on
+// someone else. Their direct reports move up to their upline.
 async function deleteUserProfile(id) {
-  const { error } = await supabase.from('profiles').delete().eq('id', id);
-  return !error ? null : error.message;
+  const { data } = await supabase.auth.getSession();
+  if (!data.session) return 'You need to be signed in.';
+  try {
+    const res = await fetch(`${supabase.supabaseUrl}/functions/v1/delete-account`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.session.access_token}`, apikey: supabase.supabaseKey },
+      body: JSON.stringify({ confirm: 'DELETE', userId: id }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (res.ok && json.deleted) return null;
+    if (json.error === 'last_admin') return "That's the only admin left. Make someone else an admin first.";
+    if (json.error === 'not_allowed') return 'Only super admins can delete accounts.';
+    return "The account couldn't be deleted. Check your connection and try again.";
+  } catch {
+    return "The account couldn't be deleted. Check your connection and try again.";
+  }
 }
 async function changeUserManager(id, newManagerId) {
   const { error } = await supabase.from('profiles').update({ manager_id: newManagerId || null }).eq('id', id);
@@ -7297,15 +7314,22 @@ function ManageUsersView({ currentUserId, currentUserName }) {
   }
 
   async function handleDelete(id, name) {
-    const ok = window.confirm(`Remove ${name} from the team? They'll no longer be able to use the app. Their past appointment history is kept, not deleted.`);
+    const target = users.find(u => u.id === id);
+    const upline = target && target.manager_id ? users.find(u => u.id === target.manager_id) : null;
+    const reports = users.filter(u => u.manager_id === id).length;
+    const ok = window.confirm(
+      `Permanently delete ${name}'s account?\n\n` +
+      `Their login, appointments, prospects, notes and Business Plan are deleted, and this can't be undone.` +
+      (reports ? `\n\nThe ${reports} ${reports === 1 ? 'person' : 'people'} who report to them will move up to report to ${upline ? upline.display_name : 'nobody (top level)'}.` : '')
+    );
     if (!ok) return;
     setSavingId(id);
     setError('');
     const err = await deleteUserProfile(id);
     setSavingId(null);
     if (err) { setError(err); return; }
-    setUsers(prev => prev.filter(u => u.id !== id));
-    logAuditEvent(currentUserId, currentUserName, 'Removed user', name, null);
+    logAuditEvent(currentUserId, currentUserName, 'Deleted account', name, reports ? `${reports} direct report(s) moved to ${upline ? upline.display_name : 'top level'}` : null);
+    refresh();
   }
 
   return (
@@ -7352,7 +7376,7 @@ function ManageUsersView({ currentUserId, currentUserName }) {
                   </td>
                   <td>
                     {u.id !== currentUserId && (
-                      <button className="tr-icon-btn" onClick={() => handleDelete(u.id, u.display_name)} disabled={savingId === u.id} title="Remove from team">
+                      <button className="tr-icon-btn" onClick={() => handleDelete(u.id, u.display_name)} disabled={savingId === u.id} title="Delete account" aria-label="Delete account">
                         <Trash2 size={14} />
                       </button>
                     )}
