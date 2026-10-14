@@ -32,13 +32,13 @@ export function MyCoachingNotes({ userId, weekOf }) {
   );
 }
 
-export function PaceStrip({ groups, header }) {
+export function PaceStrip({ groups, header, note }) {
   const total = groups.reduce((n, g) => n + g.count, 0);
   const target = groups.reduce((n, g) => n + g.option.target, 0);
   return (
     <div className="tr-card tr-pace">
       {header ? <div className="tr-pace-head">{header}<span className="tr-pace-total"><strong>{total}</strong> / {target} set</span></div> : null}
-      <p className="tr-pace-hint">The {WEEKEND_TARGET} you schedule over the weekend for the week ahead, plus {WEEKDAY_TARGET} new ones each weekday.</p>
+      <p className="tr-pace-hint">The {WEEKEND_TARGET} you schedule over the weekend for the week ahead, plus {WEEKDAY_TARGET} new ones each weekday.{note ? ` ${note}` : ''}</p>
       <div className="tr-pace-grid">
         {groups.map(g => (
           <div className="tr-pace-group" key={g.option.value}>

@@ -6,7 +6,7 @@ import { Award, BadgeCheck, CalendarX, DollarSign, GraduationCap, Network, Party
 import { examWhen, fetchLicensingForUsers, licensingStatus } from '../../licensing.js';
 import { buildChildrenMap, computeReadiness, downlineIds } from '../../hierarchy.js';
 import { fetchTeamOnboarding, onboardingDay, onboardingStepTitle, onboardingStepWeek } from '../../onboarding.js';
-import { DATE_SET_OPTIONS, defaultDateSetOption, getStatus, WEEKLY_TOTAL_TARGET } from '../../lib/pace.js';
+import { countsTowardPace, DATE_SET_OPTIONS, defaultDateSetOption, getStatus, WEEKLY_TOTAL_TARGET } from '../../lib/pace.js';
 import { addDays, fmtDate, fmtShortDate, parseDate, shiftWeekStr, todayStr, weekStartOf } from '../../lib/dates.js';
 import { shortMoney, tierInfo } from '../../lib/milestones.js';
 import { fetchAppointmentsForWeek } from '../../data/appointments.js';
@@ -38,9 +38,9 @@ export function buildTeamOverview({ user, people, thisWeek, lastWeek, sold, prog
   const weekMonday = weekStartOf(todayStr());
   const todayIdx = DATE_SET_OPTIONS.findIndex(o => o.value === defaultDateSetOption());
   const expectedByNow = DATE_SET_OPTIONS.slice(0, todayIdx + 1).reduce((s, o) => s + o.target, 0);
-  const counted = list => list.filter(a => !a.isFollowUp);
-  const pace = new Map(team.map(p => [p.id, paceFor(counted(thisWeek).filter(a => a.userId === p.id), weekMonday)]));
-  const lastTotal = new Map(team.map(p => [p.id, counted(lastWeek).filter(a => a.userId === p.id).length]));
+  // Pace: what each person set, plus calls they're presenting that someone else set.
+  const pace = new Map(team.map(p => [p.id, paceFor(thisWeek.filter(a => countsTowardPace(a, p.id)), weekMonday)]));
+  const lastTotal = new Map(team.map(p => [p.id, lastWeek.filter(a => countsTowardPace(a, p.id)).length]));
   const lic = new Map(team.map(p => [p.id, { st: licensingStatus(licensingRows.get(p.id), p), row: licensingRows.get(p.id) || null }]));
   const readyList = progress.filter(x => teamIds.has(x.member.id) && x.progress && x.progress.allMet);
   // Licensing alerts are for people still at UA (or with no level yet):
@@ -166,7 +166,7 @@ export function buildTeamOverview({ user, people, thisWeek, lastWeek, sold, prog
     .filter(p => p.id !== user.id).slice(0, 12);
   // Today's batch: who on the team has scheduled at least one so far.
   const todayOpt = defaultDateSetOption();
-  const batchStarted = team.filter(p => counted(thisWeek).some(a => a.userId === p.id && a.dateSetOption === todayOpt)).length;
+  const batchStarted = team.filter(p => thisWeek.some(a => countsTowardPace(a, p.id) && a.dateSetOption === todayOpt)).length;
   const signals = { readyList, examsSoon, quiet, stuck, newBehind, behindOnly, wins, lic, todayOpt, batchStarted, byId: new Map(people.map(p => [p.id, p])) };
   return { team, tiles, needs, wins, centre, orbit, pace, children, expectedByNow, signals };
 }

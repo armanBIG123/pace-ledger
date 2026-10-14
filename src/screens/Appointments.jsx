@@ -8,7 +8,7 @@ import { checkAppointmentConflict } from '../schedule.js';
 import { DATE_SET_OPTIONS, dateSetMeta, defaultDateSetOption } from '../lib/pace.js';
 import { addMinutesToDateTime, detectTimezone, fmtApptDateTime, fmtDisplayDate, fmtFollowUpDateTime, parseDate, shiftWeekStr, timezoneOptionsWithDetected, todayStr, weekStartOf } from '../lib/dates.js';
 import { downloadCSV, fmtCurrency, isValidEmail } from '../lib/format.js';
-import { addPolicyNote, applyFollowUpToList, boolToYesNo, deleteAppointmentRow, fetchMyAppointments, fetchPolicyNotes, fetchSoldPolicies, fetchZoomConnectedManagers, insertAppointment, inviteFailureMessage, isPastAppointment, isPolicyIssued, isRecruitType, isSaleType, ISSUED_PREMIUM_VIEW, markInviteSent, OUTCOME_OPTIONS, persistFollowUp, SOLD_PREMIUM_VIEW, STATUS_OPTIONS, typeLabel, updateAppointment, updatePolicyFields, YES_NO_OPTIONS, yesNoToBool } from '../data/appointments.js';
+import { addPolicyNote, applyFollowUpToList, boolToYesNo, deleteAppointmentRow, fetchAppointmentsImPresenting, fetchMyAppointments, fetchPolicyNotes, fetchSoldPolicies, fetchZoomConnectedManagers, insertAppointment, inviteFailureMessage, isPastAppointment, isPolicyIssued, isRecruitType, isSaleType, ISSUED_PREMIUM_VIEW, markInviteSent, OUTCOME_OPTIONS, persistFollowUp, SOLD_PREMIUM_VIEW, STATUS_OPTIONS, typeLabel, updateAppointment, updatePolicyFields, YES_NO_OPTIONS, yesNoToBool } from '../data/appointments.js';
 import { fetchMyProspects, normName, prospectLeaningKey, prospectNameKey } from '../data/prospects.js';
 import { fetchOrgDirectory } from '../data/team.js';
 import { connectZoom, createZoomMeeting, disconnectZoom, fetchZoomConnectionStatus, pushAppointmentToGoogleCalendar, sendAppointmentInviteEmail, updateAppointmentZoomUrl, zoomOAuthUrl } from '../data/integrations.js';
@@ -44,9 +44,12 @@ export function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty, hi
                       {a.inviteSentAt ? <div className="tr-note" style={{ marginTop: 2 }} title={(a.inviteeEmails || []).join(', ')}>Invite sent to {(a.inviteeEmails || []).length} {(a.inviteeEmails || []).length === 1 ? 'person' : 'people'}{a.inviteMethod === 'google' ? ' (Google)' : ''}</div> : null}
                       {a.notes ? <span className="tr-note"> — {a.notes}</span> : null}
                     </td>
-                    <td className="td-presenter"><span className="tr-mobile-only">with </span>{a.presenter}</td>
+                    <td className="td-presenter">{a.presentingFor
+                      ? <><span className="tr-presenting-chip">You're presenting</span><div className="tr-note">set by {a.setByName || 'your team'}</div></>
+                      : <><span className="tr-mobile-only">with </span>{a.presenter}</>}</td>
                     {showTrainee && <td className="td-trainee"><span className="tr-mobile-only">trainee </span>{a.trainee || '—'}</td>}
-                    {onDelete && (
+                    {onDelete && a.presentingFor && <td className="td-actions" />}
+                    {onDelete && !a.presentingFor && (
                       <td className="td-actions" style={{ whiteSpace: 'nowrap' }}>
                         {onFollowUp && isPastAppointment(a) && !a.followUpCompletedAt && (
                           <button className="tr-btn tr-btn-brass tr-btn-sm" style={{ marginRight: 4 }} onClick={() => onFollowUp(a)} title="Log how it went">Log outcome</button>
@@ -565,6 +568,7 @@ export function OpenRequirementsBody({ view, user }) {
 
 export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initialIntent, onIntentConsumed }) {
   const [appointments, setAppointments] = useState([]);
+  const [presenting, setPresenting] = useState([]); // set by someone else, you're presenting: counts toward your pace
   const [loading, setLoading] = useState(true);
   const [weekMonday, setWeekMonday] = useState(weekStartOf(todayStr()));
   const [showForm, setShowForm] = useState(false);
@@ -648,8 +652,9 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const [apptList, zStatus] = await Promise.all([fetchMyAppointments(user.id), fetchZoomConnectionStatus()]);
+    const [apptList, zStatus, pres] = await Promise.all([fetchMyAppointments(user.id), fetchZoomConnectionStatus(), fetchAppointmentsImPresenting(user.id).catch(() => [])]);
     setAppointments(apptList);
+    setPresenting(pres);
     setZoomStatus(zStatus);
     setLoading(false);
   }, [user.id]);
@@ -678,7 +683,8 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  const weekAppts = appointments
+  // This week's pace: the ones you set plus the ones you're presenting for your team.
+  const weekAppts = [...appointments, ...presenting]
     .filter(a => a.weekOf === weekMonday && !a.isFollowUp)
     .sort((a, b) => (a.appointmentDate + a.appointmentTime).localeCompare(b.appointmentDate + b.appointmentTime));
   const groups = DATE_SET_OPTIONS.map(opt => ({
@@ -902,7 +908,8 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
             <ZoomConnect status={zoomStatus} connecting={zoomConnecting} onConnect={handleZoomConnect} onDisconnect={handleZoomDisconnect} />
             <PaceStrip
               header={<WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />}
-              groups={groups.map(g => ({ option: g.option, count: g.list.length, list: g.list }))} />
+              groups={groups.map(g => ({ option: g.option, count: g.list.length, list: g.list }))}
+              note={(() => { const n = weekAppts.filter(a => a.presentingFor).length; return n ? `Includes ${n} you're presenting for your team.` : ''; })()} />
             {upcomingFollowUps.length > 0 && (
               <ApptGroup
                 title={`Upcoming follow-ups (${upcomingFollowUps.length})`}
@@ -939,8 +946,8 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
             </button>
             {showHistory && (
               <>
-                <PaceTrend appointments={appointments} currentWeekMonday={weekMonday} />
-                <PersonalBests appointments={appointments} />
+                <PaceTrend appointments={[...appointments, ...presenting]} currentWeekMonday={weekMonday} />
+                <PersonalBests appointments={[...appointments, ...presenting]} />
               </>
             )}
           </>

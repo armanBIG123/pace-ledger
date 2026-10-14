@@ -7,6 +7,14 @@ export const WEEKDAY_TARGET = 5;
 
 export const WEEKLY_TOTAL_TARGET = WEEKEND_TARGET + WEEKDAY_TARGET * 5; // 33
 
+// What counts toward someone's pace: appointments they set, plus ones
+// someone else set with them as the presenter (a leader running a call for
+// their team gets credit too, and so does the person who set it). The
+// appointment counts in the week and batch it was set in. Follow-ups never
+// count.
+export const isPresentingFor = (a, personId) => !!personId && a.presenterId === personId && a.userId !== personId;
+export const countsTowardPace = (a, personId) => !a.isFollowUp && (a.userId === personId || isPresentingFor(a, personId));
+
 // Date-set options: which day the advisor set the appointment on.
 // Saturday/Sunday -> that week's weekend batch (target 8)
 // Monday-Friday -> that week's weekday additions (target 5)

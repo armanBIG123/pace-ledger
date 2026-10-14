@@ -1505,4 +1505,7 @@ export const CSS = `
   .tr-compose-actions .tr-btn { flex: 1 1 calc(50% - 8px); justify-content: center; }
   .tr-compose .tr-field input, .tr-compose .tr-field textarea { font-size: 16px; }
 }
+
+/* ---- presenting for your team (counts toward your pace) ------------ */
+.tr-presenting-chip { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: rgba(45,104,168,0.1); color: #24548A; white-space: nowrap; }
 `;

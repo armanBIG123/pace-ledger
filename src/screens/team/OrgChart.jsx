@@ -4,7 +4,7 @@ import { Award, ChevronDown, ChevronLeft, ChevronRight, Network, Search, X } fro
 import { fetchLicensingForUsers, licensingStatus } from '../../licensing.js';
 import { buildChildrenMap, computeReadiness, downlineIds, HIERARCHY_TIERS, hierarchyTierLabel } from '../../hierarchy.js';
 import { closestDirect, milestoneSummary, progressPct } from '../../lib/milestones.js';
-import { DATE_SET_OPTIONS, getStatus, WEEKLY_TOTAL_TARGET } from '../../lib/pace.js';
+import { countsTowardPace, DATE_SET_OPTIONS, getStatus, WEEKLY_TOTAL_TARGET } from '../../lib/pace.js';
 import { joinedDate, shiftWeekStr, todayStr, weekStartOf } from '../../lib/dates.js';
 import { personInitials, shortName } from '../../lib/format.js';
 import { BodyIcon, bodyName, bodyScale, CelestialBody, CelestialDefs, makeStars, PaceRing, ringRadius } from '../../components/CelestialBody.jsx';
@@ -317,7 +317,7 @@ export function OrgChartBody({ user, onOpenPromotion, initialIntent, onIntentCon
   const stats = React.useMemo(() => {
     const out = new Map();
     for (const p of people) {
-      const list = weekAppts.filter(a => a.userId === p.id && !a.isFollowUp);
+      const list = weekAppts.filter(a => countsTowardPace(a, p.id));
       const counts = DATE_SET_OPTIONS.map(opt => list.filter(a => a.dateSetOption === opt.value).length);
       out.set(p.id, { total: counts.reduce((x, y) => x + y, 0), status: getStatus(counts, weekMonday) });
     }

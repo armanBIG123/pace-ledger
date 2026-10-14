@@ -9,7 +9,7 @@ import { closestDirect, milestoneSummary, progressPct, tierInfo } from '../lib/m
 import { bodyName, bodyScale, CelestialBody, CelestialDefs, JourneyStrip, makeStars, PaceRing, ringRadius } from '../components/CelestialBody.jsx';
 import { GapCallout, NextLevel } from '../components/milestones.jsx';
 import { lowerFirst } from '../lib/format.js';
-import { fetchAppointmentsAsTrainee, fetchAppointmentsForUserIds, fetchMyAppointments } from '../data/appointments.js';
+import { fetchAppointmentsAsTrainee, fetchAppointmentsForUserIds, fetchAppointmentsImPresenting, fetchMyAppointments } from '../data/appointments.js';
 import { fetchHierarchyPeople, fetchMyLicensing, saveLicensing } from '../data/team.js';
 import { PageHead, SkeletonCards } from '../components/ui.jsx';
 
@@ -137,17 +137,19 @@ export function MyProgressCard({ user }) {
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const [orgDirectory, licensing, myAppts, traineeAppts, licProgress] = await Promise.all([
+    const [orgDirectory, licensing, myAppts, traineeAppts, licProgress, presenting] = await Promise.all([
       fetchHierarchyPeople(),
       fetchMyLicensing(user.id),
       fetchMyAppointments(user.id),
       fetchAppointmentsAsTrainee(user.id),
       fetchLicensingProgress(user.id),
+      fetchAppointmentsImPresenting(user.id).catch(() => []),
     ]);
     const person = { ...(orgDirectory.find(p => p.id === user.id) || { id: user.id, manager_id: null }), hierarchy_tier: user.hierarchyTier, ...licensing };
     // This week's pace and the people who report to you, for My path.
     const week = weekStartOf(todayStr());
-    const thisWeek = myAppts.filter(a => a.weekOf === week && !a.isFollowUp);
+    // Pace counts the ones you set plus the ones you're presenting for your team.
+    const thisWeek = [...myAppts, ...presenting].filter(a => a.weekOf === week && !a.isFollowUp);
     const counts = DATE_SET_OPTIONS.map(opt => thisWeek.filter(a => a.dateSetOption === opt.value).length);
     const directs = orgDirectory.filter(p => p.manager_id === user.id);
     setHero({ pace: { total: counts.reduce((x, y) => x + y, 0), status: getStatus(counts, week) }, moons: directs.length });
