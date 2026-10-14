@@ -164,15 +164,17 @@ export function NeedsYouCard({ user, showLicensing, onMilestones, onReview, onLi
   if (mine) rows.push({
     key: 'me', Icon: Award, tone: 'brass',
     title: <>You've met every requirement for <strong>{mine.progress.nextTier.name}</strong></>,
-    sub: isAdmin ? 'Approve it from Team Pace → Promotion.' : 'Your admins can see you’re ready. They approve promotions.',
+    sub: isAdmin ? 'Approve it from Team Pace → Promotion.' : 'Your direct manager submits it for approval, then a super admin approves it.',
     action: { label: 'See my progress', run: onMilestones },
   });
   const others = ready ? ready.filter(x => x.member.id !== user.id && !hidden.has(keyOf(x))) : [];
   others.slice(0, 3).forEach(x => rows.push({
     key: keyOf(x), Icon: Users, tone: 'blue',
     title: <><strong>{x.member.display_name}</strong> is ready for {x.progress.nextTier.name} ({x.progress.nextTier.key})</>,
-    sub: isAdmin ? 'Every requirement met. Approve it in Team Pace → Promotion.' : 'Every requirement met. Super admins approve promotions.',
-    action: onReview ? { label: isAdmin ? 'Review & approve' : 'Review', run: onReview, primary: true } : null,
+    sub: isAdmin ? 'Every requirement met. Approve it in Team Pace → Promotion.'
+      : x.member.manager_id === user.id ? 'Every requirement met. Submit it for approval in Team Pace → Promotion.'
+        : 'Every requirement met. Their direct manager submits it for approval.',
+    action: onReview ? { label: isAdmin ? 'Review & approve' : x.member.manager_id === user.id ? 'Submit for approval' : 'Review', run: onReview, primary: true } : null,
     onHide: isAdmin ? null : () => hide(x),
   }));
   if (others.length > 3) rows.push({
