@@ -3,6 +3,7 @@ import { CalendarDays, ChevronLeft, ChevronRight, DollarSign, Loader2, UserPlus 
 import { CSS } from '../styles.js';
 import { joinedDate, weekLabel } from '../lib/dates.js';
 import { isRecruitType, isSaleType, STATUS_OPTIONS } from '../data/appointments.js';
+import { EmailButton } from './email.jsx';
 
 // "Reports to Sam · Joined 08/26/2026" under a team member's name.
 export function MemberSubline({ member }) {
@@ -210,7 +211,7 @@ export function ContactLinks({ email }) {
   if (!email) return null;
   return (
     <div className="tr-contact-links">
-      <a className="tr-btn tr-btn-ghost tr-btn-sm" href={`mailto:${email.trim()}`}>Email</a>
+      <EmailButton to={email.trim()} Icon={null} />
       <span className="tr-contact-detail">{email.trim()}</span>
     </div>
   );
