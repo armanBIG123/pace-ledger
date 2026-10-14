@@ -7,7 +7,8 @@ import { hierarchyTierLabel } from '../../hierarchy.js';
 import { countsTowardPace, DATE_SET_OPTIONS, getStatus, isPresentingFor, WEEKLY_TOTAL_TARGET } from '../../lib/pace.js';
 import { addDays, apptStartMsSafe, fmtApptDateTime, fmtDate, fmtShortDate, parseDate, shiftWeekStr, todayStr, weekStartOf } from '../../lib/dates.js';
 import { fetchAppointmentsForWeek, isPastAppointment, isRecruitType, isSaleType } from '../../data/appointments.js';
-import { addCoachingNote, approvePromotion, fetchCoachingNotes, fetchDirectManagers, fetchHierarchyPeople, fetchTeamMembers, loadPromotionReadiness } from '../../data/team.js';
+import { addCoachingNote, approvePromotion, fetchCoachingNotes, fetchDirectManagers, fetchHierarchyPeople, fetchTeamMembers, loadPromotionReadiness, logAuditEvent } from '../../data/team.js';
+import { AGENCY_EMAIL, approvePromotionRequest, fetchPromotionRequests, resendPromotionEmail, sendBackPromotion, submitErrorText, submitPromotion } from '../../data/promotions.js';
 import { MemberSubline, MiniBar, SkelBlock, SkeletonTable, StatusBadge, StatusChip, TypeBadge, TypeFilter, WeekNav } from '../../components/ui.jsx';
 import { RequirementRow } from '../Milestones.jsx';
 
@@ -313,9 +314,41 @@ export function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, 
 // everyone currently stands, so a manager can see who's close too.
 // Expanding a row shows the exact same requirement breakdown their own
 // Milestones page would show them.
+const fmtWhen = iso => (iso ? new Date(iso).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '');
+
+// Where a submitted promotion stands, in a line under the person's progress.
+function PromotionStatusLine({ req, canResend, busy, onResend }) {
+  if (!req) return null;
+  if (req.status === 'submitted') {
+    return (
+      <div className="tr-promo-status">
+        Submitted {fmtWhen(req.submitted_at)}{req.submitted_by_name ? ` by ${req.submitted_by_name}` : ''}
+        {req.emailed_at ? ' · Agency emailed' : (
+          <>
+            {' · '}<span className="tr-promo-warn">Agency not emailed yet</span>
+            {canResend ? <>{' '}<button type="button" className="tr-link-btn tr-promo-resend" disabled={busy} onClick={e => { e.stopPropagation(); onResend(); }}>{busy ? 'Sending…' : 'Send again'}</button></> : null}
+          </>
+        )}
+      </div>
+    );
+  }
+  if (req.status === 'sent_back') {
+    return (
+      <div className="tr-promo-status">
+        <span className="tr-promo-warn">Sent back</span> {fmtWhen(req.decided_at)}{req.decided_by_name ? ` by ${req.decided_by_name}` : ''}{req.decision_note ? `: “${req.decision_note}”` : ''}
+      </div>
+    );
+  }
+  return null;
+}
+
 export function TeamPromotionSubView({ user, members, loadingMembers, memberLabel, emptyMessage }) {
   const [loading, setLoading] = useState(true);
   const [progressList, setProgressList] = useState([]);
+  const [requests, setRequests] = useState(() => new Map());
+  // True until migration-promotion-requests.sql has been run: promoting
+  // then works the old way (one step, no submission or email).
+  const [noSubmissions, setNoSubmissions] = useState(false);
   const [expanded, setExpanded] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [notice, setNotice] = useState(null);
@@ -324,30 +357,109 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
   const refresh = useCallback(async () => {
     if (members.length === 0) { setProgressList([]); setLoading(false); return; }
     setLoading(true);
-    const { list } = await loadPromotionReadiness(user, members.map(m => m.id));
+    const ids = members.map(m => m.id);
+    const [{ list }, reqs] = await Promise.all([loadPromotionReadiness(user, ids), fetchPromotionRequests(ids)]);
     // Ready first, then closest to ready.
     list.sort((a, b) => (b.progress.allMet - a.progress.allMet)
       || (b.progress.results.filter(r => r.met).length / b.progress.results.length) - (a.progress.results.filter(r => r.met).length / a.progress.results.length)
       || (a.member.display_name || '').localeCompare(b.member.display_name || ''));
     setProgressList(list);
+    setRequests(reqs.byUser);
+    setNoSubmissions(!!reqs.missingTable);
     setLoading(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [members]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  async function approve(member, nextTier) {
-    if (!window.confirm(`Promote ${member.display_name} to ${nextTier.name} (${nextTier.key})?`)) return;
+  // Their latest submission for the level they're working toward.
+  const latestFor = (member, progress) => {
+    const r = requests.get(member.id);
+    return r && r.to_tier === progress.nextTier.key ? r : null;
+  };
+  const waitingFor = (member, progress) => {
+    const r = latestFor(member, progress);
+    return r && r.status === 'submitted' ? r : null;
+  };
+
+  async function submit(member, progress) {
+    const t = progress.nextTier;
+    if (!window.confirm(`Submit ${member.display_name}'s promotion to ${t.name} (${t.key}) for approval?\n\nPaceLedger will email the agency (${AGENCY_EMAIL}) with their results.`)) return;
     setBusyId(member.id); setNotice(null);
-    const err = await approvePromotion(user, member, nextTier);
+    const res = await submitPromotion(member, progress);
     setBusyId(null);
-    if (err) { setNotice({ kind: 'warn', text: `Couldn't promote ${member.display_name}: ${err}` }); return; }
-    setNotice({ kind: 'ok', text: `${member.display_name} is now ${nextTier.name} (${nextTier.key}).` });
+    if (!res.submitted) { setNotice({ kind: 'warn', text: `Couldn't submit ${member.display_name}: ${submitErrorText(res.error)}` }); return; }
+    setNotice(res.emailed
+      ? { kind: 'ok', text: `Submitted ${member.display_name} for ${t.name}. The agency has been emailed, and a super admin will approve it.` }
+      : { kind: 'warn', text: `Submitted ${member.display_name} for ${t.name}, but the agency wasn't emailed. ${submitErrorText(res.error)} Use "Send again" on their row.` });
     refresh();
   }
 
-  const readyCount = progressList.filter(r => r.progress?.allMet).length;
+  async function resend(req, member) {
+    setBusyId(member.id); setNotice(null);
+    const res = await resendPromotionEmail(req.id);
+    setBusyId(null);
+    setNotice(res.emailed
+      ? { kind: 'ok', text: `The agency has been emailed about ${member.display_name}.` }
+      : { kind: 'warn', text: `Still not sent. ${submitErrorText(res.error)}` });
+    refresh();
+  }
+
+  async function approve(member, progress) {
+    const t = progress.nextTier;
+    if (noSubmissions) {
+      if (!window.confirm(`Promote ${member.display_name} to ${t.name} (${t.key})?`)) return;
+      setBusyId(member.id); setNotice(null);
+      const err = await approvePromotion(user, member, t);
+      setBusyId(null);
+      if (err) { setNotice({ kind: 'warn', text: `Couldn't promote ${member.display_name}: ${err}` }); return; }
+      setNotice({ kind: 'ok', text: `${member.display_name} is now ${t.name} (${t.key}).` });
+      refresh();
+      return;
+    }
+    let req = waitingFor(member, progress);
+    const ask = req
+      ? `Approve ${member.display_name}'s promotion to ${t.name} (${t.key})?`
+      : `Promote ${member.display_name} to ${t.name} (${t.key})?\n\nNo one has submitted it yet, so PaceLedger will submit it now and email the agency (${AGENCY_EMAIL}) with their results.`;
+    if (!window.confirm(ask)) return;
+    setBusyId(member.id); setNotice(null);
+    if (!req) {
+      const res = await submitPromotion(member, progress);
+      if (!res.submitted) { setBusyId(null); setNotice({ kind: 'warn', text: `Couldn't promote ${member.display_name}: ${submitErrorText(res.error)}` }); return; }
+      if (!res.emailed) {
+        // The agency hears about every promotion, so stop here; it's now
+        // waiting, and can be sent again or approved from its row.
+        setBusyId(null);
+        setNotice({ kind: 'warn', text: `Submitted, but the agency wasn't emailed, so ${member.display_name} hasn't been promoted yet. ${submitErrorText(res.error)} Use "Send again", then Approve.` });
+        refresh();
+        return;
+      }
+      req = res.request;
+    }
+    const out = await approvePromotionRequest(req.id);
+    setBusyId(null);
+    if (!out.ok) { setNotice({ kind: 'warn', text: `Couldn't promote ${member.display_name}: ${out.error}` }); refresh(); return; }
+    logAuditEvent(user.id, user.displayName, 'Promoted', member.display_name, `${member.hierarchy_tier || '—'} → ${t.key}`);
+    setNotice({ kind: 'ok', text: `${member.display_name} is now ${t.name} (${t.key}).` });
+    refresh();
+  }
+
+  async function sendBack(req, member) {
+    const note = window.prompt(`Send ${member.display_name}'s promotion back?\n\nWhat needs fixing? ${req.submitted_by_name || 'Their manager'} will see this.`, '');
+    if (note === null) return;
+    setBusyId(member.id); setNotice(null);
+    const out = await sendBackPromotion(req.id, note);
+    setBusyId(null);
+    setNotice(out.ok
+      ? { kind: 'ok', text: `Sent back. ${req.submitted_by_name || 'Their manager'} can submit it again once it's fixed.` }
+      : { kind: 'warn', text: `Couldn't send it back: ${out.error}` });
+    refresh();
+  }
+
+  const readyCount = progressList.filter(({ member, progress }) => progress?.allMet && !waitingFor(member, progress)).length;
+  const waitingCount = progressList.filter(({ member, progress }) => waitingFor(member, progress)).length;
   const isLoading = loadingMembers || loading;
+  const stop = fn => e => { e.stopPropagation(); fn(); };
 
   return (
     <>
@@ -357,7 +469,11 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
       </div>
       <p className="tr-subtitle">
         Live progress toward each person's next tier — the same numbers their own Milestones page shows them.
-        {isAdmin ? ' Approve a promotion here when someone is ready.' : ' Super admins approve promotions.'}
+        {noSubmissions
+          ? (isAdmin ? ' Approve a promotion here when someone is ready.' : ' Super admins approve promotions.')
+          : (isAdmin
+            ? ' Approve submitted promotions here, or send them back.'
+            : ' When someone is ready, their direct manager submits it for approval and the agency is emailed. A super admin approves it.')}
       </p>
       {notice && <div className={notice.kind === 'ok' ? 'tr-flash' : 'tr-error'} style={{ marginBottom: 12 }}>{notice.text}</div>}
       {isLoading ? <SkeletonTable rows={5} cols={4} /> : members.length === 0 ? (
@@ -366,9 +482,10 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
         <div className="tr-card"><p className="tr-empty">No one here has a hierarchy tier set yet, or everyone's already at the top of the ladder.</p></div>
       ) : (
         <>
-          {readyCount > 0 && (
+          {(readyCount > 0 || waitingCount > 0) && (
             <div className="tr-health-line">
-              <span className="tr-type-badge tr-type-badge-both">🎉 {readyCount} ready for promotion</span>
+              {readyCount > 0 && <span className="tr-type-badge tr-type-badge-both">🎉 {readyCount} ready for promotion</span>}
+              {waitingCount > 0 && <span className="tr-type-badge tr-promo-waiting">{waitingCount} waiting for approval</span>}
             </div>
           )}
           <div className="tr-card tr-summary-card">
@@ -380,6 +497,11 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
                     const isOpen = expanded === member.id;
                     const metCount = progress.results.filter(r => r.met).length;
                     const totalCount = progress.results.length;
+                    const latest = latestFor(member, progress);
+                    const waiting = latest && latest.status === 'submitted' ? latest : null;
+                    const busy = busyId === member.id;
+                    const isDirect = member.manager_id === user.id;
+                    const canSubmit = !noSubmissions && !isAdmin && isDirect && progress.allMet && !waiting;
                     return (
                       <React.Fragment key={member.id}>
                         <tr className={`tr-clickable-row ${isOpen ? 'tr-row-open' : ''}`} onClick={() => setExpanded(isOpen ? null : member.id)}>
@@ -390,19 +512,32 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
                           <td>{hierarchyTierLabel(member.hierarchy_tier)}</td>
                           <td>{progress.nextTier.name} ({progress.nextTier.key})</td>
                           <td>
-                            {progress.allMet ? (
-                              <span className="tr-promo-ready-cell">
-                                <span className="tr-type-badge tr-type-badge-both">✓ Ready!</span>
-                                {isAdmin && (
-                                  <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" disabled={busyId === member.id}
-                                    onClick={e => { e.stopPropagation(); approve(member, progress.nextTier); }}>
-                                    {busyId === member.id ? 'Saving…' : `Promote to ${progress.nextTier.key}`}
-                                  </button>
-                                )}
-                              </span>
-                            ) : (
-                              <span className="tr-mono">{metCount} / {totalCount} met</span>
-                            )}
+                            <span className="tr-promo-ready-cell">
+                              {waiting ? <span className="tr-type-badge tr-promo-waiting">Waiting for approval</span>
+                                : progress.allMet ? <span className="tr-type-badge tr-type-badge-both">✓ Ready!</span> : null}
+                              {!progress.allMet ? <span className="tr-mono">{metCount} / {totalCount} met{waiting ? ' now' : ''}</span> : null}
+                              {isAdmin && waiting ? (
+                                <>
+                                  <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" disabled={busy} onClick={stop(() => approve(member, progress))}>{busy ? 'Saving…' : 'Approve'}</button>
+                                  <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" disabled={busy} onClick={stop(() => sendBack(waiting, member))}>Send back</button>
+                                </>
+                              ) : null}
+                              {isAdmin && !waiting && progress.allMet ? (
+                                <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" disabled={busy} onClick={stop(() => approve(member, progress))}>
+                                  {busy ? 'Saving…' : `Promote to ${progress.nextTier.key}`}
+                                </button>
+                              ) : null}
+                              {canSubmit ? (
+                                <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" disabled={busy} onClick={stop(() => submit(member, progress))}>
+                                  {busy ? 'Submitting…' : 'Submit for approval'}
+                                </button>
+                              ) : null}
+                              {!noSubmissions && !isAdmin && !isDirect && progress.allMet && !waiting ? <span className="tr-promo-note">Their direct manager submits it</span> : null}
+                            </span>
+                            {!noSubmissions ? (
+                              <PromotionStatusLine req={latest && latest.status !== 'approved' ? latest : null}
+                                canResend={isAdmin || (latest && latest.submitted_by === user.id)} busy={busy} onResend={() => resend(latest, member)} />
+                            ) : null}
                           </td>
                         </tr>
                         {isOpen && (

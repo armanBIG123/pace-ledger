@@ -1508,4 +1508,10 @@ export const CSS = `
 
 /* ---- presenting for your team (counts toward your pace) ------------ */
 .tr-presenting-chip { display: inline-flex; align-items: center; font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: rgba(45,104,168,0.1); color: #24548A; white-space: nowrap; }
+.tr-promo-waiting { background: rgba(45,104,168,0.1); color: #24548A; }
+.tr-promo-ready-cell .tr-type-badge { margin-left: 0; }
+.tr-promo-status { margin-top: 5px; font-size: 12px; color: var(--slate-light); line-height: 1.45; }
+.tr-promo-warn { color: var(--rust); font-weight: 600; }
+.tr-promo-note { font-size: 12px; color: var(--slate-light); }
+.tr-promo-status .tr-promo-resend { margin-top: 0; font-size: 12px; }
 `;

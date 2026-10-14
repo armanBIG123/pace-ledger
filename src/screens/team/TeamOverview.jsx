@@ -78,7 +78,7 @@ export function buildTeamOverview({ user, people, thisWeek, lastWeek, sold, prog
     key: `ready-${x.member.id}`, Icon: Award, tone: 'brass', person: x.member,
     text: <><strong>{x.member.display_name}</strong> met every requirement for <strong>{x.progress.nextTier.name}</strong></>,
     sub: x.progress.results.map(r => r.label.replace(/ \(last 30 days\)$/, '')).join(' · '),
-    action: { label: isAdmin ? 'Review & approve' : 'Review', go: 'teampromo', primary: true },
+    action: { label: isAdmin ? 'Review & approve' : x.member.manager_id === user.id ? 'Submit for approval' : 'Review', go: 'teampromo', primary: true },
   }));
   examsSoon.forEach(p => {
     const r = lic.get(p.id).row;

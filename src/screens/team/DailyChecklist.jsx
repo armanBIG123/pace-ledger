@@ -29,13 +29,18 @@ export function buildDailyChecklist({ user, signals, teamSize, fieldToday = [] }
   const fresh = p => { if (seen.has(p.id)) return false; seen.add(p.id); return true; };
   const emailOr = (p, subject, body, fallback) => (p.email ? { label: 'Email', email: { to: p.email, name: p.display_name, subject, body: `Hi ${firstName(p.display_name)},\n\n${body}${sign}` } } : fallback);
 
-  signals.readyList.slice(0, 3).filter(x => fresh(x.member)).forEach(x => items.push({
-    key: `promo:${x.member.id}:${x.progress.nextTier.key}`, Icon: Award, tone: 'brass',
-    label: `Review ${x.member.display_name}'s promotion to ${x.progress.nextTier.name}`,
-    title: <>Review <strong>{x.member.display_name}</strong>'s promotion to {x.progress.nextTier.name}</>,
-    sub: 'Every requirement is met',
-    action: { label: isAdmin ? 'Review & approve' : 'Review', go: 'teampromo', primary: true },
-  }));
+  signals.readyList.slice(0, 3).filter(x => fresh(x.member)).forEach(x => {
+    // Their direct manager submits it for approval; a super admin approves.
+    const submits = !isAdmin && x.member.manager_id === user.id;
+    const verb = isAdmin ? 'Approve' : submits ? 'Submit' : 'Review';
+    items.push({
+      key: `promo:${x.member.id}:${x.progress.nextTier.key}`, Icon: Award, tone: 'brass',
+      label: `${verb} ${x.member.display_name}'s promotion to ${x.progress.nextTier.name}`,
+      title: <>{verb} <strong>{x.member.display_name}</strong>'s promotion to {x.progress.nextTier.name}</>,
+      sub: submits ? 'Every requirement is met. Submitting it emails the agency.' : 'Every requirement is met',
+      action: { label: isAdmin ? 'Review & approve' : submits ? 'Submit for approval' : 'Review', go: 'teampromo', primary: true },
+    });
+  });
 
   if (fieldToday.length) {
     const a = fieldToday[0];
