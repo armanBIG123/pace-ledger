@@ -854,6 +854,13 @@ export const CSS = `
 
 /* Team Pace: new advisors */
 .tr-newadv { margin: 4px 0 16px; }
+.tr-newadv-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; padding: 0; border: none; background: none; font-family: inherit; text-align: left; cursor: pointer; color: inherit; }
+.tr-newadv-titles { display: flex; flex-direction: column; min-width: 0; }
+.tr-newadv-title { display: block; margin: 0; }
+.tr-newadv-sub { margin-top: 2px; font-size: 13px; color: var(--slate-light); }
+.tr-newadv-chev { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; font-size: 13px; font-weight: 600; color: var(--brass-dark); padding: 6px 10px; border-radius: var(--radius-sm); }
+.tr-newadv-toggle:hover .tr-newadv-chev { background: var(--paper-dim); }
+.tr-newadv-closed { padding-top: 14px; padding-bottom: 14px; }
 .tr-newadv-list { list-style: none; margin: 10px 0 0; padding: 0; }
 .tr-newadv-row { display: grid; grid-template-columns: minmax(140px, 1.1fr) minmax(130px, 1fr) minmax(0, 2.2fr); align-items: center; gap: 16px; padding: 10px 0; border-top: 1px solid var(--line); }
 .tr-newadv-who { display: flex; flex-direction: column; font-size: 14px; color: var(--ink); }

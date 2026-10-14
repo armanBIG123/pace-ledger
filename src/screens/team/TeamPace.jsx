@@ -58,8 +58,16 @@ export function CoachingNotesPanel({ advisorId, weekOf, currentUser }) {
 
 // Team Pace: how each person in their first couple of months is doing on
 // their First 30 days checklist, so a manager knows who needs a hand.
+// Tap the heading to fold it away (remembered on this device), so the pace
+// table below is right there.
 export function NewAdvisorsCard({ members }) {
   const [rows, setRows] = useState(null);
+  const [open, setOpen] = useState(() => { try { return localStorage.getItem('pl_newadv_open') !== '0'; } catch { return true; } });
+  function toggle() {
+    const next = !open;
+    setOpen(next);
+    try { localStorage.setItem('pl_newadv_open', next ? '1' : '0'); } catch { /* ignore */ }
+  }
   const recent = members.filter(m => {
     const d = onboardingDay(m.created_at);
     return d != null && d <= 60;
@@ -82,15 +90,19 @@ export function NewAdvisorsCard({ members }) {
     const behind = !!(nextWeek && day > nextWeek.days[1]);
     return { m, r, day, behind, done: !!(r && r.total_count && r.done_count >= r.total_count) };
   }).sort((a, b) => (Number(b.behind || !b.r) - Number(a.behind || !a.r)) || (a.day - b.day));
+  const behindCount = list.filter(x => x.behind).length;
+  const notStarted = list.filter(x => !x.r).length;
+  const summary = [`${list.length} ${list.length === 1 ? 'person' : 'people'}`, behindCount ? `${behindCount} behind` : '', notStarted ? `${notStarted} not started yet` : ''].filter(Boolean).join(' · ');
   return (
-    <div className="tr-card tr-newadv">
-      <div className="tr-row-head">
-        <div>
-          <h3 className="tr-h3" style={{ margin: 0 }}>New advisors · first 30 days</h3>
-          <p className="tr-empty" style={{ margin: '2px 0 0' }}>Everyone who joined in the last 60 days, and the next step on their checklist.</p>
-        </div>
-      </div>
-      <ul className="tr-newadv-list">
+    <div className={`tr-card tr-newadv ${open ? '' : 'tr-newadv-closed'}`}>
+      <button type="button" className="tr-newadv-toggle" aria-expanded={open} aria-controls="tr-newadv-list" onClick={toggle}>
+        <span className="tr-newadv-titles">
+          <span className="tr-h3 tr-newadv-title">New advisors · first 30 days</span>
+          <span className="tr-newadv-sub">{open ? 'Everyone who joined in the last 60 days, and the next step on their checklist.' : summary}</span>
+        </span>
+        <span className="tr-newadv-chev">{open ? <>Hide <ChevronUp size={16} /></> : <>Show <ChevronDown size={16} /></>}</span>
+      </button>
+      {open && <ul className="tr-newadv-list" id="tr-newadv-list">
         {list.map(({ m, r, day, behind, done }) => {
           const pctDone = r && r.total_count ? Math.round((r.done_count / r.total_count) * 100) : 0;
           const lastSeen = r && r.last_seen_at ? Math.floor((Date.now() - new Date(r.last_seen_at).getTime()) / 86400000) : null;
@@ -116,7 +128,7 @@ export function NewAdvisorsCard({ members }) {
             </li>
           );
         })}
-      </ul>
+      </ul>}
     </div>
   );
 }
