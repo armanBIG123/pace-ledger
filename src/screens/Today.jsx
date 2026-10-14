@@ -1,6 +1,6 @@
 // Today: the daily plan, First 30 days, and one "Needs you" list (promotion and licensing).
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Award, CalendarDays, Check, ChevronDown, ChevronRight, ChevronUp, ClipboardCheck, GraduationCap, Sparkles, UserPlus, Users, Video, X } from 'lucide-react';
+import { Award, CalendarDays, Check, ChevronDown, ChevronRight, ChevronUp, ClipboardCheck, GraduationCap, Plus, Sparkles, UserPlus, Users, Video, X } from 'lucide-react';
 import { supabase } from '../supabaseClient.js';
 import { examWhen, fetchLicensingProgress, licensingStatus } from '../licensing.js';
 import { computeOnboarding, fetchMyOnboarding, ONBOARDING_DAYS, ONBOARDING_WEEKS, onboardingDay, saveOnboardingSnapshot, setOnboardingVisibility, shouldShowOnboarding, weekForDay } from '../onboarding.js';
@@ -512,6 +512,10 @@ export function TodayBody({ user, onNavigate }) {
           <p className="tr-empty" style={{ margin: '2px 0 0' }}>
             {now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} · {todaysAppts.length === 0 ? 'no appointments today' : `${todaysAppts.length} appointment${todaysAppts.length === 1 ? '' : 's'} today`}
           </p>
+        </div>
+        <div className="tr-ov-hello-actions">
+          <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => onNavigate('systems', 'new')}><Plus size={14} /> Add prospect</button>
+          <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={() => onNavigate('mine', 'new')}><Plus size={14} /> Log appointment</button>
         </div>
       </div>
 

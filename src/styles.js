@@ -707,6 +707,7 @@ export const CSS = `
 .tr-ov-goal { margin-bottom: 14px; }
 .tr-ov-goal-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 13.5px; color: var(--slate); margin-bottom: 6px; }
 .tr-ov-hello { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.tr-ov-hello-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .tr-ov-attention { box-shadow: inset 3px 0 0 var(--rust); }
 .tr-ov-attn-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 6px; background: transparent; border: none; border-top: 1px solid var(--line); font-family: inherit; font-size: 14px; color: var(--ink); text-align: left; cursor: pointer; }
 .tr-ov-attn-row:first-of-type { border-top: none; }
@@ -1234,6 +1235,7 @@ export const CSS = `
   .tr-ov-flow { flex-wrap: nowrap; overflow-x: auto; margin: 0 -14px; padding: 0 14px 2px; scrollbar-width: none; }
   .tr-ov-flow::-webkit-scrollbar { display: none; }
   .tr-ov-flow button { flex: 0 0 auto; white-space: nowrap; }
+  .tr-ov-hello-actions { width: 100%; }
   .tr-ov-hello-actions .tr-btn { flex: 1 1 0; justify-content: center; }
 
   /* Weekly pace: two batches per row, smaller dots */
