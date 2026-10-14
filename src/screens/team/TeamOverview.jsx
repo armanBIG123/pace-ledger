@@ -1,6 +1,6 @@
-// Team Overview: a leader's first screen. Four numbers, who needs you this
-// week (ranked, one action each), wins to recognize, and a small view of
-// your galaxy.
+// Team Overview: a leader's first screen. Four numbers, today's checklist
+// (picked fresh each day), everything that needs attention this week, wins
+// to recognize, and a small view of your galaxy.
 import { useCallback, useEffect, useState } from 'react';
 import { Award, BadgeCheck, CalendarX, DollarSign, GraduationCap, Network, PartyPopper, Rocket, TrendingUp, UserPlus, Users } from 'lucide-react';
 import { examWhen, fetchLicensingForUsers, licensingStatus } from '../../licensing.js';
@@ -10,9 +10,10 @@ import { DATE_SET_OPTIONS, defaultDateSetOption, getStatus, WEEKLY_TOTAL_TARGET 
 import { addDays, fmtDate, fmtShortDate, parseDate, shiftWeekStr, todayStr, weekStartOf } from '../../lib/dates.js';
 import { shortMoney, tierInfo } from '../../lib/milestones.js';
 import { fetchAppointmentsForWeek } from '../../data/appointments.js';
-import { fetchHierarchyPeople, fetchRecentSoldAppointments, promotionSubjects } from '../../data/team.js';
+import { fetchHierarchyPeople, fetchRecentSoldAppointments, fetchTeamAppointmentsImOnToday, promotionSubjects } from '../../data/team.js';
 import { bodyScale, CelestialBody, CelestialDefs, makeStars, PaceRing, ringRadius } from '../../components/CelestialBody.jsx';
 import { PageHead, SkelBlock } from '../../components/ui.jsx';
+import { buildDailyChecklist, DailyChecklist } from './DailyChecklist.jsx';
 
 const DAY = 864e5;
 const daysSince = iso => (iso ? Math.floor((Date.now() - new Date(iso).getTime()) / DAY) : null);
@@ -105,6 +106,7 @@ export function buildTeamOverview({ user, people, thisWeek, lastWeek, sold, prog
     action: p.email ? { label: 'Email', href: mailto(p.email, 'Checking in', `Hi ${firstName(p.display_name)},\n\nHaven't seen any appointments from you in a couple of weeks. Everything OK? Let's get a plan together.\n\n${user.displayName || ''}`) } : { label: 'See pace', go: 'pace' },
   }));
   const obById = new Map((onboardingRows || []).map(r => [r.user_id, r]));
+  const newBehind = [];
   team.filter(p => { const d = onboardingDay(p.created_at); return d != null && d <= 30; }).forEach(p => {
     const d = onboardingDay(p.created_at);
     const r = obById.get(p.id);
@@ -113,6 +115,7 @@ export function buildTeamOverview({ user, people, thisWeek, lastWeek, sold, prog
     const wk = real && real.next_step ? onboardingStepWeek(real.next_step) : null;
     const isBehind = !real || (wk && d > wk.days[1]);
     if (!isBehind) return;
+    newBehind.push({ p, day: d, next: real && real.next_step ? onboardingStepTitle(real.next_step) : null });
     needs.push({
       key: `f30-${p.id}`, Icon: Rocket, tone: 'blue', person: p,
       text: <><strong>{p.display_name}</strong> is on day {d} of First 30 days</>,
@@ -134,11 +137,11 @@ export function buildTeamOverview({ user, people, thisWeek, lastWeek, sold, prog
   const inWeek = iso => !!iso && new Date(iso).getTime() >= weekStartMs;
   const wins = [];
   team.filter(p => inWeek(p.hierarchy_tier_changed_at) && p.hierarchy_tier).forEach(p => wins.push({
-    key: `promo-${p.id}`, Icon: Award, person: p, text: <><strong>{p.display_name}</strong> was promoted to {(tierInfo(p.hierarchy_tier) || {}).name || p.hierarchy_tier}</>,
+    key: `promo-${p.id}`, Icon: Award, person: p, what: `promoted to ${(tierInfo(p.hierarchy_tier) || {}).name || p.hierarchy_tier}`, text: <><strong>{p.display_name}</strong> was promoted to {(tierInfo(p.hierarchy_tier) || {}).name || p.hierarchy_tier}</>,
     congrats: `Congratulations on your promotion to ${(tierInfo(p.hierarchy_tier) || {}).name || p.hierarchy_tier}!`,
   }));
   team.filter(p => inWeek(p.licensed_at)).forEach(p => wins.push({
-    key: `lic-${p.id}`, Icon: BadgeCheck, person: p, text: <><strong>{p.display_name}</strong> is now licensed</>, congrats: 'Congratulations on getting licensed!',
+    key: `lic-${p.id}`, Icon: BadgeCheck, person: p, what: 'newly licensed', text: <><strong>{p.display_name}</strong> is now licensed</>, congrats: 'Congratulations on getting licensed!',
   }));
   const salesBy = new Map();
   sold.filter(a => teamIds.has(a.userId) && a.appointmentDate >= weekMonday && a.appointmentDate < weekEndIso).forEach(a => {
@@ -148,20 +151,24 @@ export function buildTeamOverview({ user, people, thisWeek, lastWeek, sold, prog
   });
   [...salesBy.entries()].sort((a, b) => b[1].premium - a[1].premium).forEach(([id, v]) => {
     const p = people.find(x => x.id === id);
-    if (p) wins.push({ key: `sale-${id}`, Icon: DollarSign, person: p, text: <><strong>{p.display_name}</strong> closed {v.n === 1 ? 'a sale' : `${v.n} sales`}{v.premium ? ` · ${shortMoney(v.premium)}` : ''}</>, congrats: v.n === 1 ? 'Congrats on the sale this week!' : `Congrats on ${v.n} sales this week!` });
+    if (p) wins.push({ key: `sale-${id}`, Icon: DollarSign, person: p, what: `closed ${v.n === 1 ? 'a sale' : `${v.n} sales`}${v.premium ? ` · ${shortMoney(v.premium)}` : ''}`, text: <><strong>{p.display_name}</strong> closed {v.n === 1 ? 'a sale' : `${v.n} sales`}{v.premium ? ` · ${shortMoney(v.premium)}` : ''}</>, congrats: v.n === 1 ? 'Congrats on the sale this week!' : `Congrats on ${v.n} sales this week!` });
   });
   team.filter(p => pace.get(p.id).total >= WEEKLY_TOTAL_TARGET).forEach(p => wins.push({
-    key: `pace-${p.id}`, Icon: TrendingUp, person: p, text: <><strong>{p.display_name}</strong> hit {pace.get(p.id).total} of {WEEKLY_TOTAL_TARGET} this week</>, congrats: `${pace.get(p.id).total} appointments set this week. That's the standard. Great work!`,
+    key: `pace-${p.id}`, Icon: TrendingUp, person: p, what: `hit ${pace.get(p.id).total} of ${WEEKLY_TOTAL_TARGET} this week`, text: <><strong>{p.display_name}</strong> hit {pace.get(p.id).total} of {WEEKLY_TOTAL_TARGET} this week</>, congrats: `${pace.get(p.id).total} appointments set this week. That's the standard. Great work!`,
   }));
   team.filter(p => inWeek(p.created_at)).forEach(p => wins.push({
-    key: `join-${p.id}`, Icon: UserPlus, person: p, text: <><strong>{p.display_name}</strong> joined the team</>, congrats: 'Welcome to the team!',
+    key: `join-${p.id}`, Icon: UserPlus, person: p, what: 'joined the team', text: <><strong>{p.display_name}</strong> joined the team</>, congrats: 'Welcome to the team!',
   }));
 
   // ---- galaxy: you at the centre, the people who report to you around you
   const centre = isAdmin ? null : people.find(p => p.id === user.id) || null;
   const orbit = (isAdmin ? people.filter(p => !p.manager_id || !people.some(x => x.id === p.manager_id)) : (children.get(user.id) || []))
     .filter(p => p.id !== user.id).slice(0, 12);
-  return { team, tiles, needs, wins, centre, orbit, pace, children, expectedByNow };
+  // Today's batch: who on the team has scheduled at least one so far.
+  const todayOpt = defaultDateSetOption();
+  const batchStarted = team.filter(p => counted(thisWeek).some(a => a.userId === p.id && a.dateSetOption === todayOpt)).length;
+  const signals = { readyList, examsSoon, quiet, stuck, newBehind, behindOnly, wins, lic, todayOpt, batchStarted, byId: new Map(people.map(p => [p.id, p])) };
+  return { team, tiles, needs, wins, centre, orbit, pace, children, expectedByNow, signals };
 }
 
 function GalaxyPreview({ centre, orbit, pace, children, onOpen }) {
@@ -201,17 +208,21 @@ function GalaxyPreview({ centre, orbit, pace, children, onOpen }) {
 export function TeamOverviewBody({ user, onNavigate }) {
   const [state, setState] = useState(null);
   const [showAll, setShowAll] = useState(false);
+  const [showNeeds, setShowNeeds] = useState(false);
   const load = useCallback(async () => {
     const week = weekStartOf(todayStr());
-    const [people, thisWeek, lastWeek, sold] = await Promise.all([
+    const [people, thisWeek, lastWeek, sold, fieldToday] = await Promise.all([
       fetchHierarchyPeople(), fetchAppointmentsForWeek(week), fetchAppointmentsForWeek(shiftWeekStr(week, -1)), fetchRecentSoldAppointments(),
+      fetchTeamAppointmentsImOnToday(user.id),
     ]);
     const subjects = promotionSubjects(user, people);
     const progress = computeReadiness(people, sold, subjects);
     const others = subjects.filter(id => id !== user.id);
     const recent = people.filter(p => others.includes(p.id) && (onboardingDay(p.created_at) ?? 99) <= 30).map(p => p.id);
     const [licensingRows, onboardingRows] = await Promise.all([fetchLicensingForUsers(others), fetchTeamOnboarding(recent)]);
-    setState(buildTeamOverview({ user, people, thisWeek, lastWeek, sold, progress, licensingRows, onboardingRows: onboardingRows || [] }));
+    const overview = buildTeamOverview({ user, people, thisWeek, lastWeek, sold, progress, licensingRows, onboardingRows: onboardingRows || [] });
+    overview.checklist = buildDailyChecklist({ user, signals: overview.signals, teamSize: overview.team.length, fieldToday });
+    setState(overview);
   }, [user.id, user.role]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [load]);
 
@@ -220,6 +231,7 @@ export function TeamOverviewBody({ user, onNavigate }) {
     else if (a.go === 'licensing') onNavigate('pace', 'licensing');
     else if (a.go === 'pace') onNavigate('pace');
     else if (a.go === 'org') onNavigate('org');
+    else if (a.go === 'today') onNavigate('overview');
   }
   const wk = weekStartOf(todayStr());
   const md = d => parseDate(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -252,11 +264,18 @@ export function TeamOverviewBody({ user, onNavigate }) {
         })}
       </div>
       <div className="tr-tov-cols">
+        <div className="tr-tov-main">
+        <DailyChecklist user={user} items={state.checklist} onAct={act} />
         <section className="tr-card tr-tov-box" aria-labelledby="tr-tov-needs">
-          <div className="tr-tov-box-head"><h3 id="tr-tov-needs">Needs you this week</h3><span>{state.needs.length ? `${state.needs.length} · most important first` : ''}</span></div>
+          <div className="tr-tov-box-head">
+            <h3 id="tr-tov-needs">Everything that needs attention this week</h3>
+            {state.needs.length ? (
+              <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" aria-expanded={showNeeds} onClick={() => setShowNeeds(v => !v)}>{showNeeds ? 'Hide' : `Show all ${state.needs.length}`}</button>
+            ) : null}
+          </div>
           {state.needs.length === 0 ? (
             <p className="tr-empty tr-tov-clear"><PartyPopper size={16} /> Nothing urgent. Your team is moving.</p>
-          ) : (
+          ) : !showNeeds ? null : (
             <ul className="tr-tov-list">
               {needsShown.map(n => (
                 <li key={n.key}>
@@ -269,10 +288,11 @@ export function TeamOverviewBody({ user, onNavigate }) {
               ))}
             </ul>
           )}
-          {state.needs.length > NEEDS_LIMIT && (
+          {showNeeds && state.needs.length > NEEDS_LIMIT && (
             <button type="button" className="tr-task-link tr-plan-more" onClick={() => setShowAll(v => !v)}>{showAll ? 'Show fewer' : `Show all ${state.needs.length}`}</button>
           )}
         </section>
+        </div>
         <div className="tr-tov-side">
           <section className="tr-card tr-tov-box">
             <div className="tr-tov-box-head"><h3>Your galaxy</h3><button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => onNavigate('org')}><Network size={14} /> Open org chart</button></div>
