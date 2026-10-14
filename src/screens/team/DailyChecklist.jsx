@@ -10,10 +10,10 @@ import { dateSetMeta, WEEKLY_TOTAL_TARGET } from '../../lib/pace.js';
 import { apptClock, parseDate, todayStr } from '../../lib/dates.js';
 import { addOwnTask, deleteOwnTask, fetchChecklist, setOwnTaskDone, setSuggestedDone } from '../../data/checklist.js';
 import { ProgressRing } from '../../components/ui.jsx';
+import { EmailButton, webLinkProps } from '../../components/email.jsx';
 
 const DAY = 864e5;
 const firstName = name => (name || '').trim().split(/\s+/)[0] || '';
-const mailto = (email, subject, body) => `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 const MAX_SUGGESTED = 8;
 
 // Today's suggested tasks, most important first. Pure, so it's easy to
@@ -27,7 +27,7 @@ export function buildDailyChecklist({ user, signals, teamSize, fieldToday = [] }
   // more of the team instead of piling onto one name.
   const seen = new Set();
   const fresh = p => { if (seen.has(p.id)) return false; seen.add(p.id); return true; };
-  const emailOr = (p, subject, body, fallback) => (p.email ? { label: 'Email', href: mailto(p.email, subject, `Hi ${firstName(p.display_name)},\n\n${body}${sign}`) } : fallback);
+  const emailOr = (p, subject, body, fallback) => (p.email ? { label: 'Email', email: { to: p.email, name: p.display_name, subject, body: `Hi ${firstName(p.display_name)},\n\n${body}${sign}` } } : fallback);
 
   signals.readyList.slice(0, 3).filter(x => fresh(x.member)).forEach(x => items.push({
     key: `promo:${x.member.id}:${x.progress.nextTier.key}`, Icon: Award, tone: 'brass',
@@ -46,7 +46,7 @@ export function buildDailyChecklist({ user, signals, teamSize, fieldToday = [] }
       label: `Be on ${n} team appointment${n === 1 ? '' : 's'} today`,
       title: <>Be on <strong>{n}</strong> team appointment{n === 1 ? '' : 's'} today</>,
       sub: `First: ${apptClock(a)} · ${a.client}${owner ? ` (${firstName(owner.display_name)}'s ${a.traineeId === user.id ? 'appointment' : 'client'})` : ''}`,
-      action: a.zoomUrl ? { label: 'Join', href: a.zoomUrl, external: true, primary: true } : { label: 'See Today', go: 'today' },
+      action: a.zoomUrl ? { label: 'Join', href: a.zoomUrl, primary: true } : { label: 'See Today', go: 'today' },
     });
   }
 
@@ -127,7 +127,7 @@ export function buildDailyChecklist({ user, signals, teamSize, fieldToday = [] }
     label: `Recognize ${w.person.display_name}`,
     title: <>Recognize <strong>{w.person.display_name}</strong></>,
     sub: w.what.charAt(0).toUpperCase() + w.what.slice(1),
-    action: w.person.email ? { label: 'Recognize', href: mailto(w.person.email, 'Congrats!', `Hi ${firstName(w.person.display_name)},\n\n${w.congrats}${sign}`) } : null,
+    action: w.person.email ? { label: 'Recognize', email: { to: w.person.email, name: w.person.display_name, subject: 'Congrats!', body: `Hi ${firstName(w.person.display_name)},\n\n${w.congrats}${sign}` } } : null,
   }));
 
   const list = items.slice(0, MAX_SUGGESTED);
@@ -229,9 +229,11 @@ export function DailyChecklist({ user, items, onAct }) {
               <span className={`tr-needs-icon tr-needs-icon-${it.tone}`} aria-hidden="true"><it.Icon size={15} /></span>
               <div className="tr-tov-text"><div>{it.title}</div>{it.sub ? <div className="tr-tov-sub">{it.sub}</div> : null}</div>
               {!isDone && it.action ? (
-                it.action.href
-                  ? <a className={`tr-btn tr-btn-sm ${it.action.primary ? 'tr-btn-brass' : 'tr-btn-ghost'}`} href={it.action.href} {...(it.action.external ? { target: '_blank', rel: 'noreferrer' } : {})}>{it.action.label}</a>
-                  : <button type="button" className={`tr-btn tr-btn-sm ${it.action.primary ? 'tr-btn-brass' : 'tr-btn-ghost'}`} onClick={() => onAct(it.action)}>{it.action.label}</button>
+                it.action.email
+                  ? <EmailButton {...it.action.email} label={it.action.label} Icon={null} className={`tr-btn tr-btn-sm ${it.action.primary ? 'tr-btn-brass' : 'tr-btn-ghost'}`} />
+                  : it.action.href
+                    ? <a className={`tr-btn tr-btn-sm ${it.action.primary ? 'tr-btn-brass' : 'tr-btn-ghost'}`} {...webLinkProps(it.action.href)}>{it.action.label}</a>
+                    : <button type="button" className={`tr-btn tr-btn-sm ${it.action.primary ? 'tr-btn-brass' : 'tr-btn-ghost'}`} onClick={() => onAct(it.action)}>{it.action.label}</button>
               ) : null}
             </li>
           );

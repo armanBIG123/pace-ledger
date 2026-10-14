@@ -2,11 +2,12 @@
 // how close they are to the next one, the biggest gap, this week's pace, and
 // quick ways to help (email, coaching note, review promotion, open their system).
 import React, { useEffect, useRef, useState } from 'react';
-import { Activity, ArrowRight, Award, Mail, MessageSquare, X } from 'lucide-react';
+import { Activity, ArrowRight, Award, MessageSquare, X } from 'lucide-react';
 import { WEEKLY_TOTAL_TARGET } from '../../lib/pace.js';
 import { BodyIcon, bodyName } from '../../components/CelestialBody.jsx';
 import { GapCallout, NextLevel, RequirementList } from '../../components/milestones.jsx';
 import { StatusBadge } from '../../components/ui.jsx';
+import { EmailButton } from '../../components/email.jsx';
 import { CoachingNotesPanel } from './TeamPace.jsx';
 
 export function MilestoneCard({ person, summary, pace, licensing, isYou, canCoach, currentUser, weekOf, onClose, onOpenSystem, onReviewPromotion, quiet }) {
@@ -43,7 +44,7 @@ export function MilestoneCard({ person, summary, pace, licensing, isYou, canCoac
       </div>
 
       <div className="tr-ms-actions">
-        {!isYou && person.email ? <a className="tr-btn tr-btn-ghost tr-btn-sm" href={`mailto:${person.email}`}><Mail size={14} /> Email</a> : null}
+        {!isYou && person.email ? <EmailButton to={person.email} name={person.display_name} body={`Hi ${first},\n\n`} /> : null}
         {canCoach ? (
           <button type="button" className={`tr-btn tr-btn-ghost tr-btn-sm ${coaching ? 'tr-ms-on' : ''}`} aria-expanded={coaching} onClick={() => setCoaching(v => !v)}>
             <MessageSquare size={14} /> Coaching note

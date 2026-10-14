@@ -1491,4 +1491,18 @@ export const CSS = `
   .tr-check-list li > .tr-btn { margin-left: 80px; }
   .tr-check-add input { font-size: 16px; }
 }
+
+/* ---- Email compose window ------------------------------------------ */
+.tr-compose { display: flex; flex-direction: column; gap: 12px; max-width: 520px; }
+.tr-compose-to { display: flex; align-items: center; gap: 10px; font-size: 13.5px; color: var(--slate); padding: 8px 12px; border-radius: var(--radius-sm); background: var(--paper); border: 1px solid var(--line); }
+.tr-compose-to span { color: var(--slate-light); font-weight: 600; font-size: 12.5px; }
+.tr-compose-to strong { flex: 1; min-width: 0; color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tr-compose-to .tr-link-btn { margin-top: 0; align-self: center; }
+.tr-compose-label { font-size: 12px; font-weight: 600; color: var(--slate-light); margin-bottom: -4px; }
+.tr-compose-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.tr-compose-note { margin: 0; font-size: 12.5px; color: var(--slate-light); }
+@media (max-width: 640px) {
+  .tr-compose-actions .tr-btn { flex: 1 1 calc(50% - 8px); justify-content: center; }
+  .tr-compose .tr-field input, .tr-compose .tr-field textarea { font-size: 16px; }
+}
 `;

@@ -14,11 +14,11 @@ import { fetchHierarchyPeople, fetchRecentSoldAppointments, fetchTeamAppointment
 import { bodyScale, CelestialBody, CelestialDefs, makeStars, PaceRing, ringRadius } from '../../components/CelestialBody.jsx';
 import { PageHead, SkelBlock } from '../../components/ui.jsx';
 import { buildDailyChecklist, DailyChecklist } from './DailyChecklist.jsx';
+import { EmailButton } from '../../components/email.jsx';
 
 const DAY = 864e5;
 const daysSince = iso => (iso ? Math.floor((Date.now() - new Date(iso).getTime()) / DAY) : null);
 const firstName = name => (name || '').trim().split(/\s+/)[0] || '';
-const mailto = (email, subject, body) => `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 const GALAXY_STARS = makeStars(40, 300, 220, 11);
 
 function paceFor(list, weekMonday) {
@@ -86,7 +86,7 @@ export function buildTeamOverview({ user, people, thisWeek, lastWeek, sold, prog
       key: `exam-${p.id}`, Icon: GraduationCap, tone: 'blue', person: p,
       text: <><strong>{p.display_name}</strong>'s licensing exam is {examWhen(r.exam_on)}</>,
       sub: `${fmtShortDate(r.exam_on)} · a quick good-luck message goes a long way`,
-      action: p.email ? { label: 'Email', href: mailto(p.email, 'Good luck on your exam', `Hi ${firstName(p.display_name)},\n\nGood luck on your licensing exam. You've got this!\n\n${user.displayName || ''}`) } : { label: 'Licensing', go: 'licensing' },
+      action: p.email ? { label: 'Email', email: { to: p.email, name: p.display_name, subject: 'Good luck on your exam', body: `Hi ${firstName(p.display_name)},\n\nGood luck on your licensing exam. You've got this!\n\n${user.displayName || ''}` } } : { label: 'Licensing', go: 'licensing' },
     });
   });
   stuck.forEach(p => {
@@ -96,14 +96,14 @@ export function buildTeamOverview({ user, people, thisWeek, lastWeek, sold, prog
       key: `stuck-${p.id}`, Icon: GraduationCap, tone: 'rust', person: p,
       text: <><strong>{p.display_name}</strong> is stuck in licensing</>,
       sub: `No progress in ${idle} days · step ${st.nextIndex + 1} of ${st.total}: ${st.next ? st.next.title.toLowerCase() : ''}`,
-      action: p.email ? { label: 'Email', href: mailto(p.email, 'Checking in on licensing', `Hi ${firstName(p.display_name)},\n\nHow's licensing going? Anything I can help with to get you to the next step?\n\n${user.displayName || ''}`) } : { label: 'Licensing', go: 'licensing' },
+      action: p.email ? { label: 'Email', email: { to: p.email, name: p.display_name, subject: 'Checking in on licensing', body: `Hi ${firstName(p.display_name)},\n\nHow's licensing going? Anything I can help with to get you to the next step?\n\n${user.displayName || ''}` } } : { label: 'Licensing', go: 'licensing' },
     });
   });
   quiet.forEach(p => needs.push({
     key: `quiet-${p.id}`, Icon: CalendarX, tone: 'rust', person: p,
     text: <><strong>{p.display_name}</strong> has gone quiet</>,
     sub: 'Nothing set this week or last',
-    action: p.email ? { label: 'Email', href: mailto(p.email, 'Checking in', `Hi ${firstName(p.display_name)},\n\nHaven't seen any appointments from you in a couple of weeks. Everything OK? Let's get a plan together.\n\n${user.displayName || ''}`) } : { label: 'See pace', go: 'pace' },
+    action: p.email ? { label: 'Email', email: { to: p.email, name: p.display_name, subject: 'Checking in', body: `Hi ${firstName(p.display_name)},\n\nHaven't seen any appointments from you in a couple of weeks. Everything OK? Let's get a plan together.\n\n${user.displayName || ''}` } } : { label: 'See pace', go: 'pace' },
   }));
   const obById = new Map((onboardingRows || []).map(r => [r.user_id, r]));
   const newBehind = [];
@@ -281,8 +281,8 @@ export function TeamOverviewBody({ user, onNavigate }) {
                 <li key={n.key}>
                   <span className={`tr-needs-icon tr-needs-icon-${n.tone}`} aria-hidden="true"><n.Icon size={16} /></span>
                   <div className="tr-tov-text"><div>{n.text}</div>{n.sub ? <div className="tr-tov-sub">{n.sub}</div> : null}</div>
-                  {n.action.href
-                    ? <a className="tr-btn tr-btn-ghost tr-btn-sm" href={n.action.href}>{n.action.label}</a>
+                  {n.action.email
+                    ? <EmailButton {...n.action.email} label={n.action.label} Icon={null} />
                     : <button type="button" className={`tr-btn tr-btn-sm ${n.action.primary ? 'tr-btn-brass' : 'tr-btn-ghost'}`} onClick={() => act(n.action)}>{n.action.label}</button>}
                 </li>
               ))}
@@ -307,7 +307,7 @@ export function TeamOverviewBody({ user, onNavigate }) {
                     <span className="tr-tov-win-icon" aria-hidden="true"><w.Icon size={15} /></span>
                     <div className="tr-tov-text"><div>{w.text}</div></div>
                     {w.person && w.person.email ? (
-                      <a className="tr-btn tr-btn-ghost tr-btn-sm" href={mailto(w.person.email, 'Congrats!', `Hi ${firstName(w.person.display_name)},\n\n${w.congrats}\n\n${user.displayName || ''}`)}><PartyPopper size={14} /> Recognize</a>
+                      <EmailButton to={w.person.email} name={w.person.display_name} subject="Congrats!" body={`Hi ${firstName(w.person.display_name)},\n\n${w.congrats}\n\n${user.displayName || ''}`} label="Recognize" Icon={PartyPopper} />
                     ) : null}
                   </li>
                 ))}
