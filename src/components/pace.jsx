@@ -38,7 +38,7 @@ export function PaceStrip({ groups, header }) {
   return (
     <div className="tr-card tr-pace">
       {header ? <div className="tr-pace-head">{header}<span className="tr-pace-total"><strong>{total}</strong> / {target} set</span></div> : null}
-      <p className="tr-pace-hint">The {WEEKEND_TARGET} you commit to over the weekend for the week ahead, plus {WEEKDAY_TARGET} new ones each weekday.</p>
+      <p className="tr-pace-hint">The {WEEKEND_TARGET} you schedule over the weekend for the week ahead, plus {WEEKDAY_TARGET} new ones each weekday.</p>
       <div className="tr-pace-grid">
         {groups.map(g => (
           <div className="tr-pace-group" key={g.option.value}>
