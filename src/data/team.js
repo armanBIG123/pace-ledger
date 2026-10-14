@@ -1,7 +1,7 @@
 // Team and hierarchy data: who's on whose team, promotion readiness, Manage Team actions, coaching notes and licensing numbers.
 import { supabase } from '../supabaseClient.js';
 import { buildChildrenMap, computeDownline, computeReadiness, downlineIds } from '../hierarchy.js';
-import { fmtDate } from '../lib/dates.js';
+import { apptStartMs, fmtDate } from '../lib/dates.js';
 import { rowToRecord } from './appointments.js';
 
 // Tier definitions, downline/upline traversal, and the tier-progress
@@ -29,6 +29,20 @@ export async function fetchRecentSoldAppointments() {
   const { data, error } = await supabase.from('appointments').select('*').eq('officially_sold', true).gte('appointment_date', since);
   if (error) { console.error(error); return []; }
   return data.map(rowToRecord);
+}
+
+// Today's appointments on your team that you're presenting or training on
+// (someone else logged them), soonest first.
+export async function fetchTeamAppointmentsImOnToday(userId) {
+  const start = new Date(); start.setHours(0, 0, 0, 0);
+  const end = new Date(start); end.setDate(end.getDate() + 1);
+  const { data, error } = await supabase.from('appointments').select('*')
+    .or(`presenter_id.eq.${userId},trainee_id.eq.${userId}`)
+    .neq('user_id', userId)
+    .gte('appointment_at', start.toISOString()).lt('appointment_at', end.toISOString());
+  if (error) { console.error(error); return []; }
+  return data.map(rowToRecord).filter(a => a.presenterId === userId || a.traineeId === userId)
+    .sort((a, b) => apptStartMs(a) - apptStartMs(b));
 }
 
 // Who the viewer can see promotion progress for: admins see everyone;

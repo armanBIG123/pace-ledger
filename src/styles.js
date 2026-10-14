@@ -1453,4 +1453,35 @@ export const CSS = `
   .tr-tov-list li > .tr-btn { margin-left: 48px; }
   .tr-tov-wins li > .tr-btn { margin-left: 42px; }
 }
+
+/* ---- Team Overview: today's checklist ------------------------------ */
+.tr-tov-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.tr-check { padding: 16px 18px 14px; border-color: rgba(196,154,60,0.45); }
+.tr-check-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.tr-check-head h3 { margin: 0; display: flex; align-items: center; gap: 7px; font-family: 'Newsreader', serif; font-size: 21px; font-weight: 600; color: var(--ink); }
+.tr-check-head h3 svg { color: var(--brass-dark); }
+.tr-check-date { font-size: 12.5px; color: var(--slate-light); margin-top: 2px; }
+.tr-check-why { margin: 6px 0 4px; font-size: 12.5px; color: var(--slate-light); }
+.tr-check-list { list-style: none; margin: 4px 0 0; padding: 0; }
+.tr-check-list li { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+.tr-check-box { width: 24px; height: 24px; flex-shrink: 0; border-radius: 7px; border: 2px solid var(--line-strong); background: var(--card); color: #fff; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; transition: background .15s, border-color .15s; }
+.tr-check-box:hover { border-color: var(--brass); }
+.tr-check-done .tr-check-box { background: var(--green); border-color: var(--green); }
+.tr-check-done .tr-tov-text { color: var(--slate-light); }
+.tr-check-done .tr-tov-text > div:first-child { text-decoration: line-through; text-decoration-color: rgba(52,66,79,0.45); }
+.tr-check-done .tr-tov-text strong { color: var(--slate-light); }
+.tr-check-done .tr-needs-icon { opacity: 0.5; }
+.tr-needs-icon-green { background: rgba(46,125,91,0.12); color: #23654A; }
+.tr-needs-icon-ink { background: var(--paper-dim); color: var(--slate); }
+.tr-check-own .tr-icon-btn { flex-shrink: 0; }
+.tr-check-add { display: flex; gap: 8px; margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+.tr-check-add input { flex: 1; min-width: 0; height: 36px; padding: 0 12px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); font-family: inherit; font-size: 14px; color: var(--ink); background: var(--card); }
+.tr-check-add input:focus { border-color: var(--brass); box-shadow: var(--ring); outline: none; }
+.tr-check-note { margin: 10px 0 0; font-size: 12.5px; color: #8A5A10; background: rgba(194,124,30,0.1); border-radius: 8px; padding: 8px 10px; }
+@media (max-width: 640px) {
+  .tr-check-list li { flex-wrap: wrap; row-gap: 8px; }
+  .tr-check-list li .tr-tov-text { flex: 1 1 calc(100% - 80px); }
+  .tr-check-list li > .tr-btn { margin-left: 80px; }
+  .tr-check-add input { font-size: 16px; }
+}
 `;
