@@ -4,7 +4,7 @@ import { ChevronDown, ChevronUp, UserCog, Users } from 'lucide-react';
 import { daysBetween, examWhen, fetchLicensingForUsers, licensingStatus } from '../../licensing.js';
 import { fetchTeamOnboarding, ONBOARDING_DAYS, onboardingDay, onboardingStepTitle, onboardingStepWeek } from '../../onboarding.js';
 import { hierarchyTierLabel } from '../../hierarchy.js';
-import { DATE_SET_OPTIONS, getStatus, WEEKLY_TOTAL_TARGET } from '../../lib/pace.js';
+import { countsTowardPace, DATE_SET_OPTIONS, getStatus, isPresentingFor, WEEKLY_TOTAL_TARGET } from '../../lib/pace.js';
 import { addDays, apptStartMsSafe, fmtApptDateTime, fmtDate, fmtShortDate, parseDate, shiftWeekStr, todayStr, weekStartOf } from '../../lib/dates.js';
 import { fetchAppointmentsForWeek, isPastAppointment, isRecruitType, isSaleType } from '../../data/appointments.js';
 import { addCoachingNote, approvePromotion, fetchCoachingNotes, fetchDirectManagers, fetchHierarchyPeople, fetchTeamMembers, loadPromotionReadiness } from '../../data/team.js';
@@ -135,7 +135,7 @@ export function NewAdvisorsCard({ members }) {
 
 // Team Pace: one person's week, opened from their row. A compact list
 // (not nested tables) so it fits the card on any screen.
-export function TeamWeekDetail({ groups, counts, filter }) {
+export function TeamWeekDetail({ groups, counts, filter, personId, nameOf }) {
   const byWhen = (x, y) => apptStartMsSafe(x) - apptStartMsSafe(y);
   return (
     <div className="tr-weekdetail">
@@ -158,7 +158,9 @@ export function TeamWeekDetail({ groups, counts, filter }) {
                     <span className="tr-weekdetail-client">
                       <strong>{a.client}</strong> <TypeBadge appt={a} />
                       <span className="tr-weekdetail-meta">
-                        {a.presenter ? `with ${a.presenter}` : ''}{a.trainee ? ` · trainee ${a.trainee}` : ''}
+                        {isPresentingFor(a, personId)
+                          ? <><span className="tr-presenting-chip">Presenting</span> set by {(nameOf && nameOf(a.userId)) || 'someone on the team'}</>
+                          : <>{a.presenter ? `with ${a.presenter}` : ''}{a.trainee ? ` · trainee ${a.trainee}` : ''}</>}
                       </span>
                     </span>
                     <span className="tr-weekdetail-state">
@@ -205,7 +207,7 @@ export function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, 
   // Same classification already used per-row below, just tallied up front
   // so managers get the answer without reading every row themselves.
   const memberStatuses = members.map(m => {
-    const list = weekAppts.filter(a => a.userId === m.id && !a.isFollowUp);
+    const list = weekAppts.filter(a => countsTowardPace(a, m.id));
     const counts = DATE_SET_OPTIONS.map(opt => list.filter(a => a.dateSetOption === opt.value).length);
     return getStatus(counts, weekMonday);
   });
@@ -220,7 +222,7 @@ export function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, 
   const daysElapsedInWeek = Math.floor((new Date(todayStr()) - new Date(weekMonday)) / (1000 * 60 * 60 * 24));
   const showInactivityWarning = isCurrentWeek && daysElapsedInWeek >= 4;
   const inactiveCount = showInactivityWarning
-    ? members.filter(m => weekAppts.filter(a => a.userId === m.id && !a.isFollowUp).length === 0).length
+    ? members.filter(m => weekAppts.filter(a => countsTowardPace(a, m.id)).length === 0).length
     : 0;
 
   return (
@@ -260,7 +262,7 @@ export function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, 
               </thead>
               <tbody>
                 {members.map(adv => {
-                  const list = weekAppts.filter(a => a.userId === adv.id && !a.isFollowUp);
+                  const list = weekAppts.filter(a => countsTowardPace(a, adv.id));
                   const groups = DATE_SET_OPTIONS.map(opt => list.filter(a => a.dateSetOption === opt.value));
                   const counts = groups.map(g => g.length);
                   const total = counts.reduce((s, c) => s + c, 0);
@@ -288,7 +290,7 @@ export function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, 
                       {isOpen && (
                         <tr className="tr-expand-row"><td colSpan={DATE_SET_OPTIONS.length + 3}>
                           <div className="tr-expand-inner">
-                            <TeamWeekDetail groups={groups} counts={counts} filter={byType} />
+                            <TeamWeekDetail groups={groups} counts={counts} filter={byType} personId={adv.id} nameOf={id => (members.find(x => x.id === id) || {}).display_name} />
                             {adv.id !== user.id && <CoachingNotesPanel advisorId={adv.id} weekOf={weekMonday} currentUser={user} />}
                           </div>
                         </td></tr>

@@ -202,6 +202,23 @@ export async function insertFollowUpAppointment(userId, original, followUpDate, 
   return { ok: true, record: rowToRecord(data) };
 }
 
+// Appointments someone else set with you as the presenter (they count
+// toward your pace too). Each gets setByName: who set it.
+export async function fetchAppointmentsImPresenting(userId) {
+  const { data, error } = await supabase
+    .from('appointments').select('*').eq('presenter_id', userId).neq('user_id', userId)
+    .order('appointment_date', { ascending: true });
+  if (error) { console.error(error); return []; }
+  const rows = (data || []).filter(r => r.presenter_id === userId && r.user_id !== userId);
+  const ids = [...new Set(rows.map(r => r.user_id))];
+  let names = new Map();
+  if (ids.length) {
+    const { data: people } = await supabase.from('profiles').select('id, display_name').in('id', ids);
+    names = new Map((people || []).map(p => [p.id, p.display_name]));
+  }
+  return rows.map(r => ({ ...rowToRecord(r), presentingFor: true, setByName: names.get(r.user_id) || '' }));
+}
+
 export async function fetchMyAppointments(userId) {
   const { data, error } = await supabase
     .from('appointments').select('*').eq('user_id', userId)

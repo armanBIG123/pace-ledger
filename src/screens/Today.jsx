@@ -10,7 +10,7 @@ import { computeAnnualGrossIncomeNeeded, computeCommissionPerTransaction, comput
 import { DATE_SET_OPTIONS, dateSetMeta, defaultDateSetOption, WEEKLY_TOTAL_TARGET } from '../lib/pace.js';
 import { addDays, apptClock, apptLocalDate, apptStartMs, fmtApptDateTime, fmtDate, fmtDisplayDate, fmtShortDate, greetingFor, parseDate, startsInLabel, todayStr, weekStartOf } from '../lib/dates.js';
 import { lowerFirst } from '../lib/format.js';
-import { applyFollowUpToList, fetchMyAppointments, isPastAppointment, OUTCOME_OPTIONS, persistFollowUp, rowToRecord, typeLabel } from '../data/appointments.js';
+import { applyFollowUpToList, fetchAppointmentsImPresenting, fetchMyAppointments, isPastAppointment, OUTCOME_OPTIONS, persistFollowUp, rowToRecord, typeLabel } from '../data/appointments.js';
 import { ALL_CHARACTERISTICS, fetchMyProspects, insertProspect, isStaleProspect, LEANING_LABELS, normName, prospectLeaningKey, prospectToAppointmentPrefill, prospectTotalChecked, STALE_PROSPECT_DAYS, topProspectsToCall } from '../data/prospects.js';
 import { fetchMyLicensing, loadPromotionReadiness, seesTeam } from '../data/team.js';
 import { fetchGoogleConnectionStatus } from '../data/integrations.js';
@@ -222,6 +222,7 @@ export function TodayBody({ user, onNavigate }) {
   const [loading, setLoading] = useState(true);
   const [appointments, setAppointments] = useState([]);
   const [involvedToday, setInvolvedToday] = useState([]);
+  const [presenting, setPresenting] = useState([]);
   const [prospects, setProspects] = useState([]);
   const [plan, setPlan] = useState(null);
   const [facts, setFacts] = useState({ google: false, licensed: false, reminders: 'unsupported' });
@@ -240,7 +241,7 @@ export function TodayBody({ user, onNavigate }) {
   const load = useCallback(async () => {
     const start = new Date(); start.setHours(0, 0, 0, 0);
     const end = new Date(start); end.setDate(end.getDate() + 1);
-    const [a, p, row, g, lic, ob, perm, inv] = await Promise.all([
+    const [a, p, row, g, lic, ob, perm, inv, pres] = await Promise.all([
       fetchMyAppointments(user.id), fetchMyProspects(user.id), fetchBusinessPlan(user.id),
       fetchGoogleConnectionStatus().catch(() => ({ connected: false })),
       fetchMyLicensing(user.id), fetchMyOnboarding(user.id), reminderPermission(),
@@ -249,6 +250,8 @@ export function TodayBody({ user, onNavigate }) {
         .or(`presenter_id.eq.${user.id},trainee_id.eq.${user.id}`)
         .gte('appointment_at', start.toISOString()).lt('appointment_at', end.toISOString())
         .then(r => (r.error ? [] : (r.data || []).map(rowToRecord)), () => []),
+      // Appointments someone else set with you presenting: they count toward your pace.
+      fetchAppointmentsImPresenting(user.id).catch(() => []),
     ]);
     setAppointments(a);
     setProspects(p);
@@ -256,6 +259,7 @@ export function TodayBody({ user, onNavigate }) {
     setFacts({ google: !!(g && g.connected), licensed: isLicensed(lic), reminders: perm });
     setOnboardingRow(ob && !ob.error ? ob : null);
     setInvolvedToday(inv);
+    setPresenting(pres);
     setLoading(false);
   }, [user.id]);
   useEffect(() => { load(); }, [load]);
@@ -379,7 +383,10 @@ export function TodayBody({ user, onNavigate }) {
   const todayOpt = defaultDateSetOption();
   const todayMeta = dateSetMeta(todayOpt);
   const isWeekend = todayOpt === 'weekend';
-  const counted = appointments.filter(x => !x.isFollowUp);
+  // Pace counts the ones you set plus the ones you're presenting for your team.
+  const presentingCounted = presenting.filter(x => !x.isFollowUp);
+  const counted = [...appointments.filter(x => !x.isFollowUp), ...presentingCounted];
+  const presentingThisWeek = presentingCounted.filter(x => x.weekOf === weekStart).length;
   const batchSet = counted.filter(x => x.weekOf === weekStart && x.dateSetOption === todayOpt).length;
   const batchLeft = Math.max(0, todayMeta.target - batchSet);
   const setThisWeek = counted.filter(x => x.weekOf === weekStart).length;
@@ -409,7 +416,7 @@ export function TodayBody({ user, onNavigate }) {
     .filter(x => isPastAppointment(x) && !x.followUpCompletedAt && !inProgress(x))
     .sort((x, y) => apptStartMs(y) - apptStartMs(x));
   const loggedToday = appointments.filter(x => isToday(x.followUpCompletedAt));
-  const setToday = counted.filter(x => isToday(x.createdAt)).length;
+  const setToday = appointments.filter(x => !x.isFollowUp && isToday(x.createdAt)).length;
   const callList = topProspectsToCall(prospects, apptNames);
 
   // ---- the plan ------------------------------------------------------
@@ -657,7 +664,7 @@ export function TodayBody({ user, onNavigate }) {
                 : `${setThisWeek} set vs. ${expectedByNow} expected by today${weekShort > 0 ? ` — ${weekShort} to catch up` : ''}.`}
             </p>
             <div className="tr-ov-bar"><div className="tr-ov-bar-fill" style={{ width: `${weekBarPct}%` }} /></div>
-            <p className="tr-empty" style={{ margin: '6px 0 0' }}>{setThisWeek} of {WEEKLY_TOTAL_TARGET} for the week</p>
+            <p className="tr-empty" style={{ margin: '6px 0 0' }}>{setThisWeek} of {WEEKLY_TOTAL_TARGET} for the week{presentingThisWeek ? ` · includes ${presentingThisWeek} you're presenting for your team` : ''}</p>
           </div>
 
           <div className="tr-card">
