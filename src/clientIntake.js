@@ -36,12 +36,31 @@ export async function createClientIntakeCandidate({ advisorId, advisorName, appo
   if (error) { console.error(error); return { ok: false, error: error.message }; }
   return { ok: true, record: data };
 }
-export async function fetchClientIntakeCandidates() {
-  const { data, error } = await supabase
-    .from('client_intake_candidates').select('*')
-    .order('created_at', { ascending: false });
+// Pass an advisor's id to get only their forms (leaders and super admins
+// can read other people's too).
+export async function fetchClientIntakeCandidates(advisorId) {
+  let q = supabase.from('client_intake_candidates').select('*');
+  if (advisorId) q = q.eq('advisor_id', advisorId);
+  const { data, error } = await q.order('created_at', { ascending: false });
   if (error) { console.error(error); return []; }
   return data;
+}
+
+// Every form the signed-in person can see (all of them for super admins),
+// newest first, without the answers or the client's private link.
+export async function fetchAllIntakeForms() {
+  const { data, error } = await supabase.from('client_intake_candidates')
+    .select('id, advisor_id, advisor_name, client_name, status, submitted_at, created_at')
+    .order('created_at', { ascending: false }).limit(2000);
+  if (error) { console.error(error); return { rows: [], error: true }; }
+  return { rows: data || [] };
+}
+
+// One form's answers, loaded when someone opens it.
+export async function fetchIntakeAnswers(id) {
+  const { data, error } = await supabase.from('client_intake_candidates').select('responses').eq('id', id).maybeSingle();
+  if (error || !data) { if (error) console.error(error); return null; }
+  return data.responses || {};
 }
 export async function deleteClientIntakeCandidate(id) {
   const { error } = await supabase.from('client_intake_candidates').delete().eq('id', id);

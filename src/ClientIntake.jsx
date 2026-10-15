@@ -595,7 +595,7 @@ export function ClientIntakePublicForm({ token }) {
 // ---------------------------------------------------------------------
 // authenticated Client Intake tab — the advisor/manager-facing list
 // ---------------------------------------------------------------------
-function IntakeResponsesView({ responses }) {
+export function IntakeResponsesView({ responses }) {
   const r = responses || {};
   const p = r.personal || {};
   const g = r.goals || {};

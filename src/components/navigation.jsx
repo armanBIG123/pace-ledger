@@ -28,7 +28,7 @@ export const TEAM_TABS = [
   { id: 'org', label: 'Org Chart', short: 'Org', Icon: Network },
 ];
 
-export const ADMIN_TEAM_TABS = [...TEAM_TABS, { id: 'users', label: 'Manage Team', short: 'Manage', Icon: UserCog }];
+export const ADMIN_TEAM_TABS = [...TEAM_TABS, { id: 'clientforms', label: 'Client Forms', short: 'Forms', Icon: ClipboardCheck }, { id: 'users', label: 'Manage Team', short: 'Manage', Icon: UserCog }];
 
 export function TabNav({ tabs, tab, onSelect, onNew }) {
   const [moreOpen, setMoreOpen] = useState(false);

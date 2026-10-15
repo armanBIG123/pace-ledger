@@ -43,7 +43,7 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
   }, [initialIntent]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     let alive = true;
-    Promise.all([fetchMyAppointments(user.id), fetchMyFollowUpNotes(user.id), fetchClientIntakeCandidates(), fetchOrgDirectory()]).then(([a, n, c, org]) => {
+    Promise.all([fetchMyAppointments(user.id), fetchMyFollowUpNotes(user.id), fetchClientIntakeCandidates(user.id), fetchOrgDirectory()]).then(([a, n, c, org]) => {
       if (!alive) return;
       setOrgDirectory(org);
       setAppointments(a);
@@ -101,7 +101,7 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
     if (!res.ok) return;
     setAppointments(prev => applyFollowUpToList(prev, id, data, res.followUpTimezone, res.newAppt));
     if (data.clientIntake === true) {
-      const c = await fetchClientIntakeCandidates();
+      const c = await fetchClientIntakeCandidates(user.id);
       setCandidates(c.filter(x => x.advisor_id === user.id));
     }
     setModalTarget(null);
