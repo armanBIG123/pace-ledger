@@ -20,6 +20,7 @@ import { TeamProspectingBody } from '../screens/team/TeamProspecting.jsx';
 import { TrackProductionBody } from '../screens/team/TrackProduction.jsx';
 import { OrgChartBody } from '../screens/team/OrgChart.jsx';
 import { ManageUsersView } from '../screens/team/ManageTeam.jsx';
+import { ClientFormsBody } from '../screens/team/ClientForms.jsx';
 
 const MY_WORK_IDS = new Set(MY_WORK_TABS.map(t => t.id));
 
@@ -141,6 +142,7 @@ export function AdminView({ user }) {
       <main className="tr-main">
         <MyWorkScreens user={user} nav={nav} />
         <TeamScreens user={user} nav={nav} />
+        {tab === 'clientforms' && <ClientFormsBody />}
         {tab === 'users' && <ManageUsersView currentUserId={user.id} currentUserName={user.displayName} />}
       </main>
       {newEl}

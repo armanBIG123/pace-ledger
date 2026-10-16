@@ -1514,4 +1514,10 @@ export const CSS = `
 .tr-promo-warn { color: var(--rust); font-weight: 600; }
 .tr-promo-note { font-size: 12px; color: var(--slate-light); }
 .tr-promo-status .tr-promo-resend { margin-top: 0; font-size: 12px; }
+.tr-forms-toolbar { margin-bottom: 14px; }
+.tr-forms-toolbar .tr-search-row { flex: 1 1 220px; margin: 0; }
+.tr-forms-sub { font-size: 12px; color: var(--slate-light); margin-top: 2px; }
+.tr-forms-action { text-align: right; font-size: 12.5px; font-weight: 600; color: var(--brass-dark); white-space: nowrap; }
+.tr-forms-table .tr-expand-row td { background: var(--paper); }
+@media (max-width: 640px) { .tr-forms-table .tr-forms-action, .tr-forms-table .tr-forms-action-h { display: none; } }
 `;
