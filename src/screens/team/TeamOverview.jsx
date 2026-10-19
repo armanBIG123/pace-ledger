@@ -3,7 +3,7 @@
 // to recognize, and a small view of your galaxy.
 import { useCallback, useEffect, useState } from 'react';
 import { Award, BadgeCheck, CalendarX, DollarSign, GraduationCap, Network, PartyPopper, Rocket, TrendingUp, UserPlus, Users } from 'lucide-react';
-import { examWhen, fetchLicensingForUsers, licensingStatus } from '../../licensing.js';
+import { examWhen, fetchLicensingForUsers, leaderStepText, licensingStatus } from '../../licensing.js';
 import { buildChildrenMap, computeReadiness, downlineIds } from '../../hierarchy.js';
 import { fetchTeamOnboarding, onboardingDay, onboardingStepTitle, onboardingStepWeek } from '../../onboarding.js';
 import { countsTowardPace, DATE_SET_OPTIONS, defaultDateSetOption, getStatus, WEEKLY_TOTAL_TARGET } from '../../lib/pace.js';
@@ -95,7 +95,7 @@ export function buildTeamOverview({ user, people, thisWeek, lastWeek, sold, prog
     needs.push({
       key: `stuck-${p.id}`, Icon: GraduationCap, tone: 'rust', person: p,
       text: <><strong>{p.display_name}</strong> is stuck in licensing</>,
-      sub: `No progress in ${idle} days · step ${st.nextIndex + 1} of ${st.total}: ${st.next ? st.next.title.toLowerCase() : ''}`,
+      sub: `No progress in ${idle} days · step ${st.nextIndex + 1} of ${st.total}: ${st.next ? leaderStepText(st.next).charAt(0).toLowerCase() + leaderStepText(st.next).slice(1) : ''}`,
       action: p.email ? { label: 'Email', email: { to: p.email, name: p.display_name, subject: 'Checking in on licensing', body: `Hi ${firstName(p.display_name)},\n\nHow's licensing going? Anything I can help with to get you to the next step?\n\n${user.displayName || ''}` } } : { label: 'Licensing', go: 'licensing' },
     });
   });
