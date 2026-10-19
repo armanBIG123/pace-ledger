@@ -10,6 +10,8 @@ import { computeAnnualGrossIncomeNeeded, computeCommissionPerTransaction, comput
 import { DATE_SET_OPTIONS, dateSetMeta, defaultDateSetOption, WEEKLY_TOTAL_TARGET } from '../lib/pace.js';
 import { addDays, apptClock, apptLocalDate, apptStartMs, fmtApptDateTime, fmtDate, fmtDisplayDate, fmtShortDate, greetingFor, parseDate, startsInLabel, todayStr, weekStartOf } from '../lib/dates.js';
 import { lowerFirst } from '../lib/format.js';
+import { PaycheckCard } from '../components/paycheck.jsx';
+import { TeamWinsSection } from '../components/wins.jsx';
 import { applyFollowUpToList, fetchAppointmentsImPresenting, fetchMyAppointments, isPastAppointment, OUTCOME_OPTIONS, persistFollowUp, rowToRecord, typeLabel } from '../data/appointments.js';
 import { ALL_CHARACTERISTICS, fetchMyProspects, insertProspect, isStaleProspect, LEANING_LABELS, normName, prospectLeaningKey, prospectToAppointmentPrefill, prospectTotalChecked, STALE_PROSPECT_DAYS, topProspectsToCall } from '../data/prospects.js';
 import { fetchMyLicensing, loadPromotionReadiness, seesTeam } from '../data/team.js';
@@ -669,6 +671,8 @@ export function TodayBody({ user, onNavigate }) {
             <p className="tr-empty" style={{ margin: '6px 0 0' }}>{setThisWeek} of {WEEKLY_TOTAL_TARGET} for the week{presentingThisWeek ? ` · includes ${presentingThisWeek} you're presenting for your team` : ''}</p>
           </div>
 
+          <PaycheckCard user={user} appointments={appointments} plan={plan} onNavigate={onNavigate} />
+
           <div className="tr-card">
             <h3 className="tr-h3">This month's goals</h3>
             {goals ? (
@@ -717,6 +721,8 @@ export function TodayBody({ user, onNavigate }) {
           </div>
         </div>
       </div>
+
+      <TeamWinsSection user={user} />
 
       {modalTarget && (
         <FollowUpModal appointment={modalTarget} saving={modalSaving} onClose={() => setModalTarget(null)} onSave={handleSaveOutcome} />
