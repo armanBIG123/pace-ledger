@@ -20,8 +20,40 @@ export const LICENSING_STEPS = [
   { key: 'examBooked', title: 'Book your state exam', short: 'Exam booked' },
   { key: 'examPassed', title: 'Pass the exam', short: 'Exam passed' },
   { key: 'npn', title: 'Get your license number (NPN)', short: 'Licensed' },
-  { key: 'appointed', title: 'Get your carrier writing number', short: 'Appointed' },
+  { key: 'insuracloud', title: 'Get your InsuraCloud invite from your manager', short: 'InsuraCloud sent' },
+  { key: 'profileSubmitted', title: 'Submit your InsuraCloud profile', short: 'Profile submitted' },
+  { key: 'appointed', title: 'Get your F&G writing number', short: 'Appointed' },
 ];
+
+// The next step in a leader's words ("Book the state exam", "Send the
+// InsuraCloud link").
+const LEADER_STEP = {
+  course: 'Start the pre-licensing course', courseDone: 'Finish the course', examBooked: 'Book the state exam',
+  examPassed: 'Pass the exam', npn: 'Get their license number (NPN)', insuracloud: 'Send them the InsuraCloud link',
+  profileSubmitted: 'Submit their InsuraCloud profile', appointed: 'Get their F&G writing number',
+};
+export const leaderStepText = step => (step ? LEADER_STEP[step.key] || step.title : '');
+
+// The F&G writing number usually arrives within this many business days of
+// the InsuraCloud profile being submitted.
+export const WRITING_NUMBER_BUSINESS_DAYS = 2;
+
+const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+// "YYYY-MM-DD" plus n weekdays (Saturdays and Sundays skipped).
+export function addBusinessDays(dateStr, n) {
+  const d = new Date(`${dateStr}T12:00:00`);
+  let left = n;
+  while (left > 0) { d.setDate(d.getDate() + 1); if (d.getDay() !== 0 && d.getDay() !== 6) left--; }
+  return ymd(d);
+}
+// Weekdays from one date to another (0 if the second isn't later).
+export function businessDaysBetween(fromStr, toStr) {
+  const d = new Date(`${fromStr}T12:00:00`);
+  const end = new Date(`${toStr}T12:00:00`);
+  let n = 0;
+  while (d < end) { d.setDate(d.getDate() + 1); if (d.getDay() !== 0 && d.getDay() !== 6) n++; }
+  return n;
+}
 
 const filled = v => !!(v && String(v).trim());
 
@@ -39,6 +71,8 @@ export function licensingStatus(progress, profile) {
     examBooked: licensedNow || npn || !!p.exam_on || !!p.exam_passed_on,
     examPassed: licensedNow || npn || !!p.exam_passed_on,
     npn,
+    insuracloud: appointed || !!p.contracting_sent_on || !!p.profile_submitted_on,
+    profileSubmitted: appointed || !!p.profile_submitted_on,
     appointed,
   };
   const doneCount = LICENSING_STEPS.filter(s => done[s.key]).length;
@@ -81,4 +115,12 @@ export async function fetchLicensingForUsers(userIds) {
   const { data, error } = await supabase.from('licensing_progress').select('*').in('user_id', userIds);
   if (error) { console.error(error); return new Map(); }
   return new Map(data.map(r => [r.user_id, r]));
+}
+
+// A leader (or the person themselves) ticks a contracting step:
+// 'sent' | 'unsent' | 'submitted' | 'unsubmitted'.
+export async function markContractingStep(userId, step) {
+  const { data, error } = await supabase.rpc('mark_contracting_step', { p_user: userId, p_step: step });
+  if (error) { console.error(error); return { ok: false, error: error.message }; }
+  return { ok: true, row: data };
 }

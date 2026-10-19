@@ -1,7 +1,7 @@
 // Team Pace: weekly pace, promotion readiness and licensing for the team.
 import React, { useCallback, useEffect, useState } from 'react';
 import { ChevronDown, ChevronUp, UserCog, Users } from 'lucide-react';
-import { daysBetween, examWhen, fetchLicensingForUsers, licensingStatus } from '../../licensing.js';
+import { daysBetween, examWhen, fetchLicensingForUsers, leaderStepText, licensingStatus } from '../../licensing.js';
 import { fetchTeamOnboarding, ONBOARDING_DAYS, onboardingDay, onboardingStepTitle, onboardingStepWeek } from '../../onboarding.js';
 import { hierarchyTierLabel } from '../../hierarchy.js';
 import { countsTowardPace, DATE_SET_OPTIONS, getStatus, isPresentingFor, WEEKLY_TOTAL_TARGET } from '../../lib/pace.js';
@@ -11,6 +11,8 @@ import { addCoachingNote, approvePromotion, fetchCoachingNotes, fetchDirectManag
 import { AGENCY_EMAIL, approvePromotionRequest, fetchPromotionRequests, resendPromotionEmail, sendBackPromotion, submitErrorText, submitPromotion } from '../../data/promotions.js';
 import { MemberSubline, MiniBar, SkelBlock, SkeletonTable, StatusBadge, StatusChip, TypeBadge, TypeFilter, WeekNav } from '../../components/ui.jsx';
 import { RequirementRow } from '../Milestones.jsx';
+import { RecruitsSubView } from './Recruits.jsx';
+import { FieldTrainingSubView } from './FieldTraining.jsx';
 
 // A general, week-scoped feedback channel a manager can leave for an
 // advisor — separate from Open Requirements' policy-specific notes.
@@ -622,7 +624,7 @@ export function TeamLicensingSubView({ members, loadingMembers, memberLabel, emp
                         <span className="tr-mono tr-minibar-num">{r.st.doneCount}/{r.st.total}</span>
                       </div>
                     </td>
-                    <td>{r.st.next.short === 'Course started' ? 'Start the course' : r.st.next.title}{r.pr && r.pr.resident_state ? <div className="tr-tenure">{r.pr.resident_state}</div> : null}</td>
+                    <td>{leaderStepText(r.st.next)}{r.pr && r.pr.resident_state ? <div className="tr-tenure">{r.pr.resident_state}</div> : null}</td>
                     <td>{r.pr && r.pr.exam_on && !r.st.done.examPassed ? <>{fmtShortDate(r.pr.exam_on)}<div className="tr-tenure">{examWhen(r.pr.exam_on)}</div></> : r.pr && r.pr.exam_attempts ? <span className="tr-tenure">Retake needed</span> : '—'}</td>
                     <td>{r.stuck ? <span className="tr-status tr-status-rust">Stuck {r.idle} days</span> : <span className="tr-status tr-status-green">Moving</span>}</td>
                   </tr>
@@ -644,8 +646,18 @@ export function TeamLicensingSubView({ members, loadingMembers, memberLabel, emp
   );
 }
 
+// The views down the side of Team Pace, in the order someone moves through
+// them: recruited, licensed, field trained, promoted.
+const PACE_VIEWS = [
+  { key: 'pace', label: 'Pace' },
+  { key: 'recruits', label: 'Recruits' },
+  { key: 'licensing', label: 'Licensing' },
+  { key: 'training', label: 'Field training' },
+  { key: 'promotion', label: 'Promotion' },
+];
+
 export function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, memberLabel, initialView }) {
-  const [view, setView] = useState(['promotion', 'licensing'].includes(initialView) ? initialView : 'pace'); // 'pace' | 'promotion' | 'licensing'
+  const [view, setView] = useState(PACE_VIEWS.some(v => v.key === initialView) ? initialView : 'pace');
   const [members, setMembers] = useState([]);
   const [loadingMembers, setLoadingMembers] = useState(true);
 
@@ -660,27 +672,23 @@ export function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage
   return (
     <div className="tr-appts-shell">
       <nav className="tr-appts-sidebar">
-        <button
-          type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'pace' ? 'tr-sidebar-item-active' : ''}`}
-          onClick={() => setView('pace')}>
-          <span>Pace</span>
-        </button>
-        <button
-          type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'promotion' ? 'tr-sidebar-item-active' : ''}`}
-          onClick={() => setView('promotion')}>
-          <span>Promotion</span>
-        </button>
-        <button
-          type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'licensing' ? 'tr-sidebar-item-active' : ''}`}
-          onClick={() => setView('licensing')}>
-          <span>Licensing</span>
-        </button>
+        {PACE_VIEWS.map(v => (
+          <button
+            key={v.key} type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === v.key ? 'tr-sidebar-item-active' : ''}`}
+            onClick={() => setView(v.key)}>
+            <span>{v.label}</span>
+          </button>
+        ))}
       </nav>
       <div className="tr-appts-main">
         {view === 'pace' ? (
           <TeamPaceSubView
             user={user} members={members} loadingMembers={loadingMembers}
             heading={heading} Icon={Icon} emptyMessage={emptyMessage} memberLabel={memberLabel} />
+        ) : view === 'recruits' ? (
+          <RecruitsSubView user={user} members={members} loadingMembers={loadingMembers} emptyMessage={emptyMessage} />
+        ) : view === 'training' ? (
+          <FieldTrainingSubView user={user} members={members} loadingMembers={loadingMembers} emptyMessage={emptyMessage} />
         ) : view === 'licensing' ? (
           <TeamLicensingSubView members={members} loadingMembers={loadingMembers} memberLabel={memberLabel} emptyMessage={emptyMessage} />
         ) : (

@@ -1,7 +1,7 @@
 // Milestones: your level and path (My path), promotion guidelines and progress, licensing tracker and incentives.
 import { useCallback, useEffect, useState } from 'react';
 import { Check, Pencil } from 'lucide-react';
-import { daysBetween, examWhen, fetchLicensingProgress, LICENSING_STEPS, licensingStatus, saveLicensingProgress, US_STATES } from '../licensing.js';
+import { addBusinessDays, daysBetween, examWhen, fetchLicensingProgress, LICENSING_STEPS, licensingStatus, saveLicensingProgress, US_STATES, WRITING_NUMBER_BUSINESS_DAYS } from '../licensing.js';
 import { computeDownline, computeReadiness, computeTierProgress, HIERARCHY_TIER_WINDOW_LABELS, HIERARCHY_TIERS, hierarchyTierLabel, isLicensed, nextTierAfter } from '../hierarchy.js';
 import { fmtShortDate, todayStr, weekStartOf } from '../lib/dates.js';
 import { DATE_SET_OPTIONS, getStatus, WEEKLY_TOTAL_TARGET } from '../lib/pace.js';
@@ -254,7 +254,9 @@ export function LicensingTracker({ user, profile }) {
     const el = document.getElementById('tr-license-numbers');
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
-  const derived = k => (k === 'course' || k === 'courseDone' || k === 'examBooked' || k === 'examPassed') && (st.done.npn || st.licensed);
+  const derived = k => ((k === 'course' || k === 'courseDone' || k === 'examBooked' || k === 'examPassed') && (st.done.npn || st.licensed))
+    || ((k === 'insuracloud' || k === 'profileSubmitted') && st.licensed);
+  const numberDue = p.profile_submitted_on ? addBusinessDays(p.profile_submitted_on, WRITING_NUMBER_BUSINESS_DAYS) : null;
 
   function detail(step) {
     switch (step.key) {
@@ -278,8 +280,18 @@ export function LicensingTracker({ user, profile }) {
           : <span>Mark it here as soon as you get your result.</span>;
       case 'npn':
         return st.done.npn ? <span>On file</span> : <span>Your state sends this once your license is issued. Add it in the form below.</span>;
+      case 'insuracloud':
+        return st.done.insuracloud
+          ? <span>{p.contracting_sent_on ? `Sent ${fmtShortDate(p.contracting_sent_on)}` : 'Done'}</span>
+          : <span>Once you have your NPN, your manager sends you a link to InsuraCloud, our contracting hub. Tell them when your NPN is in.</span>;
+      case 'profileSubmitted':
+        return st.done.profileSubmitted
+          ? <span>{p.profile_submitted_on ? `Submitted ${fmtShortDate(p.profile_submitted_on)}` : 'Done'}</span>
+          : <span>Open the InsuraCloud link, fill in your profile and submit it.</span>;
       case 'appointed':
-        return st.done.appointed ? <span>On file</span> : <span>Your writing number arrives once the carrier appoints you. Add it below.</span>;
+        return st.done.appointed ? <span>On file</span>
+          : numberDue ? <span>Usually arrives within {WRITING_NUMBER_BUSINESS_DAYS} business days of your profile, so by <strong>{fmtShortDate(numberDue)}</strong>. Add it below when it comes.</span>
+          : <span>Arrives within {WRITING_NUMBER_BUSINESS_DAYS} business days of submitting your InsuraCloud profile. Add it below.</span>;
       default: return null;
     }
   }
@@ -293,6 +305,8 @@ export function LicensingTracker({ user, profile }) {
         courseDone: { course_completed_on: null },
         examBooked: { exam_on: null },
         examPassed: { exam_passed_on: null },
+        insuracloud: { contracting_sent_on: null },
+        profileSubmitted: { profile_submitted_on: null },
       }[k];
       return <button type="button" className="tr-link-btn" disabled={busy === k} onClick={() => { if (k === 'examBooked') setExamDate(''); save(k, undo); }}>Undo</button>;
     }
@@ -322,6 +336,10 @@ export function LicensingTracker({ user, profile }) {
             <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" disabled={busy === k} onClick={() => { setExamDate(''); save(k, { exam_attempts: (p.exam_attempts || 0) + 1, exam_on: null }); }}>Didn't pass this time</button>
           </div>
         );
+      case 'insuracloud':
+        return <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" disabled={busy === k} onClick={() => save(k, { contracting_sent_on: today })}>I got the link</button>;
+      case 'profileSubmitted':
+        return <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" disabled={busy === k} onClick={() => save(k, { profile_submitted_on: today, contracting_sent_on: p.contracting_sent_on || today })}>I submitted it</button>;
       case 'npn':
       case 'appointed':
         return <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={scrollToNumbers}>Add it below</button>;

@@ -1520,4 +1520,61 @@ export const CSS = `
 .tr-forms-action { text-align: right; font-size: 12.5px; font-weight: 600; color: var(--brass-dark); white-space: nowrap; }
 .tr-forms-table .tr-expand-row td { background: var(--paper); }
 @media (max-width: 640px) { .tr-forms-table .tr-forms-action, .tr-forms-table .tr-forms-action-h { display: none; } }
+/* Team Pace → Recruits */
+.tr-rec-stages { display: flex; align-items: stretch; gap: 6px; margin: 4px 0 14px; overflow-x: auto; padding-bottom: 2px; }
+.tr-rec-stage { flex: 1 0 auto; min-width: 92px; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 9px 12px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--card); font-family: inherit; font-size: 12px; color: var(--slate-light); cursor: pointer; text-align: left; transition: border-color .15s, box-shadow .15s; }
+.tr-rec-stage strong { font-size: 20px; line-height: 1.1; color: var(--ink); font-variant-numeric: tabular-nums; }
+.tr-rec-stage:hover { border-color: var(--brass); }
+.tr-rec-stage-on { border-color: var(--brass); box-shadow: var(--ring); color: var(--ink); }
+.tr-rec-stage-flag { background: rgba(176,67,47,0.06); border-color: rgba(176,67,47,0.35); }
+.tr-rec-stage-flag strong { color: var(--rust); }
+.tr-rec-arrow { flex: 0 0 auto; align-self: center; color: var(--line-strong); }
+.tr-rec-list { list-style: none; margin: 0; padding: 0; overflow: hidden; }
+.tr-rec-row { display: flex; align-items: center; gap: 14px; padding: 13px 16px; border-top: 1px solid var(--line); border-left: 3px solid transparent; }
+.tr-rec-row:first-child { border-top: none; }
+.tr-rec-flag-late { border-left-color: var(--rust); }
+.tr-rec-flag-action { border-left-color: var(--brass); }
+.tr-rec-flag-stuck { border-left-color: var(--amber); }
+.tr-rec-main { flex: 1; min-width: 0; }
+.tr-rec-name { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 14.5px; color: var(--ink); }
+.tr-rec-chip { font-size: 11px; font-weight: 600; padding: 1px 8px; border-radius: 999px; background: var(--paper-dim); color: var(--slate); white-space: nowrap; }
+.tr-rec-chip-invited { background: rgba(107,81,160,0.1); color: var(--violet-dark); }
+.tr-rec-chip-licensing { background: rgba(45,104,168,0.1); color: var(--type-recruit-dark); }
+.tr-rec-chip-contracting { background: var(--brass-tint); color: var(--brass-dark); }
+.tr-rec-chip-ready { background: rgba(46,125,91,0.1); color: var(--green); }
+.tr-rec-chip-firstsale { background: rgba(46,125,91,0.16); color: var(--green); }
+.tr-rec-flagchip { font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.tr-rec-flagchip-late { background: rgba(176,67,47,0.12); color: var(--rust); }
+.tr-rec-flagchip-action { background: var(--brass-tint); color: var(--brass-dark); }
+.tr-rec-flagchip-stuck { background: rgba(194,124,30,0.13); color: #8A5512; }
+.tr-rec-sub { font-size: 12px; color: var(--slate-light); margin-top: 2px; }
+.tr-rec-detail { font-size: 13px; color: var(--slate); margin-top: 4px; line-height: 1.45; }
+.tr-rec-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px; flex: 0 0 auto; max-width: 46%; }
+.tr-rec-actions .tr-link-btn, .tr-ft-assign .tr-link-btn { margin-top: 0; align-self: center; }
+.tr-rec-foot { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--slate-light); margin: 10px 2px 0; }
+/* Team Pace → Field training */
+.tr-ft-card { padding: 16px 18px; margin-bottom: 14px; }
+.tr-ft-card .tr-h3 { margin: 0 0 8px; }
+.tr-ft-hint { font-size: 12.5px; color: var(--slate-light); margin: -2px 0 8px; }
+.tr-ft-list { list-style: none; margin: 0; padding: 0; }
+.tr-ft-row { display: flex; align-items: center; gap: 14px; padding: 11px 0; border-top: 1px solid var(--line); }
+.tr-ft-row:first-child { border-top: none; }
+.tr-ft-main { flex: 1; min-width: 0; font-size: 14px; color: var(--ink); }
+.tr-ft-main .tr-type-badge { margin-left: 4px; }
+.tr-ft-main .tr-presenting-chip { margin-left: 6px; }
+.tr-ft-booked { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
+.tr-ft-when { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: rgba(45,104,168,0.1); color: var(--type-recruit-dark); }
+.tr-ft-dots { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.tr-ft-dots > span:not(.tr-ft-dots-n) { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--line-strong); background: var(--card); }
+.tr-ft-dots > span.tr-ft-dot-on { border-color: var(--green); background: var(--green); }
+.tr-ft-dots-n { margin-left: 6px; font-size: 12.5px; font-weight: 600; color: var(--slate); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tr-ft-assign { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; }
+.tr-ft-assign .tr-toolbar-select { height: 34px; min-height: 34px; font-size: 13px; }
+.tr-ft-more { margin-top: 8px; }
+@media (max-width: 640px) {
+  .tr-rec-row, .tr-ft-row { flex-direction: column; align-items: stretch; gap: 8px; }
+  .tr-rec-actions, .tr-ft-assign { max-width: none; justify-content: flex-start; }
+  .tr-rec-stage { min-width: 84px; padding: 8px 10px; }
+  .tr-rec-arrow { display: none; }
+}
 `;

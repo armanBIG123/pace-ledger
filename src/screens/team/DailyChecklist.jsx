@@ -5,7 +5,7 @@
 // their own unfinished tasks carry over to the next day.
 import { useCallback, useEffect, useState } from 'react';
 import { Award, CalendarDays, CalendarX, Check, ClipboardCheck, GraduationCap, PartyPopper, Plus, Rocket, TrendingUp, Video, X } from 'lucide-react';
-import { examWhen } from '../../licensing.js';
+import { examWhen, leaderStepText } from '../../licensing.js';
 import { dateSetMeta, WEEKLY_TOTAL_TARGET } from '../../lib/pace.js';
 import { apptClock, parseDate, todayStr } from '../../lib/dates.js';
 import { addOwnTask, deleteOwnTask, fetchChecklist, setOwnTaskDone, setSuggestedDone } from '../../data/checklist.js';
@@ -108,7 +108,7 @@ export function buildDailyChecklist({ user, signals, teamSize, fieldToday = [] }
       key: `stuck:${p.id}`, Icon: GraduationCap, tone: 'rust',
       label: `Help ${p.display_name} with licensing`,
       title: <>Help <strong>{p.display_name}</strong> with licensing</>,
-      sub: `No progress in ${idle} days · next: ${st.next ? st.next.title.toLowerCase() : 'licensing'}`,
+      sub: `No progress in ${idle} days · next: ${st.next ? leaderStepText(st.next).charAt(0).toLowerCase() + leaderStepText(st.next).slice(1) : 'licensing'}`,
       action: emailOr(p, 'Checking in on licensing', "How's licensing going? Anything I can help with to get you to the next step?", { label: 'Licensing', go: 'licensing' }),
     });
   });
