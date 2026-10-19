@@ -1571,6 +1571,51 @@ export const CSS = `
 .tr-ft-assign { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; flex-wrap: wrap; justify-content: flex-end; }
 .tr-ft-assign .tr-toolbar-select { height: 34px; min-height: 34px; font-size: 13px; }
 .tr-ft-more { margin-top: 8px; }
+/* Today → Your paycheck */
+.tr-pay .tr-h3 { display: inline-flex; align-items: center; gap: 6px; }
+.tr-pay-month { font-size: 11.5px; font-weight: 600; color: var(--slate-light); text-transform: uppercase; letter-spacing: .04em; }
+.tr-pay-line { font-size: 13px; color: var(--slate); margin: 6px 0 0; line-height: 1.45; }
+.tr-pay .tr-ov-bar { margin-top: 10px; }
+.tr-pay-facts { list-style: none; margin: 10px 0 0; padding: 10px 0 0; border-top: 1px solid var(--line); display: grid; gap: 5px; font-size: 12.5px; color: var(--slate); }
+.tr-pay-facts:empty { display: none; }
+.tr-pay-next { color: var(--brass-dark); font-weight: 600; }
+.tr-pay-warn { color: var(--rust); }
+.tr-pay-foot { font-size: 11.5px; color: var(--slate-light); margin: 10px 0 0; }
+/* Today → Team wins + top 3 */
+.tr-wins-wrap { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; align-items: start; }
+.tr-wins .tr-h3, .tr-top3 .tr-h3 { display: inline-flex; align-items: center; gap: 6px; }
+.tr-wins-sub { font-size: 12.5px; color: var(--slate-light); margin: 4px 0 10px; }
+.tr-wins-note { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 12px; margin-bottom: 10px; border-radius: var(--radius-sm); background: var(--brass-tint); color: var(--ink); font-size: 13.5px; }
+.tr-wins-list { list-style: none; margin: 0; padding: 0; }
+.tr-win { display: flex; gap: 12px; padding: 11px 0; border-top: 1px solid var(--line); }
+.tr-win:first-child { border-top: none; }
+.tr-win-icon { flex: 0 0 auto; width: 32px; height: 32px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--paper-dim); color: var(--slate); }
+.tr-win-sale .tr-win-icon { background: rgba(196,98,42,0.12); color: var(--type-sale-dark); }
+.tr-win-first_sale .tr-win-icon, .tr-win-promotion .tr-win-icon { background: var(--brass-tint); color: var(--brass-dark); }
+.tr-win-recruit .tr-win-icon, .tr-win-joined .tr-win-icon { background: rgba(45,104,168,0.1); color: var(--type-recruit-dark); }
+.tr-win-licensed .tr-win-icon { background: rgba(46,125,91,0.12); color: var(--green); }
+.tr-win-main { flex: 1; min-width: 0; }
+.tr-win-text { font-size: 14px; color: var(--ink); line-height: 1.4; }
+.tr-win-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 5px; font-size: 12px; color: var(--slate-light); }
+.tr-win-hf { display: inline-flex; gap: 6px; }
+.tr-hf { display: inline-flex; align-items: center; gap: 4px; min-width: 38px; height: 28px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--card); font-family: inherit; font-size: 14px; line-height: 1; cursor: pointer; transition: border-color .15s, background .15s, transform .1s; }
+.tr-hf:hover { border-color: var(--brass); }
+.tr-hf:active { transform: scale(0.94); }
+.tr-hf-on { background: var(--brass-tint); border-color: var(--brass); }
+.tr-hf-n { font-size: 12px; font-weight: 700; color: var(--slate); font-variant-numeric: tabular-nums; }
+.tr-wins-more { margin-top: 6px; }
+.tr-top3-group { padding: 10px 0; border-top: 1px solid var(--line); }
+.tr-top3-group:first-of-type { border-top: none; padding-top: 4px; }
+.tr-top3-label { font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--slate-light); margin-bottom: 6px; }
+.tr-top3-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.tr-top3-list li { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border-radius: var(--radius-sm); font-size: 14px; color: var(--ink); }
+.tr-top3-you { background: var(--brass-tint); }
+.tr-top3-medal { font-size: 16px; }
+.tr-top3-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tr-top3-name .tr-org-you { margin-left: 6px; }
+.tr-top3-n { font-weight: 700; font-variant-numeric: tabular-nums; }
+.tr-top3-empty { font-size: 12.5px; color: var(--slate-light); margin: 0; }
+@media (max-width: 860px) { .tr-wins-wrap { grid-template-columns: 1fr; } }
 @media (max-width: 640px) {
   .tr-rec-row, .tr-ft-row { flex-direction: column; align-items: stretch; gap: 8px; }
   .tr-rec-actions, .tr-ft-assign { max-width: none; justify-content: flex-start; }
