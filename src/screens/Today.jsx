@@ -1,6 +1,6 @@
 // Today: four number tiles, one "Do next" list (appointments coming up, then what needs you), folds for the rest of the week, and team wins.
 import { Children, useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, Award, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, ChevronUp, ClipboardCheck, GraduationCap, List as ListIcon, Plus, Sparkles, Target, UserPlus, Users, Video, Wallet, X } from 'lucide-react';
+import { Activity, Award, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, ChevronUp, ClipboardCheck, GraduationCap, List as ListIcon, Pencil, Plus, Sparkles, Target, UserPlus, Users, Video, Wallet, X } from 'lucide-react';
 import { examWhen, fetchLicensingProgress, licensingStatus } from '../licensing.js';
 import { computeOnboarding, fetchMyOnboarding, ONBOARDING_DAYS, ONBOARDING_WEEKS, onboardingDay, saveOnboardingSnapshot, setOnboardingVisibility, shouldShowOnboarding, weekForDay } from '../onboarding.js';
 import { isNativeApp, onAppResume, reminderPermission, requestReminderPermission } from '../native.js';
@@ -513,7 +513,14 @@ export function TodayBody({ user, onNavigate }) {
   });
 
   // ---- Do next: needs you, then today's to-dos, then licensing ------
-  const doNext = [...needs.promos, ...open, ...(needs.licensing ? [needs.licensing] : [])];
+  // Signed up with just a first name: ask once for the last name too.
+  const nameTask = (user.displayName || '').trim().split(/\s+/).filter(Boolean).length < 2 ? {
+    key: 'lastname', Icon: Pencil, tone: 'brass',
+    title: <>Add your last name</>,
+    meta: 'So your team can tell you apart. You can also tap your name at the top.',
+    action: { label: 'Add', run: () => window.dispatchEvent(new CustomEvent('paceledger:open-account', { detail: { focus: 'name' } })) },
+  } : null;
+  const doNext = [...needs.promos, ...open, ...(needs.licensing ? [needs.licensing] : []), ...(nameTask ? [nameTask] : [])];
   // Only the first thing gets the gold button; the rest are plain.
   const firstPrimaryKey = (doNext.find(t => t.primary && t.action) || {}).key;
   const leftCount = doNext.length + moreToLog;

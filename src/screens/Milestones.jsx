@@ -399,13 +399,17 @@ export function LicensingBody({ user }) {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    fetchMyLicensing(user.id).then(data => {
+    const load = () => fetchMyLicensing(user.id).then(data => {
       const n = data.npn || '', f = data.fg_writing_number || '';
       setSavedNpn(n); setSavedFgNumber(f); setSavedLicensedAt(data.licensed_at || null);
       setNpn(n); setFgNumber(f);
       setEditing(!(n && f)); // only start locked if already fully licensed
       setLoaded(true);
     });
+    load();
+    // Numbers can also be changed from Your account (tap your name).
+    window.addEventListener('paceledger:profile-changed', load);
+    return () => window.removeEventListener('paceledger:profile-changed', load);
   }, [user.id]);
 
   async function save() {

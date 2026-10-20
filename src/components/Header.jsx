@@ -1,10 +1,11 @@
 // The top bar and the Your account sheet.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { LogOut, Plus, ShieldCheck, UserPlus, X } from 'lucide-react';
 import { createInvite } from '../invites.js';
 import { fetchMyOnboarding, onboardingDay, setOnboardingVisibility, shouldShowOnboarding } from '../onboarding.js';
 import { PUBLIC_SITE_URL } from '../native.js';
 import { deleteMyAccount, signOut } from '../data/auth.js';
+import { fetchMyLicensing, updateMyProfile } from '../data/team.js';
 import { InviteShare } from './invites.jsx';
 
 // The navy band at the top: brand, search, + New and account on one row,
@@ -14,6 +15,13 @@ import { InviteShare } from './invites.jsx';
 // phone, + New lives in the bottom bar instead).
 export function Header({ user, nav, search, onNew }) {
   const [accountOpen, setAccountOpen] = useState(false);
+  const [focusName, setFocusName] = useState(false);
+  // Other screens can open Your account (e.g. Today's "Add your last name").
+  useEffect(() => {
+    const open = e => { setFocusName(!!(e.detail && e.detail.focus === 'name')); setAccountOpen(true); };
+    window.addEventListener('paceledger:open-account', open);
+    return () => window.removeEventListener('paceledger:open-account', open);
+  }, []);
   return (
     <>
     <header className={`tr-header ${nav ? 'tr-header-with-nav' : ''}`}>
@@ -22,7 +30,7 @@ export function Header({ user, nav, search, onNew }) {
         {search || null}
         <div className="tr-header-user">
           {onNew ? <button type="button" className="tr-btn tr-btn-brass tr-btn-sm tr-header-new" onClick={onNew} aria-haspopup="menu"><Plus size={15} /> New</button> : null}
-          <button type="button" className="tr-header-account" onClick={() => setAccountOpen(true)} title="Your account">
+          <button type="button" className="tr-header-account" onClick={() => { setFocusName(false); setAccountOpen(true); }} title="Your account and profile">
             <span className="tr-header-name">{user.displayName}</span>
             <span className="tr-header-firstname">{(user.displayName || '').trim().split(/\s+/)[0]}</span>
             <span className="tr-header-role">{user.role === 'super_admin' ? 'Admin' : user.role}</span>
@@ -33,7 +41,7 @@ export function Header({ user, nav, search, onNew }) {
       {nav ? <div className="tr-header-nav">{nav}</div> : null}
     </header>
     {/* Outside the header so header styles and stacking don't apply to it. */}
-    {accountOpen && <AccountSheet user={user} onClose={() => setAccountOpen(false)} />}
+    {accountOpen && <AccountSheet user={user} focusName={focusName} onClose={() => setAccountOpen(false)} />}
     </>
   );
 }
@@ -115,7 +123,82 @@ export function OnboardingToggle({ user }) {
   );
 }
 
-export function AccountSheet({ user, onClose }) {
+// Your name, NPN (license number) and F&G writing number, editable by you.
+// Saving updates the name everywhere it shows, and the same numbers as
+// Milestones -> Licensing.
+const words = s => (s || '').trim().split(/\s+/).filter(Boolean);
+const cleanNpn = s => (s || '').replace(/[\s-]/g, '');
+
+export function ProfileForm({ user, focusName }) {
+  const [saved, setSaved] = useState(null); // { name, npn, fg }
+  const [name, setName] = useState(user.displayName || '');
+  const [npn, setNpn] = useState('');
+  const [fg, setFg] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [done, setDone] = useState(false);
+  const nameRef = useRef(null);
+  useEffect(() => {
+    let alive = true;
+    fetchMyLicensing(user.id).then(d => {
+      if (!alive) return;
+      const n = (d && d.npn) || '', f = (d && d.fg_writing_number) || '';
+      setSaved({ name: user.displayName || '', npn: n, fg: f });
+      setNpn(n); setFg(f);
+    });
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user.id]);
+  useEffect(() => {
+    if (focusName && saved && nameRef.current) nameRef.current.focus();
+  }, [focusName, saved]);
+
+  const changed = !!saved && (name.trim() !== saved.name.trim() || cleanNpn(npn) !== cleanNpn(saved.npn) || fg.trim() !== saved.fg.trim());
+  const oneWord = words(name).length < 2;
+
+  async function save() {
+    setError(''); setDone(false);
+    if (oneWord) { setError('Enter your first and last name.'); if (nameRef.current) nameRef.current.focus(); return; }
+    if (cleanNpn(npn) && !/^[0-9]+$/.test(cleanNpn(npn))) { setError('Your NPN is numbers only.'); return; }
+    setBusy(true);
+    const res = await updateMyProfile({ displayName: name, npn, fgWritingNumber: fg });
+    setBusy(false);
+    if (!res.ok) { setError(res.error); return; }
+    const p = res.profile;
+    const next = { name: p.display_name || name.trim(), npn: p.npn || '', fg: p.fg_writing_number || '' };
+    setSaved(next); setName(next.name); setNpn(next.npn); setFg(next.fg);
+    setDone(true);
+    window.dispatchEvent(new CustomEvent('paceledger:profile-changed', { detail: p }));
+    window.dispatchEvent(new Event('paceledger:onboarding-changed'));
+  }
+
+  return (
+    <form className="tr-profile-form" onSubmit={e => { e.preventDefault(); if (changed && !busy) save(); }}>
+      <label className="tr-field">
+        <span>Name</span>
+        <input ref={nameRef} value={name} onChange={e => { setName(e.target.value); setDone(false); setError(''); }} placeholder="First and last name" autoComplete="name" maxLength={80} />
+        {oneWord && name.trim() ? <small className="tr-field-hint">Add your last name so your team can tell you apart.</small> : null}
+      </label>
+      <div className="tr-form-grid">
+        <label className="tr-field">
+          <span>NPN (license number)</span>
+          <input value={npn} onChange={e => { setNpn(e.target.value); setDone(false); setError(''); }} placeholder={saved ? 'Not added yet' : 'Loading…'} inputMode="numeric" autoComplete="off" maxLength={20} disabled={!saved} />
+        </label>
+        <label className="tr-field">
+          <span>F&amp;G writing number</span>
+          <input value={fg} onChange={e => { setFg(e.target.value); setDone(false); setError(''); }} placeholder={saved ? 'Not added yet' : 'Loading…'} autoComplete="off" autoCapitalize="characters" maxLength={40} disabled={!saved} />
+        </label>
+      </div>
+      {error && <div className="tr-error">{error}</div>}
+      <div className="tr-profile-actions">
+        {done && !changed ? <span className="tr-profile-saved" role="status">Saved</span> : null}
+        <button type="submit" className="tr-btn tr-btn-brass tr-btn-sm" disabled={!changed || busy}>{busy ? 'Saving…' : 'Save changes'}</button>
+      </div>
+    </form>
+  );
+}
+
+export function AccountSheet({ user, focusName = false, onClose }) {
   const [step, setStep] = useState('view'); // 'view' | 'confirm'
   const [typed, setTyped] = useState('');
   const [busy, setBusy] = useState(false);
@@ -139,8 +222,8 @@ export function AccountSheet({ user, onClose }) {
           <h3 className="tr-h3" id="tr-account-title" style={{ margin: 0 }}>Your account</h3>
           <button type="button" className="tr-icon-btn" onClick={onClose} aria-label="Close"><X size={16} /></button>
         </div>
+        <ProfileForm user={user} focusName={focusName} />
         <dl className="tr-account-list">
-          <div><dt>Name</dt><dd>{user.displayName}</dd></div>
           <div><dt>Email</dt><dd>{user.email || '—'}</dd></div>
           <div><dt>Role</dt><dd style={{ textTransform: 'capitalize' }}>{user.role === 'super_admin' ? 'Admin' : user.role}</dd></div>
         </dl>
