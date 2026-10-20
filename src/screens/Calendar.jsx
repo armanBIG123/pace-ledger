@@ -246,7 +246,8 @@ export function CalendarBody({ user, onLogAppointment }) {
   const [highlightTrainings, setHighlightTrainings] = useState(false);
   // 'all' | 'mine' | a specific person's userId — only meaningful for
   // managers/admins, who see more than just their own appointments here.
-  const [personFilter, setPersonFilter] = useState('all');
+  // Leaders start on their own schedule; Everyone or one person is a pick away.
+  const [personFilter, setPersonFilter] = useState(() => (seesTeam(user) ? 'mine' : 'all'));
 
   const cells = buildMonthGrid(monthStartStr);
   const rangeStart = cells[0].date;
@@ -328,7 +329,8 @@ export function CalendarBody({ user, onLogAppointment }) {
 
   function apptsForDay(dateStr) {
     let list = appts.filter(a => apptLocalDate(a) === dateStr);
-    if (personFilter === 'mine') list = list.filter(a => a.userId === user.id);
+    // Just me: ones you set, and ones you're presenting or training on.
+    if (personFilter === 'mine') list = list.filter(a => a.userId === user.id || a.presenterId === user.id || a.traineeId === user.id);
     else if (personFilter !== 'all') list = list.filter(a => a.userId === personFilter);
     return list;
   }

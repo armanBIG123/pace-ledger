@@ -208,6 +208,7 @@ function GalaxyPreview({ centre, orbit, pace, children, onOpen }) {
 export function TeamOverviewBody({ user, onNavigate }) {
   const [state, setState] = useState(null);
   const [showAll, setShowAll] = useState(false);
+  const [showAllWins, setShowAllWins] = useState(false);
   const [showNeeds, setShowNeeds] = useState(false);
   const load = useCallback(async () => {
     const week = weekStartOf(todayStr());
@@ -245,7 +246,7 @@ export function TeamOverviewBody({ user, onNavigate }) {
   if (!state.team.length) {
     return <div className="tr-tov">{head}<div className="tr-card"><p className="tr-empty">No one on your team yet. Use <strong>+ New → Invite a recruit</strong> to send someone their sign-up link.</p></div></div>;
   }
-  const NEEDS_LIMIT = 6, WINS_LIMIT = 6;
+  const NEEDS_LIMIT = 6, WINS_LIMIT = 3;
   const needsShown = showAll ? state.needs : state.needs.slice(0, NEEDS_LIMIT);
   return (
     <div className="tr-tov">
@@ -302,7 +303,7 @@ export function TeamOverviewBody({ user, onNavigate }) {
             <div className="tr-tov-box-head"><h3 id="tr-tov-wins">Wins this week</h3></div>
             {state.wins.length === 0 ? <p className="tr-empty">No wins logged yet this week. They show up here as they happen.</p> : (
               <ul className="tr-tov-list tr-tov-wins">
-                {state.wins.slice(0, WINS_LIMIT).map(w => (
+                {(showAllWins ? state.wins : state.wins.slice(0, WINS_LIMIT)).map(w => (
                   <li key={w.key}>
                     <span className="tr-tov-win-icon" aria-hidden="true"><w.Icon size={15} /></span>
                     <div className="tr-tov-text"><div>{w.text}</div></div>
@@ -313,6 +314,11 @@ export function TeamOverviewBody({ user, onNavigate }) {
                 ))}
               </ul>
             )}
+            {state.wins.length > WINS_LIMIT ? (
+              <button type="button" className="tr-task-link tr-plan-more" aria-expanded={showAllWins} onClick={() => setShowAllWins(v => !v)}>
+                {showAllWins ? 'Show fewer' : `See all ${state.wins.length}`}
+              </button>
+            ) : null}
           </section>
         </div>
       </div>
