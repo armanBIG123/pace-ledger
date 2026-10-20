@@ -74,6 +74,7 @@ function RulesCard({ onAgree, busy, error, readOnly = false, onClose }) {
         <li><strong>Urgent help is for things that can't wait.</strong> Your manager and their leader get an email when you post there.</li>
         <li><strong>Report anything that breaks these rules</strong> with ⋯ on the message. Super admins review every report within 24 hours and remove the message, and the person, when it breaks them.</li>
         <li><strong>Block anyone</strong> you don't want to hear from. You won't see their messages.</li>
+        <li><strong>Chat keeps 90 days.</strong> Older messages are deleted automatically, so save anything you need somewhere else.</li>
       </ul>
       <p className="tr-chat-rules-zero">There is no tolerance for objectionable content or abusive behavior. Breaking these rules can lose you access to PaceLedger.</p>
       {error ? <div className="tr-error">{error}</div> : null}
