@@ -265,8 +265,6 @@ export function SystemsBody({ user, onLogAppointment, initialIntent, onIntentCon
   const [editingProspect, setEditingProspect] = useState(null);
   const [formKey, setFormKey] = useState(0);
   const [quickFirst, setQuickFirst] = useState('');
-  // The Logged / Converted / Recruited / Sold card opens on a tap.
-  const [showStats, setShowStats] = useState(false);
   const [quickLast, setQuickLast] = useState('');
   const [staleOnly, setStaleOnly] = useState(initialIntent === 'stale');
 
@@ -428,18 +426,15 @@ export function SystemsBody({ user, onLogAppointment, initialIntent, onIntentCon
         ) : (
           <>
             <PageHead title={activeTitle} sub={activeSub}>
-              {systemsView === 'list' && prospects.length > 0 ? (
-                <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" aria-expanded={showStats} onClick={() => setShowStats(v => !v)}>{showStats ? 'Hide stats' : 'Stats'}</button>
-              ) : null}
+              <button className="tr-btn tr-btn-brass" onClick={() => { setEditingProspect(null); setSystemsView('prospect'); }}><Plus size={16} /> New prospect</button>
             </PageHead>
-            {systemsView === 'list' && showStats && <ProspectFunnel prospects={prospects} />}
+            {systemsView === 'list' && <ProspectFunnel prospects={prospects} />}
             {systemsView === 'list' && (
               <form className="tr-card tr-quickadd" onSubmit={handleQuickAdd}>
                 <span className="tr-quickadd-label">Quick add</span>
                 <input value={quickFirst} onChange={e => setQuickFirst(e.target.value)} placeholder="First name" aria-label="First name" />
                 <input value={quickLast} onChange={e => setQuickLast(e.target.value)} placeholder="Last name" aria-label="Last name" />
                 <button type="submit" className="tr-btn tr-btn-ghost tr-btn-sm" disabled={saving}><Plus size={14} /> Add</button>
-                <button type="button" className="tr-link-btn tr-quickadd-more" onClick={() => { setEditingProspect(null); setSystemsView('prospect'); }}>Add with details</button>
               </form>
             )}
             <div className="tr-toolbar">

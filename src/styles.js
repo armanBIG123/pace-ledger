@@ -651,7 +651,6 @@ export const CSS = `
 .tr-flash { font-size: 13.5px; padding: 10px 14px; border-radius: 8px; background: rgba(63,143,108,0.12); color: #2E6E51; border: 1px solid rgba(63,143,108,0.25); }
 .tr-quickadd { display: flex; align-items: center; gap: 8px; padding: 10px 12px; }
 .tr-quickadd-label { font-size: 13px; font-weight: 600; color: var(--ink); white-space: nowrap; }
-.tr-quickadd-more { margin: 0; white-space: nowrap; }
 .tr-quickadd input { flex: 1; min-width: 0; font-family: inherit; font-size: 14px; min-height: 36px; padding: 6px 12px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background: var(--card); color: var(--ink); }
 .tr-quickadd input:focus { border-color: var(--brass); box-shadow: var(--ring); outline: none; }
 .tr-sort-select { border: none !important; background: transparent !important; font-size: 13px !important; color: var(--slate) !important; padding: 2px 22px 2px 8px !important; border-left: 1px solid var(--line) !important; border-radius: 0 !important; min-height: 0 !important; }
@@ -1256,7 +1255,6 @@ export const CSS = `
   .tr-cal-legend-hint { margin-left: 0; width: 100%; }
   .tr-agenda { padding: 4px 14px 12px; }
   .tr-quickadd-label { width: 100%; }
-  .tr-quickadd-more { order: 5; width: 100%; text-align: left; }
   .tr-prospect-card-side { justify-content: flex-start; }
   .tr-ov-row-side { width: 100%; padding-left: 86px; }
   .tr-fu-head { flex-direction: column; align-items: flex-start; }
