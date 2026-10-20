@@ -391,6 +391,21 @@ export const CSS = `
 .tr-table-summary th:last-child, .tr-table-summary td:last-child { padding-right: 16px; }
 .tr-table-summary .tr-expand-row td { padding: 16px; }
 .tr-clickable-row { cursor: pointer; }
+.tr-rowname-btn { display: inline; padding: 0; border: none; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.tr-rowname-btn:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; border-radius: 4px; }
+/* Track Production: who they sold to and recruited */
+.tr-prod-detail { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 20px; }
+.tr-prod-h { margin: 0 0 8px; font-size: 12px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--slate-light); }
+.tr-prod-h span { margin-left: 4px; color: var(--ink); letter-spacing: 0; }
+.tr-prod-list { list-style: none; margin: 0; padding: 0; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--card); }
+.tr-prod-list li { padding: 10px 12px; border-top: 1px solid var(--line); }
+.tr-prod-list li:first-child { border-top: none; }
+.tr-prod-line { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; color: var(--ink); }
+.tr-prod-line strong { font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.tr-prod-line .tr-mono { flex-shrink: 0; font-size: 13px; }
+.tr-prod-sub { margin-top: 2px; font-size: 12.5px; color: var(--slate-light); }
+.tr-prod-detail .tr-empty { margin: 0; }
+@media (max-width: 640px) { .tr-prod-detail { grid-template-columns: minmax(0, 1fr); gap: 14px; } }
 .tr-clickable-row:hover { background: rgba(19,33,46,0.035); }
 .tr-clickable-row:focus-visible { outline: 2px solid var(--brass); outline-offset: -2px; }
 .tr-row-open, .tr-row-open:hover { background: rgba(196,154,60,0.08); box-shadow: inset 3px 0 0 var(--brass); }
@@ -1358,6 +1373,7 @@ export const CSS = `
   /* Team tables: names stay pinned while you swipe across the numbers */
   .tr-table-wrap .tr-table th:first-child, .tr-table-wrap .tr-table td:first-child { position: sticky; left: -14px; z-index: 1; background: var(--card); box-shadow: 1px 0 0 var(--line); min-width: 112px; max-width: 132px; }
   .tr-table-wrap .tr-table .tr-expand-row td:first-child { position: static; min-width: 0; max-width: none; box-shadow: none; background: var(--paper); }
+  .tr-table-wrap .tr-table .tr-row-open td:first-child { background: #faf7ef; }
   .tr-expand-inner { position: sticky; left: 0; width: calc(100vw - 60px); }
   .tr-weekdetail { grid-template-columns: 1fr; }
   .tr-appt-group .tr-table td:first-child { position: static; box-shadow: none; min-width: 0; max-width: none; background: transparent; }
