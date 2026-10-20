@@ -1,23 +1,23 @@
 // Tab lists, the tab bar / phone bottom bar, and the Android back button.
 import { useEffect, useRef, useState } from 'react';
-import { Award, Calendar, CalendarDays, ChevronRight, ClipboardCheck, DollarSign, FileText, LayoutDashboard, Menu, Network, Plus, Sun, TrendingUp, UserCog, UserPlus, Users } from 'lucide-react';
+import { Calendar, ChevronRight, ClipboardCheck, DollarSign, FolderOpen, Kanban, LayoutDashboard, Menu, Network, Plus, Sun, TrendingUp, UserCog, Users } from 'lucide-react';
 import { minimizeAndroidApp, onAndroidBack } from '../native.js';
 
 // ---------------------------------------------------------------------
 // Tab navigation — a tab strip on desktop/tablet, and an app-style bar
-// fixed to the bottom of the screen on phones (first four tabs plus a
-// "More" sheet for the rest, and a + in the middle for adding or logging
-// anything), so nothing hides off the edge of the screen.
+// fixed to the bottom of the screen on phones (up to five tabs, or four plus
+// a "More" sheet, and a + in the middle for adding or logging anything), so
+// nothing hides off the edge of the screen.
 // ---------------------------------------------------------------------
+// Pipeline = Prospecting + My Appointments + Follow Up; Growth = Milestones
+// + Business Plan + paycheck; Resources = Documents. `phone: false` keeps a
+// tab off the phone's bottom bar (Resources sits inside Growth there).
 export const MY_WORK_TABS = [
   { id: 'overview', label: 'Today', short: 'Today', Icon: Sun },
-  { id: 'systems', label: 'Prospecting', short: 'Prospect', Icon: UserPlus },
-  { id: 'mine', label: 'My Appointments', short: 'Appts', Icon: CalendarDays },
-  { id: 'followup', label: 'Follow Up', short: 'Follow Up', Icon: ClipboardCheck },
-  { id: 'bizplan', label: 'Business Plan', short: 'Biz Plan', Icon: DollarSign },
+  { id: 'pipeline', label: 'Pipeline', short: 'Pipeline', Icon: Kanban },
   { id: 'calendar', label: 'Calendar', short: 'Calendar', Icon: Calendar },
-  { id: 'milestones', label: 'Milestones', short: 'Milestones', Icon: Award },
-  { id: 'documents', label: 'Documents', short: 'Documents', Icon: FileText },
+  { id: 'growth', label: 'Growth', short: 'Growth', Icon: TrendingUp },
+  { id: 'resources', label: 'Resources', short: 'Resources', Icon: FolderOpen, phone: false },
 ];
 
 export const TEAM_TABS = [
@@ -32,8 +32,9 @@ export const ADMIN_TEAM_TABS = [...TEAM_TABS, { id: 'clientforms', label: 'Clien
 
 export function TabNav({ tabs, tab, onSelect, onNew }) {
   const [moreOpen, setMoreOpen] = useState(false);
-  const primary = tabs.length > 5 ? tabs.slice(0, 4) : tabs;
-  const overflow = tabs.length > 5 ? tabs.slice(4) : [];
+  const barTabs = tabs.filter(t => t.phone !== false);
+  const primary = barTabs.length > 5 ? barTabs.slice(0, 4) : barTabs;
+  const overflow = barTabs.length > 5 ? barTabs.slice(4) : [];
   const inOverflow = overflow.some(t => t.id === tab);
   function pick(id) {
     setMoreOpen(false);

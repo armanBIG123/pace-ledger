@@ -1,8 +1,8 @@
-// Milestones: your level and path (My path), promotion guidelines and progress, licensing tracker and incentives.
+// Pieces of Growth (My work → Growth): your level and path, progress to the next level, the promotion ladder, licensing tracker and incentives.
 import { useCallback, useEffect, useState } from 'react';
 import { Check, Pencil } from 'lucide-react';
 import { addBusinessDays, daysBetween, examWhen, fetchLicensingProgress, LICENSING_STEPS, licensingStatus, saveLicensingProgress, US_STATES, WRITING_NUMBER_BUSINESS_DAYS } from '../licensing.js';
-import { computeDownline, computeReadiness, computeTierProgress, HIERARCHY_TIER_WINDOW_LABELS, HIERARCHY_TIERS, hierarchyTierLabel, isLicensed, nextTierAfter } from '../hierarchy.js';
+import { computeDownline, computeReadiness, computeTierProgress, HIERARCHY_TIER_WINDOW_LABELS, HIERARCHY_TIERS, isLicensed, nextTierAfter } from '../hierarchy.js';
 import { fmtShortDate, todayStr, weekStartOf } from '../lib/dates.js';
 import { DATE_SET_OPTIONS, getStatus, WEEKLY_TOTAL_TARGET } from '../lib/pace.js';
 import { closestDirect, milestoneSummary, progressPct, tierInfo } from '../lib/milestones.js';
@@ -195,20 +195,6 @@ export function MyProgressCard({ user }) {
         {progress.results.map((req, i) => <RequirementRow key={i} req={req} />)}
         <GapCallout summary={summary} />
       </div>
-    </>
-  );
-}
-
-export function PromotionGuidelinesBody({ user }) {
-  return (
-    <>
-      <PageHead
-        title="Promotion guidelines"
-        sub={HIERARCHY_TIERS.some(t => t.key === user.hierarchyTier)
-          ? `Your tier: ${hierarchyTierLabel(user.hierarchyTier)} · ${HIERARCHY_TIERS.find(t => t.key === user.hierarchyTier).commission}% commission`
-          : "Your tier hasn't been set yet. Ask a super admin to set it in Manage Team."} />
-      <MyProgressCard user={user} />
-      <TierLadder currentTierKey={user.hierarchyTier} />
     </>
   );
 }
@@ -491,36 +477,5 @@ export function LicensingBody({ user }) {
         </div>
       )}
     </>
-  );
-}
-
-export function MilestonesBody({ user, initialIntent, onIntentConsumed }) {
-  const [view, setView] = useState(initialIntent === 'licensing' ? 'licensing' : 'guidelines'); // 'guidelines' | 'licensing' | 'incentives'
-  useEffect(() => { if (initialIntent) onIntentConsumed?.(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  return (
-    <div className="tr-appts-shell">
-      <nav className="tr-appts-sidebar">
-        <button
-          type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'guidelines' ? 'tr-sidebar-item-active' : ''}`}
-          onClick={() => setView('guidelines')}>
-          <span>Promotion Guidelines</span>
-        </button>
-        <button
-          type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'licensing' ? 'tr-sidebar-item-active' : ''}`}
-          onClick={() => setView('licensing')}>
-          <span>Licensing</span>
-        </button>
-        <button
-          type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'incentives' ? 'tr-sidebar-item-active' : ''}`}
-          onClick={() => setView('incentives')}>
-          <span>Incentives</span>
-        </button>
-      </nav>
-      <div className="tr-appts-main">
-        {view === 'guidelines' && <PromotionGuidelinesBody user={user} />}
-        {view === 'licensing' && <LicensingBody user={user} />}
-        {view === 'incentives' && <IncentivesBody />}
-      </div>
-    </div>
   );
 }

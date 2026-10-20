@@ -467,7 +467,7 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
     <>
       <div className="tr-row-head tr-screen-head">
         <TitleInfo title="Promotion readiness" info={<>
-          Live progress toward each person's next tier, the same numbers their own Milestones page shows them.
+          Live progress toward each person's next tier, the same numbers their own Growth page shows them.
           {noSubmissions
             ? (isAdmin ? ' Approve a promotion here when someone is ready.' : ' Super admins approve promotions.')
             : (isAdmin

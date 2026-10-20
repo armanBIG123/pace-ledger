@@ -434,7 +434,7 @@ export function PolicyCard({ policy, canEdit, currentUser, onSaved }) {
       <div className="tr-policy-head">
         <div>
           <strong>{policy.client}</strong>
-          <div className="tr-note">{policy.presenter} · Sold {fmtApptDateTime(policy)}</div>
+          <div className="tr-note">{policy.presenter ? `${policy.presenter} · ` : ''}Submitted {fmtApptDateTime(policy)}</div>
         </div>
         <div className="tr-mono tr-policy-premium">{fmtCurrency(policy.targetPremium)}</div>
       </div>
@@ -481,7 +481,9 @@ export function PolicyCard({ policy, canEdit, currentUser, onSaved }) {
   );
 }
 
-export function OpenRequirementsBody({ view, user }) {
+// mineOnly: just your own policies (Pipeline → Won; your team's are in Team
+// → Track Production). head: false when the screen around it has a title.
+export function OpenRequirementsBody({ view, user, mineOnly = false, head = true }) {
   const [policies, setPolicies] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -493,18 +495,19 @@ export function OpenRequirementsBody({ view, user }) {
   useEffect(() => { refresh(); }, [refresh]);
 
   const filtered = policies
+    .filter(p => !mineOnly || p.userId === user.id)
     .filter(p => (view === 'issued' ? isPolicyIssued(p) : !isPolicyIssued(p)))
     .sort((a, b) => b.appointmentDate.localeCompare(a.appointmentDate));
 
   return (
     <>
-      <div className="tr-row-head tr-screen-head">
-        <TitleInfo className="tr-section-title" title={view === 'issued' ? 'Issued Premium' : 'Sold Premium'}
+      {head && <div className="tr-row-head tr-screen-head">
+        <TitleInfo className="tr-section-title" title={view === 'issued' ? 'Issued Premium' : 'Submitted Premium'}
           info={view === 'issued'
             ? 'Policies whose effective date has arrived and all requirements are complete.'
-            : 'Sold policies still waiting on their effective date and/or open requirements.'} />
+            : 'Submitted policies still waiting on their effective date and/or open requirements. Your leaders can see these too and add notes to help get them issued.'} />
         <RefreshButton onClick={refresh} />
-      </div>
+      </div>}
       {loading ? <SkeletonCards count={2} /> : filtered.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">Nothing here yet.</p></div>
       ) : (
@@ -516,7 +519,10 @@ export function OpenRequirementsBody({ view, user }) {
   );
 }
 
-export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initialIntent, onIntentConsumed, cameFrom = null, onReturn }) {
+// section "booked" (Pipeline → Booked): just the week's appointments and the
+// form; past ones by status live in Pipeline → Log outcome, and Submitted /
+// Issued Premium in Pipeline → Won.
+export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initialIntent, onIntentConsumed, cameFrom = null, onReturn, section = null }) {
   const isPhone = useIsPhone();
   const [appointments, setAppointments] = useState([]);
   const [presenting, setPresenting] = useState([]); // set by someone else, you're presenting: counts toward your pace
@@ -788,7 +794,7 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
 
   return (
     <div className="tr-appts-shell">
-      <nav className="tr-appts-sidebar">
+      {section === 'booked' ? null : <nav className="tr-appts-sidebar">
         <button
           type="button"
           className={`tr-sidebar-item tr-sidebar-item-week ${statusView === null ? 'tr-sidebar-item-active' : ''}`}
@@ -810,7 +816,7 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
           type="button"
           className={`tr-sidebar-item tr-sidebar-item-amber ${statusView === SOLD_PREMIUM_VIEW ? 'tr-sidebar-item-active' : ''}`}
           onClick={() => setStatusView(SOLD_PREMIUM_VIEW)}>
-          <span>Sold Premium</span>
+          <span>Submitted Premium</span>
         </button>
         <button
           type="button"
@@ -818,10 +824,10 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
           onClick={() => setStatusView(ISSUED_PREMIUM_VIEW)}>
           <span>Issued Premium</span>
         </button>
-      </nav>
+      </nav>}
 
       <div className="tr-appts-main">
-        <PageHead title="My appointments">
+        <PageHead title={section === 'booked' ? 'Appointments' : 'My appointments'}>
           <button className="tr-btn tr-btn-brass" onClick={() => (showForm ? closeForm() : openNewForm())}>
             {showForm ? <><X size={16} /> Close</> : <><Plus size={16} /> Log appointment</>}
           </button>

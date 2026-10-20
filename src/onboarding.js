@@ -46,7 +46,7 @@ export const ONBOARDING_STEPS = [
   {
     key: 'outcome', week: 'w2', title: 'Log how your first appointment went',
     why: 'Logging the outcome right after each meeting keeps your follow-ups from slipping and shows your manager where to help.',
-    cta: 'Go to Follow Up', go: ['followup', 'nolog'],
+    cta: 'Log the outcome', go: ['followup', 'nolog'],
   },
   {
     key: 'win', week: 'w3', title: 'Get your first sale or recruit',

@@ -17,17 +17,24 @@ import { FollowUpModal } from '../components/followUpModal.jsx';
 export const QUICK_NOTE_TAGS = ['Called', 'Left voicemail', 'Texted', 'Emailed', 'Met in person', 'No answer'];
 
 export const FOLLOW_UP_VIEW_TITLES = {
-  all: 'Follow up', nolog: 'Outcome not logged', needs: 'Needs follow-up', reschedule: 'Needs reschedule',
+  all: 'All past appointments', nolog: 'Outcome not logged', needs: 'Needs follow-up', reschedule: 'Needs reschedule',
+  completed: 'Completed', not_completed: "Didn't happen",
   nointake: 'Intake not started', sent: 'Intake link sent', received: 'Intake received',
   recruit_open: 'Recruits not signed up yet', recruit_joined: 'Recruits signed up',
 };
 
-export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentConsumed }) {
+const ALL_VIEWS = ['all', 'nolog', 'needs', 'reschedule', 'completed', 'not_completed', 'nointake', 'sent', 'received', 'recruit_open', 'recruit_joined'];
+const intentView = i => (i === 'intake' ? 'nointake' : i);
+
+// views: which of the lists above this screen offers (Pipeline shows "Log
+// outcome" and "Follow-up" as two stages, each with its own lists); the
+// first is where it opens unless a request asks for another.
+export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentConsumed, views = ALL_VIEWS }) {
   const [loading, setLoading] = useState(true);
   const [appointments, setAppointments] = useState([]);
   const [notes, setNotes] = useState([]);
   const [candidates, setCandidates] = useState([]);
-  const [view, setView] = useState(['nolog', 'needs', 'reschedule'].includes(initialIntent) ? initialIntent : initialIntent === 'intake' ? 'nointake' : 'all'); // all | nolog | needs | reschedule | nointake | sent | received
+  const [view, setView] = useState(views.includes(intentView(initialIntent)) ? intentView(initialIntent) : views[0]);
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedId, setExpandedId] = useState(null);
   const [noteDrafts, setNoteDrafts] = useState({});
@@ -39,7 +46,7 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
   useEffect(() => { if (initialIntent) onIntentConsumed?.(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Requests that arrive while this tab is already open (+ New → Log how it went).
   useEffect(() => {
-    if (['nolog', 'needs', 'reschedule'].includes(initialIntent)) { setView(initialIntent); onIntentConsumed?.(); }
+    if (initialIntent && views.includes(intentView(initialIntent))) { setView(intentView(initialIntent)); onIntentConsumed?.(); }
   }, [initialIntent]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     let alive = true;
@@ -75,12 +82,16 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
     if (v === 'nolog') return !a.followUpCompletedAt;
     if (v === 'needs') return a.status === 'needs_follow_up';
     if (v === 'reschedule') return a.status === 'needs_reschedule';
+    if (v === 'completed') return a.status === 'completed';
+    if (v === 'not_completed') return a.status === 'not_completed';
     return intakeState(a) === (v === 'nointake' ? 'none' : v);
   };
   const counts = {
     all: past.length,
     nolog: past.filter(a => matchesView(a, 'nolog')).length,
     reschedule: past.filter(a => matchesView(a, 'reschedule')).length,
+    completed: past.filter(a => matchesView(a, 'completed')).length,
+    not_completed: past.filter(a => matchesView(a, 'not_completed')).length,
     recruit_open: past.filter(a => matchesView(a, 'recruit_open')).length,
     recruit_joined: past.filter(a => matchesView(a, 'recruit_joined')).length,
     needs: past.filter(a => a.status === 'needs_follow_up').length,
@@ -148,18 +159,17 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
   return (
     <div className="tr-appts-shell">
       <nav className="tr-appts-sidebar">
-        {navBtn('all', 'All past')}
-        <div className="tr-sidebar-divider">To do</div>
-        {navBtn('nolog', 'Outcome not logged', 'rust')}
-        {navBtn('needs', 'Needs follow-up', 'amber')}
-        {navBtn('reschedule', 'Needs reschedule', 'violet')}
-        <div className="tr-sidebar-divider">Client intake</div>
-        {navBtn('nointake', 'Not started', 'none')}
-        {navBtn('sent', 'Link sent', 'amber')}
-        {navBtn('received', 'Received', 'green')}
-        <div className="tr-sidebar-divider">Recruits</div>
-        {navBtn('recruit_open', 'Not signed up yet', 'recruit')}
-        {navBtn('recruit_joined', 'Signed up', 'green')}
+        {[
+          ['To do', [['nolog', 'Outcome not logged', 'rust'], ['needs', 'Needs follow-up', 'amber'], ['reschedule', 'Needs reschedule', 'violet']]],
+          ['Done', [['completed', 'Completed', 'green'], ['not_completed', "Didn't happen", 'rust']]],
+          ['Client intake', [['nointake', 'Intake not started', 'none'], ['sent', 'Intake link sent', 'amber'], ['received', 'Intake received', 'green']]],
+          ['Recruits', [['recruit_open', 'Recruit not signed up', 'recruit'], ['recruit_joined', 'Recruit signed up', 'green']]],
+          ['', [['all', 'All past', 'week']]],
+        ].map(([group, items]) => {
+          const shown = items.filter(([v]) => views.includes(v));
+          if (!shown.length) return null;
+          return [group && views.length > shown.length ? <div key={`d-${group}`} className="tr-sidebar-divider">{group}</div> : null, ...shown.map(([v, label, color]) => navBtn(v, label, color))];
+        })}
       </nav>
       <div className="tr-appts-main">
         <PageHead title={FOLLOW_UP_VIEW_TITLES[view] || 'Follow up'}
