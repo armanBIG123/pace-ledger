@@ -122,6 +122,7 @@ export function TodayTask({ task, children }) {
           {task.action && !task.done ? (
             <button type="button" className={`tr-btn tr-btn-sm ${task.primary ? 'tr-btn-brass' : 'tr-btn-ghost'} tr-task-btn`} onClick={task.action.run}>{task.action.label}</button>
           ) : null}
+          {task.more && !task.done ? <button type="button" className="tr-link-btn tr-task-hide" onClick={task.more.run}>{task.more.label}</button> : null}
           {task.onHide ? <button type="button" className="tr-link-btn tr-task-hide" onClick={task.onHide}>Hide</button> : null}
         </div>
       ) : null}
@@ -425,14 +426,27 @@ export function TodayBody({ user, onNavigate }) {
   const callList = topProspectsToCall(prospects, apptNames);
 
   // ---- the plan ------------------------------------------------------
-  const LOG_LIMIT = 4;
   const mustDo = [];
-  toLog.slice(0, LOG_LIMIT).forEach(x => mustDo.push({
-    key: `log-${x.id}`, Icon: ClipboardCheck, tone: 'rust', primary: true,
-    title: <>Log how it went with <strong>{x.client}</strong></>,
-    meta: `${fmtApptDateTime(x)}${typeLabel(x) ? ` · ${typeLabel(x)}` : ''}`,
-    action: { label: 'Log', run: () => setModalTarget(x) },
-  }));
+  // One row for outcomes, however many are waiting: Log opens the newest,
+  // See all opens the whole list (Pipeline → Log outcome).
+  if (toLog.length === 1) {
+    const x = toLog[0];
+    mustDo.push({
+      key: `log-${x.id}`, Icon: ClipboardCheck, tone: 'rust', primary: true,
+      title: <>Log how it went with <strong>{x.client}</strong></>,
+      meta: `${fmtApptDateTime(x)}${typeLabel(x) ? ` · ${typeLabel(x)}` : ''}`,
+      action: { label: 'Log', run: () => setModalTarget(x) },
+    });
+  } else if (toLog.length > 1) {
+    const names = toLog.slice(0, 2).map(x => x.client);
+    mustDo.push({
+      key: 'log-all', Icon: ClipboardCheck, tone: 'rust', primary: true,
+      title: <>Log how <strong>{toLog.length} appointments</strong> went</>,
+      meta: `${names.join(', ')}${toLog.length > 2 ? ` and ${toLog.length - 2} more` : ''}`,
+      action: { label: 'Log next', run: () => setModalTarget(toLog[0]) },
+      more: { label: 'See all', run: () => onNavigate('followup', 'nolog') },
+    });
+  }
   mustDo.push({
     key: 'pace', Icon: CalendarDays, done: batchLeft === 0, primary: toLog.length === 0,
     title: batchLeft === 0
@@ -462,7 +476,6 @@ export function TodayBody({ user, onNavigate }) {
     title: <>Logged how it went with {x.client}</>,
     meta: (OUTCOME_OPTIONS.find(o => o.value === x.outcome) || {}).label || 'Outcome saved',
   }));
-  const moreToLog = Math.max(0, toLog.length - LOG_LIMIT);
   const open = mustDo.filter(t => !t.done);
   const doneTasks = mustDo.filter(t => t.done);
   const doneCount = doneTasks.length;
@@ -523,7 +536,7 @@ export function TodayBody({ user, onNavigate }) {
   const doNext = [...needs.promos, ...open, ...(needs.licensing ? [needs.licensing] : []), ...(nameTask ? [nameTask] : [])];
   // Only the first thing gets the gold button; the rest are plain.
   const firstPrimaryKey = (doNext.find(t => t.primary && t.action) || {}).key;
-  const leftCount = doNext.length + moreToLog;
+  const leftCount = doNext.length;
   const allClear = leftCount === 0;
   const summary = allClear ? 'All done for today. Nice work.'
     : `${leftCount} thing${leftCount === 1 ? '' : 's'}${doneCount ? ` · ${doneCount} done today` : ''}`;
@@ -552,7 +565,6 @@ export function TodayBody({ user, onNavigate }) {
   const reschedCount = later.filter(t => t.key.startsWith('rs-')).length;
   const followCount = later.filter(t => t.key.startsWith('fu-')).length;
   const weekBits = [
-    moreToLog ? `${moreToLog} more to log` : '',
     reschedCount ? `${reschedCount} to reschedule` : '',
     followCount ? `${followCount} follow-up${followCount === 1 ? '' : 's'}` : '',
     staleCount ? `${staleCount} quiet prospect${staleCount === 1 ? '' : 's'}` : '',
@@ -749,11 +761,6 @@ export function TodayBody({ user, onNavigate }) {
                   </button>
                   {showMoreWeek && (
                     <div className="tr-fold-body">
-                      {moreToLog > 0 && (
-                        <button type="button" className="tr-task-morebtn" onClick={() => onNavigate('followup', 'nolog')}>
-                          {moreToLog} more appointment{moreToLog === 1 ? '' : 's'} without an outcome <ChevronRight size={14} />
-                        </button>
-                      )}
                       {later.length > 0 && <ul className="tr-tasks tr-tasks-later">{later.map(t => <TodayTask key={t.key} task={t} />)}</ul>}
                       {byDay.length > 0 && (
                         <div className="tr-fold-week">

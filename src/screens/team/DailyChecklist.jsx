@@ -10,6 +10,8 @@ import { dateSetMeta, WEEKLY_TOTAL_TARGET } from '../../lib/pace.js';
 import { apptClock, parseDate, todayStr } from '../../lib/dates.js';
 import { addOwnTask, deleteOwnTask, fetchChecklist, setOwnTaskDone, setSuggestedDone } from '../../data/checklist.js';
 import { ProgressRing } from '../../components/ui.jsx';
+
+const CHECK_LIMIT = 4;
 import { EmailButton, webLinkProps } from '../../components/email.jsx';
 
 const DAY = 864e5;
@@ -153,6 +155,8 @@ export function DailyChecklist({ user, items, onAct }) {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  // The first few suggestions show; the rest open on a tap.
+  const [showAllItems, setShowAllItems] = useState(false);
 
   const load = useCallback(async () => {
     const res = await fetchChecklist(user.id, day);
@@ -224,7 +228,7 @@ export function DailyChecklist({ user, items, onAct }) {
       </div>
       <p className="tr-check-why">Picked fresh each morning from your team's promotions, licensing, pace and wins.</p>
       <ul className="tr-check-list">
-        {items.map(it => {
+        {(showAllItems ? items : items.slice(0, CHECK_LIMIT)).map(it => {
           const isDone = doneKeys.has(it.key);
           return (
             <li key={it.key} className={isDone ? 'tr-check-done' : ''}>
@@ -254,6 +258,11 @@ export function DailyChecklist({ user, items, onAct }) {
           </li>
         ))}
       </ul>
+      {items.length > CHECK_LIMIT ? (
+        <button type="button" className="tr-task-link tr-plan-more" aria-expanded={showAllItems} onClick={() => setShowAllItems(v => !v)}>
+          {showAllItems ? 'Show fewer' : `Show ${items.length - CHECK_LIMIT} more`}
+        </button>
+      ) : null}
       <form className="tr-check-add" onSubmit={add}>
         <input value={draft} onChange={e => setDraft(e.target.value)} maxLength={200} placeholder="Add your own task for today…" aria-label="Add your own task for today" />
         <button type="submit" className="tr-btn tr-btn-ghost tr-btn-sm" disabled={busy || !draft.trim()}><Plus size={14} /> Add</button>

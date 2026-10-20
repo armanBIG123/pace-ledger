@@ -59,7 +59,10 @@ const KIND_WORD = { sale: 'sale', first_sale: 'first sale', recruit: 'recruit', 
 
 // compact: Today's side column (3 wins, then "See all", and the top 3
 // lists in full).
+const TOP3_BOARDS = [['pace', 'Appointments set', 'Appointments'], ['sales', 'Sales', 'Sales'], ['recruits', 'Recruits', 'Recruits']];
+
 export function TeamWinsSection({ user, compact = false }) {
+  const [board, setBoard] = useState('pace');
   const first0 = compact ? 3 : PAGE;
   const [wins, setWins] = useState(null);
   const [reactions, setReactions] = useState([]);
@@ -195,9 +198,17 @@ export function TeamWinsSection({ user, compact = false }) {
               <p className="tr-wins-sub">{fmtDay(weekStart)} – {fmtDay(weekEnd)} · the whole agency</p>
             </>
           )}
-          {[['pace', 'Appointments set'], ['sales', 'Sales'], ['recruits', 'Recruits']].map(([key, label]) => (
+          {/* On Today, one list at a time behind three tabs; elsewhere all three. */}
+          {compact ? (
+            <div className="tr-seg tr-top3-tabs" role="group" aria-label="Top 3 for">
+              {TOP3_BOARDS.map(([key, , short]) => (
+                <button key={key} type="button" className={board === key ? 'tr-seg-on' : ''} aria-pressed={board === key} onClick={() => setBoard(key)}>{short}</button>
+              ))}
+            </div>
+          ) : null}
+          {TOP3_BOARDS.filter(([key]) => !compact || key === board).map(([key, label]) => (
             <div key={key} className="tr-top3-group">
-              <div className="tr-top3-label">{label}</div>
+              {compact ? null : <div className="tr-top3-label">{label}</div>}
               {top3[key].length === 0 ? <p className="tr-top3-empty">Nobody yet this week. Be the first!</p> : (
                 <ol className="tr-top3-list">
                   {top3[key].map((r, i) => (
