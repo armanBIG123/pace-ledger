@@ -153,6 +153,16 @@ export default function App() {
     return () => { cancelled = true; };
   }, [session]);
 
+  // Your account -> Save changes: show the new name right away.
+  useEffect(() => {
+    const changed = e => {
+      const d = (e && e.detail) || {};
+      setProfile(p => (p ? { ...p, ...(d.display_name ? { display_name: d.display_name } : {}), npn: d.npn ?? p.npn, fg_writing_number: d.fg_writing_number ?? p.fg_writing_number, licensed_at: d.licensed_at ?? p.licensed_at } : p));
+    };
+    window.addEventListener('paceledger:profile-changed', changed);
+    return () => window.removeEventListener('paceledger:profile-changed', changed);
+  }, []);
+
   if (session === undefined) return <Shell><AndroidBackLeavesApp /><Spinner label="Loading…" /></Shell>;
   if (recoveryMode) return <><AndroidBackLeavesApp /><ResetPasswordScreen onDone={() => setRecoveryMode(false)} /></>;
   if (!session) return <><AndroidBackLeavesApp /><ConnectionBanner banner={connectionBanner} onDismiss={() => setConnectionBanner(null)} /><AuthScreen /></>;

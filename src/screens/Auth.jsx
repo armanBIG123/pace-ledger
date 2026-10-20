@@ -48,7 +48,7 @@ export function AuthScreen() {
     try {
       if (mode === 'signup') {
         if (!canSignUp) { setError('You need an invitation link to create an account.'); return; }
-        if (!displayName.trim()) { setError('Enter your full name.'); return; }
+        if (displayName.trim().split(/\s+/).filter(Boolean).length < 2) { setError('Enter your first and last name.'); return; }
         if (password.length < 6) { setError('Password needs to be at least 6 characters.'); return; }
         const { data, error: signErr } = await supabase.auth.signUp({
           email: mail,
@@ -146,7 +146,7 @@ export function AuthScreen() {
             )}
             {mode === 'signup' && (
               <label className="tr-field">
-                <span>Full name</span>
+                <span>First and last name</span>
                 <input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Jordan Blake" autoComplete="name" />
               </label>
             )}

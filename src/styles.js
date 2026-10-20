@@ -118,6 +118,12 @@ export const CSS = `
 /* account sheet */
 .tr-header-account { display: inline-flex; align-items: center; gap: 10px; padding: 4px 6px; margin: -4px -6px; border: none; border-radius: var(--radius-sm); background: transparent; font-family: inherit; color: inherit; cursor: pointer; }
 .tr-header-account:hover { background: rgba(255,255,255,0.08); }
+.tr-profile-form { display: flex; flex-direction: column; gap: 12px; margin: 14px 0 6px; padding: 14px; border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--paper); }
+.tr-profile-form .tr-form-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.tr-profile-form input { min-width: 0; width: 100%; box-sizing: border-box; }
+@media (max-width: 640px) { .tr-profile-form .tr-form-grid { grid-template-columns: minmax(0, 1fr); } }
+.tr-profile-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
+.tr-profile-saved { font-size: 13px; font-weight: 600; color: var(--green); }
 .tr-account-list { margin: 14px 0 12px; display: flex; flex-direction: column; gap: 0; }
 .tr-account-list > div { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; border-top: 1px solid var(--line); font-size: 14px; }
 .tr-account-list > div:first-child { border-top: none; }

@@ -141,6 +141,29 @@ export async function fetchMyLicensing(userId) {
   return data;
 }
 
+// Your own name, NPN and F&G writing number, from Your account
+// (migration-edit-profile.sql). Renaming also updates the appointments that
+// show you as presenter or trainee.
+export async function updateMyProfile({ displayName, npn, fgWritingNumber }) {
+  const { data, error } = await supabase.rpc('update_my_profile', {
+    p_display_name: displayName, p_npn: npn, p_fg_writing_number: fgWritingNumber,
+  });
+  if (error) {
+    const m = error.message || '';
+    const text = /name_required/.test(m) ? 'Enter your first and last name.'
+      : /name_too_long/.test(m) ? 'That name is too long.'
+        : /npn_digits/.test(m) ? 'Your NPN is numbers only.'
+          : /fg_too_long/.test(m) ? 'That writing number is too long.'
+            : (error.code === 'PGRST202' || /could not find the function|does not exist/i.test(m))
+              ? "Profile editing isn't switched on yet (the database update migration-edit-profile.sql hasn't been run)."
+              : "Couldn't save. Check your connection and try again.";
+    if (!/name_|npn_|fg_/.test(m)) console.error(error);
+    return { ok: false, error: text };
+  }
+  clearSharedPeople();
+  return { ok: true, profile: data || {} };
+}
+
 export async function saveLicensing(userId, npn, fgWritingNumber) {
   clearSharedPeople();
   const { error } = await supabase.from('profiles').update({ npn: npn.trim() || null, fg_writing_number: fgWritingNumber.trim() || null }).eq('id', userId);
