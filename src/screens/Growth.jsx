@@ -1,15 +1,14 @@
 // Growth: everything about moving up, in one tab. My path (where you are and
 // the next level), Paycheck & plan (this month's paycheck and the Business
 // Plan behind the goal), Licensing, Incentives and the full promotion guide.
-// On phones, Resources is here too, as well as on the bottom bar.
+// (Resources has its own tab, on computers and on the phone's bottom bar.)
 import { useEffect, useState } from 'react';
 import { fetchMyAppointments } from '../data/appointments.js';
 import { fetchBusinessPlan, rowToBusinessPlanFields } from '../businessPlan.js';
-import { PageHead, SkelBlock, useIsPhone } from '../components/ui.jsx';
+import { PageHead, SkelBlock } from '../components/ui.jsx';
 import { PaycheckCard } from '../components/paycheck.jsx';
 import { IncentivesBody, LicensingBody, MyProgressCard, TierLadder } from './Milestones.jsx';
 import { BusinessPlanBody } from './BusinessPlan.jsx';
-import { DocumentsBody } from './Documents.jsx';
 import { hierarchyTierLabel, HIERARCHY_TIERS } from '../hierarchy.js';
 
 export const GROWTH_VIEWS = [
@@ -18,7 +17,6 @@ export const GROWTH_VIEWS = [
   { key: 'licensing', label: 'Licensing' },
   { key: 'incentives', label: 'Incentives' },
   { key: 'guide', label: 'Promotion guide' },
-  { key: 'resources', label: 'Resources', phoneOnly: true },
 ];
 
 // This month's paycheck, from your own sales and your Business Plan goal.
@@ -36,8 +34,7 @@ function Paycheck({ user, onPlan }) {
 }
 
 export function GrowthBody({ user, view, onView }) {
-  const isPhone = useIsPhone();
-  const views = GROWTH_VIEWS.filter(v => !v.phoneOnly || isPhone);
+  const views = GROWTH_VIEWS;
   const current = views.some(v => v.key === view) ? view : 'path';
   const tier = HIERARCHY_TIERS.find(t => t.key === user.hierarchyTier);
   return (
@@ -68,7 +65,6 @@ export function GrowthBody({ user, view, onView }) {
             )}
             {current === 'licensing' && <LicensingBody user={user} />}
             {current === 'incentives' && <IncentivesBody />}
-            {current === 'resources' && <DocumentsBody user={user} />}
             {current === 'guide' && (
               <>
                 <PageHead title="Promotion guide" sub={tier ? `Your level: ${hierarchyTierLabel(user.hierarchyTier)} · ${tier.commission}% commission` : "Your level hasn't been set yet. Ask a super admin to set it in Manage Team."} />
