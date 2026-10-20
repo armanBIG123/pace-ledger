@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient.js';
 import { fetchHierarchyPeopleShared } from './team.js';
 import { createClientIntakeCandidate } from '../clientIntake.js';
 import { dateSetMeta, defaultDateSetOption } from '../lib/pace.js';
-import { detectTimezone, fmtDisplayDate, todayStr, weekStartOf } from '../lib/dates.js';
+import { addDays, detectTimezone, fmtDate, fmtDisplayDate, parseDate, todayStr, weekStartOf } from '../lib/dates.js';
 
 // ---------------------------------------------------------------------
 // data layer (Supabase Postgres, guarded by Row Level Security)
@@ -256,6 +256,17 @@ export async function fetchAppointmentsAsTrainee(userId) {
 export async function fetchAppointmentsForWeek(weekMonday) {
   const { data, error } = await supabase
     .from('appointments').select('*').eq('week_of', weekMonday);
+  if (error) { console.error(error); return []; }
+  return data.map(rowToRecord);
+}
+
+// Appointments that took place in a PaceLedger week (Saturday to Friday),
+// whenever they were booked. Production counts a sale or recruit in the
+// week it happened, the same as the weekly top 3 and the paycheck.
+export async function fetchAppointmentsHeldInWeek(weekStart) {
+  const weekEnd = fmtDate(addDays(parseDate(weekStart), 6));
+  const { data, error } = await supabase
+    .from('appointments').select('*').gte('appointment_date', weekStart).lte('appointment_date', weekEnd);
   if (error) { console.error(error); return []; }
   return data.map(rowToRecord);
 }
