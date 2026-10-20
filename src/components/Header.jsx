@@ -13,7 +13,7 @@ import { InviteShare } from './invites.jsx';
 // navigation reads as part of the frame rather than floating over the page.
 // `search` is the view's search box; `onNew` opens its + New menu (on a
 // phone, + New lives in the bottom bar instead).
-export function Header({ user, nav, search, onNew }) {
+export function Header({ user, nav, search, onNew, chat }) {
   const [accountOpen, setAccountOpen] = useState(false);
   const [focusName, setFocusName] = useState(false);
   // Other screens can open Your account (e.g. Today's "Add your last name").
@@ -29,6 +29,7 @@ export function Header({ user, nav, search, onNew }) {
         <div className="tr-brand"><ShieldCheck size={20} /> <span>Pace<em>Ledger</em></span></div>
         {search || null}
         <div className="tr-header-user">
+          {chat || null}
           {onNew ? <button type="button" className="tr-btn tr-btn-brass tr-btn-sm tr-header-new" onClick={onNew} aria-haspopup="menu"><Plus size={15} /> New</button> : null}
           <button type="button" className="tr-header-account" onClick={() => { setFocusName(false); setAccountOpen(true); }} title="Your account and profile">
             <span className="tr-header-name">{user.displayName}</span>

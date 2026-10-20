@@ -5,6 +5,7 @@ import { Header } from '../components/Header.jsx';
 import { ADMIN_TEAM_TABS, MY_WORK_TABS, TabNav, TEAM_TABS, useAndroidBackButton } from '../components/navigation.jsx';
 import { GlobalSearch, useNewMenu } from '../components/quickActions.jsx';
 import { useAppointmentReminders } from '../components/reminders.jsx';
+import { ChatButton, useChatUnread } from '../components/chatButton.jsx';
 import { lazyScreen, prefetchScreens, ScreenBoundary, ScreenLoading } from '../components/lazyScreen.jsx';
 import { TodayBody } from '../screens/Today.jsx';
 
@@ -14,6 +15,7 @@ const PipelineBody = lazyScreen(() => import('../screens/Pipeline.jsx'), 'Pipeli
 const CalendarBody = lazyScreen(() => import('../screens/Calendar.jsx'), 'CalendarBody');
 const GrowthBody = lazyScreen(() => import('../screens/Growth.jsx'), 'GrowthBody');
 const DocumentsBody = lazyScreen(() => import('../screens/Documents.jsx'), 'DocumentsBody');
+const ChatBody = lazyScreen(() => import('../screens/Chat.jsx'), 'ChatBody');
 const TeamOverviewBody = lazyScreen(() => import('../screens/team/TeamOverview.jsx'), 'TeamOverviewBody');
 const TeamPaceBody = lazyScreen(() => import('../screens/team/TeamPace.jsx'), 'TeamPaceBody');
 const TeamProspectingBody = lazyScreen(() => import('../screens/team/TeamProspecting.jsx'), 'TeamProspectingBody');
@@ -67,6 +69,10 @@ function useViewNav() {
   const onBooked = () => tab === 'pipeline' && stage === 'booked';
   const opensForm = (t, intent) => t === 'mine' && (intent === 'new' || (intent && typeof intent === 'object' && 'prefill' in intent));
   function go(t, intent = null) {
+    // Chat opens over whichever side (My work or Team) you're on.
+    if (t === 'chat') {
+      setCameFrom(null); setNavIntent(intent ? { tab: 'chat', intent } : null); setTab('chat'); window.scrollTo(0, 0); return;
+    }
     setCameFrom(opensForm(t, intent) && !onBooked() ? here : null);
     if (t === 'teampromo') {
       setGroup('team'); setNavIntent({ tab: 'pace', intent: 'promotion' }); setTab('pace'); window.scrollTo(0, 0); return;
@@ -97,6 +103,17 @@ function useViewNav() {
     setGroup(cameFrom.group); setTab(cameFrom.tab); setStage(cameFrom.stage); setGrowthView(cameFrom.growthView); setCameFrom(null); window.scrollTo(0, 0);
   }
   function pickTab(t) { setCameFrom(null); setTab(t); }
+  // A link from an email (…/?chat=urgent) opens that chat.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const chat = params.get('chat');
+    if (!chat) return;
+    params.delete('chat');
+    const rest = params.toString();
+    window.history.replaceState(null, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
+    go('chat', ['general', 'work', 'urgent', 'reports'].includes(chat) ? chat : null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   function pickStage(k) { setCameFrom(null); setNavIntent(null); setStage(k); window.scrollTo(0, 0); }
   return { group, tab, setTab: pickTab, stage, setStage: pickStage, growthView, setGrowthView, prefillData, setPrefillData, go, intentFor, clearIntent, selectGroup, logAppointment, cameFrom, goBack };
 }
@@ -115,6 +132,7 @@ function MyWorkScreens({ user, nav }) {
       {tab === 'calendar' && <CalendarBody user={user} onLogAppointment={logAppointment} />}
       {tab === 'growth' && <GrowthBody user={user} view={growthView} onView={setGrowthView} />}
       {tab === 'resources' && <DocumentsBody user={user} />}
+      {tab === 'chat' && <ChatBody user={user} initialChannel={intentFor('chat')} onIntentConsumed={clearIntent} />}
     </>
   );
 }
@@ -139,9 +157,11 @@ export function AdvisorView({ user }) {
   const { tab, setTab, go } = nav;
   useAndroidBackButton(tab, () => setTab('overview'));
   const { openNew, newEl } = useNewMenu(user, go);
+  const chatCounts = useChatUnread(user);
   return (
     <Shell>
       <Header user={user} search={<GlobalSearch user={user} go={go} withPeople={false} />} onNew={openNew}
+        chat={<ChatButton counts={chatCounts} onOpen={() => go('chat')} active={tab === 'chat'} />}
         nav={<TabNav tabs={MY_WORK_TABS} tab={tab} onSelect={setTab} onNew={openNew} />} />
       <main className="tr-main">
         <Screens id={tab}>
@@ -159,9 +179,11 @@ export function ManagerView({ user }) {
   const { group, tab, setTab, go, selectGroup } = nav;
   useAndroidBackButton(group === 'mine' ? tab : `team:${tab}`, () => selectGroup('mine'));
   const { openNew, newEl } = useNewMenu(user, go);
+  const chatCounts = useChatUnread(user);
   return (
     <Shell>
-      <Header user={user} search={<GlobalSearch user={user} go={go} withPeople />} onNew={openNew} nav={<>
+      <Header user={user} search={<GlobalSearch user={user} go={go} withPeople />} onNew={openNew}
+        chat={<ChatButton counts={chatCounts} onOpen={() => go('chat')} active={tab === 'chat'} />} nav={<>
         <GroupSwitch group={group} onSelect={selectGroup} teamLabel="Team" />
         <TabNav tabs={group === 'mine' ? MY_WORK_TABS : TEAM_TABS} tab={tab} onSelect={setTab} onNew={openNew} />
       </>} />
@@ -182,9 +204,11 @@ export function AdminView({ user }) {
   const { group, tab, setTab, go, selectGroup } = nav;
   useAndroidBackButton(group === 'mine' ? tab : `team:${tab}`, () => selectGroup('mine'));
   const { openNew, newEl } = useNewMenu(user, go);
+  const chatCounts = useChatUnread(user);
   return (
     <Shell>
-      <Header user={user} search={<GlobalSearch user={user} go={go} withPeople />} onNew={openNew} nav={<>
+      <Header user={user} search={<GlobalSearch user={user} go={go} withPeople />} onNew={openNew}
+        chat={<ChatButton counts={chatCounts} onOpen={() => go('chat')} active={tab === 'chat'} />} nav={<>
         <GroupSwitch group={group} onSelect={selectGroup} teamLabel="Team & admin" />
         <TabNav tabs={group === 'mine' ? MY_WORK_TABS : ADMIN_TEAM_TABS} tab={tab} onSelect={setTab} onNew={openNew} />
       </>} />
