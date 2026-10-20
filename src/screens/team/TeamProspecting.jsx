@@ -7,7 +7,7 @@ import { MemberSubline, RefreshButton, SkeletonTable, TitleInfo } from '../../co
 import { ProspectCard, ProspectFunnel } from '../Prospecting.jsx';
 
 // ---------------------------------------------------------------------
-// track production — submitted premium + recruits for the week, manager/admin only
+// track production — sold premium + recruits for the week, manager/admin only
 // ---------------------------------------------------------------------
 // ---------------------------------------------------------------------
 // team prospecting — manager/admin visibility into their team's pipeline,
