@@ -1,11 +1,13 @@
 // Prospecting: the prospect list, scoring form, funnel and Memory Jogger.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CalendarDays, ChevronDown, ChevronUp, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
-import { daysAgoLabel, fmtDisplayDate } from '../lib/dates.js';
+import { CalendarDays, ChevronDown, ChevronUp, Link2, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { daysAgoLabel, fmtDate, fmtDisplayDate } from '../lib/dates.js';
 import { isValidEmail } from '../lib/format.js';
-import { fetchMyAppointments } from '../data/appointments.js';
-import { ALL_CHARACTERISTICS, deleteProspect, fetchMyProspects, insertProspect, isStaleProspect, LEANING_LABELS, MEMORY_JOGGER_CATEGORIES, normName, PROSPECT_SOURCES, prospectLeaningKey, prospectNameKey, prospectTotalChecked, RECRUIT_CHARACTERISTICS, SALE_CHARACTERISTICS, STALE_PROSPECT_DAYS, updateProspect, updateProspectOutcome } from '../data/prospects.js';
-import { ContactLinks, PageHead, SkeletonCards } from '../components/ui.jsx';
+import { fetchMyAppointments, linkAppointmentToProspect, OUTCOME_OPTIONS, typeLabel } from '../data/appointments.js';
+import { ALL_CHARACTERISTICS, appointmentsForProspect, bookedProspectKeys, deleteProspect, fetchMyProspects, insertProspect, isStaleProspect, LEANING_LABELS, MEMORY_JOGGER_CATEGORIES, possibleMatches, PROSPECT_SOURCES, prospectLeaningKey, prospectTotalChecked, RECRUIT_CHARACTERISTICS, SALE_CHARACTERISTICS, STALE_PROSPECT_DAYS, updateProspect, updateProspectOutcome } from '../data/prospects.js';
+import { PageHead, SkeletonCards } from '../components/ui.jsx';
+import { CallButton, ContactRow, prospectTexts, TextButton } from '../components/contact.jsx';
+import { isValidPhone } from '../lib/phone.js';
 
 export function ProspectForm({ editing, onCancel, onSubmit, saving, onOpenJogger }) {
   const [firstName, setFirstName] = useState(editing?.firstName || '');
@@ -20,6 +22,7 @@ export function ProspectForm({ editing, onCancel, onSubmit, saving, onOpenJogger
   const [notes, setNotes] = useState(editing?.notes || '');
   const [source, setSource] = useState(editing?.source || '');
   const [email, setEmail] = useState(editing?.email || '');
+  const [phone, setPhone] = useState(editing?.phone || '');
   const [err, setErr] = useState('');
 
   function toggleChar(key) { setChars(prev => ({ ...prev, [key]: !prev[key] })); }
@@ -27,8 +30,9 @@ export function ProspectForm({ editing, onCancel, onSubmit, saving, onOpenJogger
   function submit(another = false) {
     if (!firstName.trim() || !lastName.trim()) { setErr("Enter the prospect's first and last name."); return; }
     if (email.trim() && !isValidEmail(email)) { setErr("That email address doesn't look right."); return; }
+    if (phone.trim() && !isValidPhone(phone)) { setErr("That phone number doesn't look right."); return; }
     setErr('');
-    onSubmit({ firstName, lastName, age, relationshipStrength, notes, source, email, ...chars }, { another });
+    onSubmit({ firstName, lastName, age, relationshipStrength, notes, source, email, phone, ...chars }, { another });
   }
   const liveScore = prospectTotalChecked({ age, ...chars });
   const liveLeaning = prospectLeaningKey({ age, ...chars });
@@ -59,6 +63,10 @@ export function ProspectForm({ editing, onCancel, onSubmit, saving, onOpenJogger
         <label className="tr-field">
           <span>Email (optional)</span>
           <input type="email" inputMode="email" autoComplete="off" autoCapitalize="none" value={email} onChange={e => setEmail(e.target.value)} placeholder="name@example.com" />
+        </label>
+        <label className="tr-field">
+          <span>Phone (optional)</span>
+          <input type="tel" inputMode="tel" autoComplete="off" value={phone} onChange={e => setPhone(e.target.value)} placeholder="(214) 555-0187" />
         </label>
         <label className="tr-field">
           <span>Age</span>
@@ -142,12 +150,26 @@ export function ProspectFunnel({ prospects, title }) {
   );
 }
 
-export function ProspectCard({ prospect, rank, onDelete, onToggleOutcome, onLogAppointment, onEdit, readOnly, collapsible, apptNames, apptDate }) {
+// One line per appointment in a prospect's history.
+function historyLine(a) {
+  const when = fmtDisplayDate(a.appointmentDate).replace(/^\w+, /, '');
+  const kind = [a.isFollowUp ? 'Follow-up' : 'Appointment', typeLabel(a)].filter(Boolean).join(' · ');
+  const result = a.officiallySold ? `Sold${Number(a.targetPremium) > 0 ? ` · $${Number(a.targetPremium).toLocaleString('en-US')}` : ''}`
+    : a.officiallyRecruited ? 'Recruited'
+    : a.outcome ? (OUTCOME_OPTIONS.find(o => o.value === a.outcome) || {}).label || ''
+    : a.followUpCompletedAt ? 'Logged' : '';
+  return { when, kind, result, good: a.officiallySold || a.officiallyRecruited };
+}
+
+// booked: bookedProspectKeys(appointments). history: this prospect's
+// appointments. possible: unlinked appointments that might be them.
+export function ProspectCard({ prospect, rank, onDelete, onToggleOutcome, onLogAppointment, onEdit, readOnly, collapsible, booked, apptDate, history = [], possible = [], onLink, onNotSame, me = '' }) {
   const [open, setOpen] = useState(!collapsible);
   const total = prospectTotalChecked(prospect);
   const leaning = prospectLeaningKey(prospect);
   const checkedChars = ALL_CHARACTERISTICS.filter(c => prospect[c.key]);
-  const stale = isStaleProspect(prospect, apptNames);
+  const stale = isStaleProspect(prospect, booked);
+  const fullName = `${prospect.firstName} ${prospect.lastName}`;
   return (
     <div className={`tr-card tr-prospect-card ${collapsible ? 'tr-prospect-card-compact' : ''} ${collapsible && open ? 'tr-prospect-card-open' : ''}`}>
       <div className="tr-policy-head">
@@ -172,18 +194,28 @@ export function ProspectCard({ prospect, rank, onDelete, onToggleOutcome, onLogA
             <span className="tr-score-track"><span className="tr-score-fill" style={{ width: `${(total / 9) * 100}%` }} /></span>
             <span className="tr-mono">{total}/9</span>
           </span>
-          {collapsible && !readOnly && onLogAppointment && !open && (
-            <button type="button" className="tr-btn tr-btn-sm tr-btn-ghost" onClick={() => onLogAppointment(prospect)} title="Log an appointment for this prospect">
-              <CalendarDays size={13} /><span className="tr-hide-mobile"> Log appt</span>
-            </button>
-          )}
-          {collapsible && (
-            <button type="button" className="tr-icon-btn tr-prospect-toggle" onClick={() => setOpen(o => !o)} title={open ? 'Collapse' : 'Show details'} aria-expanded={open}>
-              {open ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
-            </button>
-          )}
-          {(!collapsible || open) && onEdit && <button type="button" className="tr-icon-btn" onClick={() => onEdit(prospect)} title="Edit prospect"><Pencil size={14} /></button>}
-          {(!collapsible || open) && onDelete && <button type="button" className="tr-icon-btn" onClick={() => onDelete(prospect.id)} title="Delete prospect"><Trash2 size={14} /></button>}
+          {/* The buttons stay together: on a phone they drop to their own
+              line when there isn't room next to the badges. */}
+          <span className="tr-prospect-card-acts">
+            {collapsible && !open && prospect.phone ? (
+              <>
+                <CallButton phone={prospect.phone} compact />
+                <TextButton phone={prospect.phone} name={fullName} texts={prospectTexts(fullName, me)} compact />
+              </>
+            ) : null}
+            {collapsible && !readOnly && onLogAppointment && !open && (
+              <button type="button" className="tr-btn tr-btn-sm tr-btn-ghost" onClick={() => onLogAppointment(prospect)} title="Log an appointment for this prospect">
+                <CalendarDays size={13} /><span className="tr-hide-mobile"> Log appt</span>
+              </button>
+            )}
+            {collapsible && (
+              <button type="button" className="tr-icon-btn tr-prospect-toggle" onClick={() => setOpen(o => !o)} title={open ? 'Collapse' : 'Show details'} aria-expanded={open}>
+                {open ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
+              </button>
+            )}
+            {(!collapsible || open) && onEdit && <button type="button" className="tr-icon-btn" onClick={() => onEdit(prospect)} title="Edit prospect"><Pencil size={14} /></button>}
+            {(!collapsible || open) && onDelete && <button type="button" className="tr-icon-btn" onClick={() => onDelete(prospect.id)} title="Delete prospect"><Trash2 size={14} /></button>}
+          </span>
         </div>
       </div>
       {open && <>
@@ -193,7 +225,42 @@ export function ProspectCard({ prospect, rank, onDelete, onToggleOutcome, onLogA
         </div>
       )}
       {prospect.notes && <p className="tr-note" style={{ marginTop: 8 }}>{prospect.notes}</p>}
-      <ContactLinks email={prospect.email} />
+      <ContactRow phone={prospect.phone} email={prospect.email} name={fullName} texts={prospectTexts(fullName, me)} />
+      {history.length > 0 && (
+        <div className="tr-prospect-history">
+          <div className="tr-prospect-history-label">History</div>
+          <ul>
+            {/* Oldest first; an appointment from before they were added
+                (linked later) sits before "Added to your list". */}
+            {[{ id: 'added', at: prospect.createdAt ? fmtDate(new Date(prospect.createdAt)) : '' }, ...history.map(a => ({ id: a.id, at: a.appointmentDate || '', a }))]
+              .sort((x, y) => x.at.localeCompare(y.at))
+              .map(({ id, a }) => {
+                if (!a) return <li key={id}><span className="tr-ph-dot" /><span><strong>{prospect.createdAt ? new Date(prospect.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</strong> · Added to your list{prospect.source ? ` · ${prospect.source}` : ''}</span></li>;
+                const h = historyLine(a);
+                return (
+                  <li key={id} className={h.good ? 'tr-ph-good' : ''}>
+                    <span className="tr-ph-dot" />
+                    <span><strong>{h.when}</strong> · {h.kind}{a.presenter ? ` · with ${a.presenter}` : ''}{h.result ? <em> · {h.result}</em> : null}</span>
+                  </li>
+                );
+              })}
+          </ul>
+        </div>
+      )}
+      {!readOnly && possible.length > 0 && (
+        <div className="tr-prospect-maybe">
+          <div className="tr-prospect-maybe-title"><Link2 size={14} aria-hidden="true" /> Possible match from before</div>
+          {possible.map(a => (
+            <div key={a.id} className="tr-prospect-maybe-row">
+              <span><strong>{a.client}</strong> · {a.isFollowUp ? 'follow-up' : 'appointment'} {fmtDisplayDate(a.appointmentDate).replace(/^\w+, /, '')}. Same person?</span>
+              <span className="tr-prospect-maybe-actions">
+                <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => onLink && onLink(a, prospect)}>Link it</button>
+                <button type="button" className="tr-link-btn" onClick={() => onNotSame && onNotSame(a, prospect)}>Not the same</button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
       {!readOnly && (
       <div className="tr-prospect-outcome-row">
         {onLogAppointment && (
@@ -266,6 +333,9 @@ export function SystemsBody({ user, onLogAppointment, initialIntent, onIntentCon
   const [formKey, setFormKey] = useState(0);
   const [quickFirst, setQuickFirst] = useState('');
   const [quickLast, setQuickLast] = useState('');
+  const [quickPhone, setQuickPhone] = useState('');
+  // "Not the same" on a possible match, remembered on this device.
+  const [notSame, setNotSame] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('pl_not_same') || '[]')); } catch { return new Set(); } });
   const [staleOnly, setStaleOnly] = useState(initialIntent === 'stale');
 
   useEffect(() => { if (initialIntent) onIntentConsumed?.(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -295,15 +365,26 @@ export function SystemsBody({ user, onLogAppointment, initialIntent, onIntentCon
     return () => clearTimeout(t);
   }, [flash]);
 
-  // Most recent appointment per client name, so prospect cards can show
-  // "Appt Oct 5" once they've been booked.
-  const apptNames = new Set();
-  const latestApptByName = {};
-  appointments.forEach(a => {
-    const k = normName(a.client);
-    apptNames.add(k);
-    if (!latestApptByName[k] || a.appointmentDate > latestApptByName[k]) latestApptByName[k] = a.appointmentDate;
-  });
+  // Who has an appointment: linked to them, or (for appointments not
+  // linked to anyone) under the same name. Cards show "Appt Oct 5" and the
+  // full history.
+  const booked = bookedProspectKeys(appointments);
+  const historyOf = p => appointmentsForProspect(p, appointments);
+  const possibleOf = p => possibleMatches(p, appointments).filter(a => !notSame.has(`${p.id}:${a.id}`));
+
+  async function handleLink(appt, prospect) {
+    const res = await linkAppointmentToProspect(appt.id, prospect.id);
+    if (!res.ok) { setError("Couldn't link it. Check your connection and try again."); return; }
+    setAppointments(prev => prev.map(a => (a.id === appt.id ? res.record : a)));
+    setFlash(`Linked ${appt.client}'s ${appt.isFollowUp ? 'follow-up' : 'appointment'} to ${prospect.firstName} ${prospect.lastName}.`);
+  }
+  function handleNotSame(appt, prospect) {
+    setNotSame(prev => {
+      const next = new Set(prev); next.add(`${prospect.id}:${appt.id}`);
+      try { localStorage.setItem('pl_not_same', JSON.stringify([...next])); } catch { /* fine */ }
+      return next;
+    });
+  }
 
   async function handleSubmit(form, { another } = {}) {
     setSaving(true);
@@ -327,15 +408,16 @@ export function SystemsBody({ user, onLogAppointment, initialIntent, onIntentCon
   async function handleQuickAdd(e) {
     e.preventDefault();
     if (!quickFirst.trim() || !quickLast.trim()) { setError('Enter a first and last name to quick-add.'); return; }
+    if (quickPhone.trim() && !isValidPhone(quickPhone)) { setError("That phone number doesn't look right."); return; }
     setError('');
     setSaving(true);
-    const blank = { firstName: quickFirst, lastName: quickLast, age: '', relationshipStrength: 5, notes: '', source: '' };
+    const blank = { firstName: quickFirst, lastName: quickLast, age: '', relationshipStrength: 5, notes: '', source: '', phone: quickPhone };
     ALL_CHARACTERISTICS.forEach(c => { blank[c.key] = false; });
     const res = await insertProspect(user.id, blank);
     setSaving(false);
     if (!res.ok) { setError(res.error || 'Could not save. Try again.'); return; }
     setProspects(prev => [res.record, ...prev]);
-    setQuickFirst(''); setQuickLast('');
+    setQuickFirst(''); setQuickLast(''); setQuickPhone('');
     setSortBy('newest');
     setFlash(`Added ${res.record.firstName} ${res.record.lastName} — open them and tap the pencil to score them.`);
   }
@@ -369,15 +451,16 @@ export function SystemsBody({ user, onLogAppointment, initialIntent, onIntentCon
   function bySearch(list) {
     if (!searchQuery.trim()) return list;
     const q = searchQuery.trim().toLowerCase();
-    return list.filter(p => `${p.firstName} ${p.lastName}`.toLowerCase().includes(q));
+    const digits = q.replace(/\D/g, '');
+    return list.filter(p => `${p.firstName} ${p.lastName}`.toLowerCase().includes(q) || (digits.length >= 3 && (p.phone || '').replace(/\D/g, '').includes(digits)));
   }
   const listAll = prospects.filter(p => !p.markedRecruited && !p.markedSold);
-  const staleCount = listAll.filter(p => isStaleProspect(p, apptNames)).length;
+  const staleCount = listAll.filter(p => isStaleProspect(p, booked)).length;
   const recruitedAll = prospects.filter(p => p.markedRecruited);
   const soldAll = prospects.filter(p => p.markedSold);
   const listSorted = bySearch(listAll
     .filter(p => leaningFilter === 'all' || prospectLeaningKey(p) === leaningFilter)
-    .filter(p => !staleOnly || isStaleProspect(p, apptNames))).sort(sorters[sortBy]);
+    .filter(p => !staleOnly || isStaleProspect(p, booked))).sort(sorters[sortBy]);
   const recruitedProspects = bySearch(recruitedAll).sort(sorters[sortBy]);
   const soldProspects = bySearch(soldAll).sort(sorters[sortBy]);
 
@@ -434,6 +517,7 @@ export function SystemsBody({ user, onLogAppointment, initialIntent, onIntentCon
                 <span className="tr-quickadd-label">Quick add</span>
                 <input value={quickFirst} onChange={e => setQuickFirst(e.target.value)} placeholder="First name" aria-label="First name" />
                 <input value={quickLast} onChange={e => setQuickLast(e.target.value)} placeholder="Last name" aria-label="Last name" />
+                <input className="tr-quickadd-phone" type="tel" inputMode="tel" value={quickPhone} onChange={e => setQuickPhone(e.target.value)} placeholder="Phone (optional)" aria-label="Phone (optional)" />
                 <button type="submit" className="tr-btn tr-btn-ghost tr-btn-sm" disabled={saving}><Plus size={14} /> Add</button>
               </form>
             )}
@@ -441,7 +525,7 @@ export function SystemsBody({ user, onLogAppointment, initialIntent, onIntentCon
               <div className="tr-search-row">
                 <Search size={15} className="tr-search-icon" />
                 <input
-                  className="tr-search-input" type="text" placeholder="Search by name…"
+                  className="tr-search-input" type="text" placeholder="Search by name or phone…"
                   value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
                 {searchQuery && (
                   <button type="button" className="tr-icon-btn" onClick={() => setSearchQuery('')} title="Clear search"><X size={15} /></button>
@@ -476,7 +560,8 @@ export function SystemsBody({ user, onLogAppointment, initialIntent, onIntentCon
                 {activeList.map((p, i) => (
                   <ProspectCard
                     key={p.id} prospect={p} rank={sortBy === 'score' ? i + 1 : null} collapsible
-                    apptNames={apptNames} apptDate={latestApptByName[prospectNameKey(p)]}
+                    booked={booked} apptDate={(historyOf(p).slice(-1)[0] || {}).appointmentDate}
+                    history={historyOf(p)} possible={possibleOf(p)} onLink={handleLink} onNotSame={handleNotSame} me={user.displayName}
                     onDelete={handleDelete} onToggleOutcome={handleToggleOutcome} onLogAppointment={onLogAppointment} onEdit={handleEdit} />
                 ))}
               </div>

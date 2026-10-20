@@ -5,7 +5,6 @@ import { CalendarDays, ChevronLeft, ChevronRight, DollarSign, Info, Loader2, Mor
 import { CSS } from '../styles.js';
 import { joinedDate, weekLabel } from '../lib/dates.js';
 import { isRecruitType, isSaleType, STATUS_OPTIONS } from '../data/appointments.js';
-import { EmailButton } from './email.jsx';
 
 // "Reports to Sam · Joined 08/26/2026" under a team member's name.
 export function MemberSubline({ member }) {
@@ -338,16 +337,6 @@ export function TypeChoice({ recruit, sale, onToggleRecruit, onToggleSale }) {
 }
 
 // One-tap Email for anyone with an email saved.
-export function ContactLinks({ email }) {
-  if (!email) return null;
-  return (
-    <div className="tr-contact-links">
-      <EmailButton to={email.trim()} Icon={null} />
-      <span className="tr-contact-detail">{email.trim()}</span>
-    </div>
-  );
-}
-
 export function ProgressRing({ done, total, size = 58, stroke = 6, children }) {
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;

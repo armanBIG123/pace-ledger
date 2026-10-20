@@ -254,9 +254,23 @@ export const CSS = `
 /* Devices with a real touchscreen (not just a narrow window) get larger
    tap targets, matching Apple's and Google's 44px minimum — a mouse
    pointer doesn't need this, so desktop stays compact. */
+/* Call and Text (contact.jsx). Call is the one green button in the app. */
+.tr-btn-call { background: var(--green); border-color: #276B4E; color: #fff; }
+.tr-btn-call:hover { background: #276B4E; }
+.tr-root a.tr-btn-call, .tr-root a.tr-btn-call:visited { color: #fff; }
+.tr-btn-icononly { width: 32px; min-width: 32px; padding: 0; gap: 0; }
+.tr-contact-phone { font-variant-numeric: tabular-nums; }
+.tr-text-picks { display: flex; flex-direction: column; gap: 8px; margin: 14px 0 12px; }
+.tr-text-pick { display: flex; flex-direction: column; gap: 3px; width: 100%; padding: 10px 12px; text-align: left; font-family: inherit; font-size: 13px; line-height: 1.45; color: var(--slate); background: var(--card); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); cursor: pointer; transition: border-color .15s, background .15s; }
+.tr-text-pick strong { font-size: 13.5px; color: var(--ink); }
+.tr-text-pick:hover { border-color: #AEB8C2; }
+.tr-text-pick-on, .tr-text-pick-on:hover { border-color: var(--brass); background: rgba(196,154,60,0.06); box-shadow: 0 0 0 1px var(--brass); }
+.tr-text-note { margin: 10px 0 0; font-size: 12.5px; color: var(--slate-light); }
+.tr-text-sheet:focus { outline: none; }
 @media (hover: none) and (pointer: coarse) {
   .tr-icon-btn { width: 44px; height: 44px; }
   .tr-btn { min-height: 44px; }
+  .tr-btn-icononly { width: 44px; min-width: 44px; }
   .tr-checkbox-field input[type="checkbox"] { width: 22px; height: 22px; }
 }
 .tr-header .tr-icon-btn { color: rgba(255,255,255,0.8); }
@@ -677,6 +691,8 @@ export const CSS = `
 .tr-prospect-card-open { border-color: var(--line-strong); box-shadow: 0 4px 16px rgba(19,33,46,0.07); }
 .tr-prospect-card-compact .tr-note { font-size: 12.5px; }
 .tr-prospect-card-side { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.tr-prospect-card-acts { display: inline-flex; align-items: center; gap: 8px; }
+.tr-prospect-card-acts:empty { display: none; }
 .tr-type-badge-appt { background: rgba(63,143,108,0.12); color: #2E6E51; }
 .tr-prospect-live-score { display: flex; align-items: center; gap: 8px; }
 
@@ -844,6 +860,8 @@ export const CSS = `
 .tr-task-rust .tr-task-node { background: rgba(176,67,47,0.1); color: var(--rust); }
 .tr-task-amber .tr-task-node { background: rgba(194,124,30,0.12); color: #8A5410; }
 .tr-task-violet .tr-task-node { background: rgba(107,81,160,0.12); color: var(--violet-dark); }
+.tr-task-green .tr-task-node { background: rgba(46,125,91,0.12); color: var(--green); }
+.tr-task-blue .tr-task-node { background: rgba(45,104,168,0.12); color: #24548A; }
 .tr-task-done .tr-task-node { background: var(--green); color: #fff; }
 .tr-task-body { flex: 1; min-width: 0; }
 .tr-task-title { font-size: 14.5px; line-height: 1.4; color: var(--ink); }
@@ -862,7 +880,16 @@ export const CSS = `
 .tr-plan-more { margin: 2px 0 10px 40px; }
 .tr-calllist { margin-top: 10px; padding: 2px 12px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--paper); }
 .tr-calllist-head { padding: 7px 0 3px; font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--slate-light); }
-.tr-calllist-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); }
+.tr-calllist-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 7px 0; border-top: 1px solid var(--line); }
+.tr-calllist-who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.tr-calllist-acts { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.tr-calllist-acts .tr-link-btn { margin-top: 0; }
+.tr-calllist-addnum { display: inline-flex; align-items: center; gap: 3px; text-decoration: none; font-weight: 600; white-space: nowrap; }
+.tr-calllist-number { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-bottom: 2px; }
+.tr-calllist-number input { flex: 1; min-width: 150px; max-width: 260px; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); font: inherit; font-size: 14px; background: var(--card); color: var(--ink); }
+.tr-calllist-number input.tr-input-bad { border-color: var(--rust); }
+.tr-calllist-number .tr-link-btn { margin-top: 0; }
+.tr-calllist-number .tr-error { flex-basis: 100%; margin: 0; }
 .tr-calllist-head + .tr-calllist-row { border-top: none; }
 .tr-calllist-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13.5px; font-weight: 500; color: var(--ink); }
 .tr-calllist-lean { font-size: 12px; color: var(--slate-light); white-space: nowrap; }
@@ -1258,9 +1285,9 @@ export const CSS = `
   .tr-rung-current::before { left: 24px; }
   .tr-score-track { display: none; }
   /* prospect card: one tidy row of badges + actions under the name */
-  .tr-prospect-card-side { width: 100%; flex-wrap: nowrap; padding-left: 40px; gap: 6px; }
+  .tr-prospect-card-side { width: 100%; flex-wrap: wrap; padding-left: 40px; gap: 8px 6px; }
   .tr-prospect-card-side .tr-type-badge { margin-left: 0; }
-  .tr-prospect-toggle { margin-left: auto; }
+  .tr-prospect-card-acts { margin-left: auto; gap: 6px; }
   /* week header: arrows + dates on one line, "This week" and the total below */
   .tr-pace-head .tr-weeknav { display: contents; }
   .tr-pace-head .tr-weeknav-label { flex: 1 1 calc(100% - 140px); min-width: 0; margin-right: 0; font-size: 14px; justify-content: center; }
@@ -1923,4 +1950,55 @@ export const CSS = `
   .tr-header-role { display: none; }
   .tr-header-user { gap: 8px; }
 }
+
+/* ---- Prospects: history, possible matches, phone in quick add ---------- */
+.tr-prospect-history { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.tr-prospect-history-label { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--slate-light); margin-bottom: 6px; }
+.tr-prospect-history ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.tr-prospect-history li { display: flex; align-items: baseline; gap: 9px; font-size: 13px; color: var(--slate); }
+.tr-prospect-history li em { font-style: normal; color: var(--slate-light); }
+.tr-ph-dot { flex-shrink: 0; width: 8px; height: 8px; border-radius: 50%; background: var(--line-strong); transform: translateY(-1px); }
+.tr-ph-good .tr-ph-dot { background: var(--green); }
+.tr-ph-good em { color: var(--green) !important; font-weight: 600; }
+.tr-prospect-maybe { margin-top: 12px; padding: 10px 12px; border: 1px dashed var(--line-strong); border-radius: var(--radius-sm); background: var(--paper); }
+.tr-prospect-maybe-title { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 6px; }
+.tr-prospect-maybe-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px; font-size: 13px; color: var(--slate); padding: 4px 0; }
+.tr-prospect-maybe-row + .tr-prospect-maybe-row { border-top: 1px solid var(--line); padding-top: 8px; }
+.tr-prospect-maybe-actions { display: inline-flex; align-items: center; gap: 12px; }
+.tr-prospect-maybe-actions .tr-link-btn { margin-top: 0; }
+.tr-quickadd input.tr-quickadd-phone { flex: 0.8; }
+@media (max-width: 640px) { .tr-quickadd input.tr-quickadd-phone { flex: 1 1 100%; } }
+
+/* ---- Appointment rows: Zoom, Call and Text -------------------------------- */
+.tr-appt-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 4px; }
+.tr-appt-contact { display: inline-flex; align-items: center; gap: 6px; }
+.tr-dayagenda-acts { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+/* ---- Appointment form: pick the client from your list ---------------------- */
+.tr-combo { position: relative; }
+.tr-combo-menu { position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; right: 0; list-style: none; margin: 0; padding: 4px; background: var(--card); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); box-shadow: 0 10px 28px rgba(20,32,44,0.16); max-height: 330px; overflow-y: auto; }
+.tr-combo-opt { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; cursor: pointer; font-weight: 400; }
+.tr-combo-opt:hover, .tr-combo-opt-on { background: var(--brass-tint); }
+.tr-combo-add { border-top: 1px solid var(--line); margin-top: 2px; }
+.tr-combo-add:first-child { border-top: none; margin-top: 0; }
+.tr-combo-avatar { flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; background: #2D68A8; color: #fff; font-size: 11.5px; font-weight: 700; letter-spacing: 0.02em; }
+.tr-combo-avatar-add { background: var(--brass-tint); color: var(--brass-dark); }
+.tr-combo-text { display: flex; flex-direction: column; min-width: 0; }
+.tr-combo-text strong { font-size: 14px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tr-combo-text span { font-size: 12.5px; color: var(--slate-light); }
+.tr-combo-add .tr-combo-text strong { color: var(--brass-dark); }
+.tr-combo-linked { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 7px 10px; border-radius: var(--radius-sm); background: rgba(46,125,91,0.08); color: #24654A; font-size: 13px; font-weight: 400; }
+.tr-combo-linked strong { font-weight: 600; }
+.tr-combo-linked .tr-link-btn { margin-top: 0; margin-left: auto; }
+.tr-combo-linked-new { background: var(--brass-tint); color: var(--brass-dark); }
+/* In the phone sheet the list sits in the page, so the keyboard never hides it. */
+.tr-fsheet-body .tr-combo-menu { position: static; margin-top: 2px; box-shadow: none; max-height: none; }
+
+/* ---- Presenters logging what they presented ------------------------------ */
+.tr-sidebar-item-blue { --dot: #2D68A8; }
+.tr-presented-tag { display: inline-flex; align-items: center; gap: 4px; margin-left: 8px; padding: 1px 8px; border-radius: 999px; background: rgba(45,104,168,0.1); color: #24548A; font-size: 11.5px; font-weight: 600; white-space: nowrap; vertical-align: 1px; }
+.tr-fu-head-static { cursor: default; }
+.tr-fu-head-static:hover { background: transparent; }
+.tr-fu-setby { font-weight: 600; color: var(--slate); }
+.tr-fu-logged { display: inline-flex; align-items: center; gap: 5px; margin-top: 5px; padding: 2px 9px; border-radius: 999px; background: rgba(46,125,91,0.09); color: #24654A; font-size: 12.5px; font-weight: 600; }
 `;

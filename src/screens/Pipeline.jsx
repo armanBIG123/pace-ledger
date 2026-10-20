@@ -21,7 +21,7 @@ export const PIPELINE_STAGES = [
   { key: 'won', label: 'Won', Icon: Award },
 ];
 // Which Follow Up lists each stage offers (the first is where it opens).
-export const OUTCOME_VIEWS = ['nolog', 'reschedule', 'not_completed', 'completed', 'all'];
+export const OUTCOME_VIEWS = ['nolog', 'presented', 'reschedule', 'not_completed', 'completed', 'all'];
 export const FOLLOWUP_VIEWS = ['needs', 'nointake', 'sent', 'received', 'recruit_open', 'recruit_joined'];
 
 function WonStage({ user, summary }) {

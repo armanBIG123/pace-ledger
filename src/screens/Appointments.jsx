@@ -1,6 +1,6 @@
 // My Appointments: the weekly batches, the appointment form, outcomes and Open Requirements.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, ClipboardCheck, Download, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, ClipboardCheck, Download, Link2, Pencil, Plus, Search, Trash2, UserPlus, X } from 'lucide-react';
 import { supabase } from '../supabaseClient.js';
 import { isNativeApp, openInBrowserSheet } from '../native.js';
 import { computeDownline, computeUpline } from '../hierarchy.js';
@@ -9,15 +9,17 @@ import { DATE_SET_OPTIONS, dateSetMeta, defaultDateSetOption } from '../lib/pace
 import { addMinutesToDateTime, detectTimezone, fmtApptDateTime, fmtDisplayDate, fmtFollowUpDateTime, parseDate, shiftWeekStr, timezoneOptionsWithDetected, todayStr, weekStartOf } from '../lib/dates.js';
 import { downloadCSV, fmtCurrency, isValidEmail } from '../lib/format.js';
 import { addPolicyNote, applyFollowUpToList, deleteAppointmentRow, fetchAppointmentsImPresenting, fetchMyAppointments, fetchPolicyNotes, fetchSoldPolicies, fetchZoomConnectedManagers, insertAppointment, inviteFailureMessage, isPastAppointment, isPolicyIssued, isRecruitType, isSaleType, ISSUED_PREMIUM_VIEW, markInviteSent, persistFollowUp, SOLD_PREMIUM_VIEW, STATUS_OPTIONS, typeLabel, updateAppointment, updatePolicyFields } from '../data/appointments.js';
-import { fetchMyProspects, normName, prospectLeaningKey, prospectNameKey } from '../data/prospects.js';
+import { ALL_CHARACTERISTICS, fetchMyProspects, insertProspect, LEANING_LABELS, normName, prospectLeaningKey, prospectNameKey, prospectTotalChecked } from '../data/prospects.js';
 import { fetchOrgDirectory } from '../data/team.js';
 import { connectZoom, createZoomMeeting, disconnectZoom, fetchZoomConnectionStatus, pushAppointmentToGoogleCalendar, sendAppointmentInviteEmail, updateAppointmentZoomUrl, zoomOAuthUrl } from '../data/integrations.js';
 import { openPicker, PageHead, RefreshButton, Sheet, SkelBlock, SkeletonCards, SkeletonRows, StatusChip, TitleInfo, TypeBadge, TypeChoice, TypeFilter, useIsPhone, WeekNav } from '../components/ui.jsx';
 import { MyCoachingNotes, PaceStrip, PaceTrend, PersonalBests } from '../components/pace.jsx';
 import { ZoomConnect } from '../components/integrations.jsx';
 import { FollowUpModal } from '../components/followUpModal.jsx';
+import { appointmentTexts, CallButton, TextButton } from '../components/contact.jsx';
+import { isValidPhone } from '../lib/phone.js';
 
-export function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty, hideSet }) {
+export function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty, hideSet, me = '' }) {
   // Only show the Trainee column when someone in this group actually has one.
   const showTrainee = list.some(a => a.trainee);
   return (
@@ -40,7 +42,17 @@ export function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty, hi
                       <strong className="tr-appt-client">{a.client}</strong>
                       <TypeBadge appt={a} />
                       {a.status ? <span style={{ marginLeft: 6 }}><StatusChip status={a.status} /></span> : null}
-                      {a.zoomUrl ? <div><a href={a.zoomUrl} target="_blank" rel="noopener noreferrer" className="tr-note tr-link">Join Zoom</a></div> : null}
+                      {a.zoomUrl || a.clientPhone ? (
+                        <div className="tr-appt-links">
+                          {a.zoomUrl ? <a href={a.zoomUrl} target="_blank" rel="noopener noreferrer" className="tr-note tr-link">Join Zoom</a> : null}
+                          {a.clientPhone ? (
+                            <span className="tr-appt-contact">
+                              <CallButton phone={a.clientPhone} compact />
+                              <TextButton phone={a.clientPhone} name={a.client} texts={appointmentTexts(a, me)} compact />
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : null}
                       {a.followUpAppointmentDate ? <div className="tr-note" style={{ marginTop: 2 }}>Follow-up: {fmtFollowUpDateTime(a)}</div> : null}
                       {a.inviteSentAt ? <div className="tr-note" style={{ marginTop: 2 }} title={(a.inviteeEmails || []).join(', ')}>Invite sent to {(a.inviteeEmails || []).length} {(a.inviteeEmails || []).length === 1 ? 'person' : 'people'}{a.inviteMethod === 'google' ? ' (Google)' : ''}</div> : null}
                       {a.notes ? <span className="tr-note"> — {a.notes}</span> : null}
@@ -86,6 +98,15 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
   const [client, setClient] = useState(editing?.client || prefillData?.client || '');
   const [notes, setNotes] = useState(editing?.notes || prefillData?.notes || '');
   const [clientEmail, setClientEmail] = useState(editing?.clientEmail || prefillData?.clientEmail || '');
+  const [clientPhone, setClientPhone] = useState(editing?.clientPhone || prefillData?.clientPhone || '');
+  // The person on your list this appointment is with. Picking a name from
+  // your list links them; typing a different name unlinks.
+  const [prospectId, setProspectId] = useState(editing?.prospectId || prefillData?.prospectId || '');
+  // "Add them to your list" picked: saved as a new prospect along with this.
+  const [addToList, setAddToList] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [activeIdx, setActiveIdx] = useState(-1);
+  const clientInput = useRef(null);
   // Who gets the Zoom link emailed when a NEW appointment is saved.
   const [inviteClient, setInviteClient] = useState(true);
   const [inviteMe, setInviteMe] = useState(true);
@@ -97,7 +118,7 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
   const [err, setErr] = useState('');
   const [checking, setChecking] = useState(false);
   const [zoomManagers, setZoomManagers] = useState([]);
-  const [myProspects, setMyProspects] = useState([]);
+  const [myProspects, setMyProspects] = useState([]);  // everyone on your list
   // Client email, date set, time zone, trainee, notes and invites fold away
   // (open when editing, since that's often why you're here).
   const [showMore, setShowMore] = useState(!!editing);
@@ -107,23 +128,80 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
     fetchZoomConnectedManagers().then(setZoomManagers);
     fetchOrgDirectory().then(setOrgDirectory);
     // Suggest names from your prospect list as you type the client name.
-    fetchMyProspects(user.id).then(list => setMyProspects(list.filter(p => !p.markedRecruited && !p.markedSold)));
+    fetchMyProspects(user.id).then(setMyProspects);
   }, [user.id]);
 
-  function handleClientChange(value) {
-    setClient(value);
-    // Picking a known prospect fills in recruit/sale from how they scored,
-    // unless you've already chosen a type yourself.
-    const match = myProspects.find(p => prospectNameKey(p) === normName(value));
-    if (match && !typeRecruit && !typeSale) {
+  // Fills in recruit/sale from how they scored (unless you've already
+  // chosen a type yourself), and their notes, email and phone if empty.
+  function fillFrom(match) {
+    if (!typeRecruit && !typeSale) {
       const leaning = prospectLeaningKey(match);
       if (leaning === 'recruit' || leaning === 'both') setTypeRecruit(true);
       if (leaning === 'sale' || leaning === 'both') setTypeSale(true);
       if (!notes && match.notes) setNotes(match.notes);
     }
-    if (match) {
-      if (!clientEmail && match.email) setClientEmail(match.email);
+    if (!clientEmail && match.email) setClientEmail(match.email);
+    if (!clientPhone && match.phone) setClientPhone(match.phone);
+  }
+  function handleClientChange(value) {
+    setClient(value);
+    if (prospectId) setProspectId('');
+    setMenuOpen(true);
+    setActiveIdx(-1);
+    // Typing a name exactly as it is on your list fills in their details,
+    // the same as picking it.
+    const exact = myProspects.filter(p => prospectNameKey(p) === normName(value));
+    if (exact.length) fillFrom(exact.find(p => !p.markedRecruited && !p.markedSold) || exact[0]);
+  }
+  // Names from your list that match what's typed (each word can be the
+  // start of a first or last name), people you haven't won yet first.
+  const typed = normName(client);
+  const typedWords = typed.split(' ').filter(Boolean);
+  const nameMatches = !typed ? [] : myProspects
+    .filter(p => { const words = prospectNameKey(p).split(' '); return typedWords.every(t => words.some(w => w.startsWith(t))); })
+    .sort((a, b) => (prospectNameKey(b) === typed) - (prospectNameKey(a) === typed)
+      || (!!(a.markedSold || a.markedRecruited) - !!(b.markedSold || b.markedRecruited))
+      || String(b.createdAt || '').localeCompare(String(a.createdAt || '')))
+    .slice(0, 5);
+  const typedIsOnList = myProspects.some(p => prospectNameKey(p) === typed);
+  const comboOptions = [...nameMatches.map(p => ({ key: p.id, p })), ...(typed.length >= 2 && !typedIsOnList ? [{ key: 'add' }] : [])];
+  const showCombo = menuOpen && !prospectId && !addToList && comboOptions.length > 0;
+  const linked = prospectId ? myProspects.find(p => p.id === prospectId) : null;
+  function pickOption(o) {
+    if (!o) return;
+    if (o.p) {
+      setClient(`${o.p.firstName} ${o.p.lastName}`.trim());
+      setProspectId(o.p.id);
+      setAddToList(false);
+      fillFrom(o.p);
+    } else {
+      setAddToList(true);
     }
+    setMenuOpen(false);
+    setActiveIdx(-1);
+  }
+  function handleClientKeyDown(e) {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      if (!comboOptions.length || prospectId || addToList) return;
+      e.preventDefault();
+      setMenuOpen(true);
+      const n = comboOptions.length;
+      setActiveIdx(i => (e.key === 'ArrowDown' ? (i + 1) % n : (i <= 0 ? n - 1 : i - 1)));
+    } else if (e.key === 'Enter') {
+      // Enter picks the highlighted name; it never saves the form from here.
+      e.preventDefault();
+      e.stopPropagation();
+      if (showCombo && activeIdx >= 0) pickOption(comboOptions[activeIdx]);
+    } else if (e.key === 'Escape' && showCombo) {
+      e.stopPropagation();
+      setMenuOpen(false);
+    }
+  }
+  function changeLink() {
+    setProspectId('');
+    setAddToList(false);
+    setMenuOpen(true);
+    if (clientInput.current) clientInput.current.focus();
   }
 
   // Who can present, and how it's picked, depends on whether a manager
@@ -171,6 +249,7 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
       return;
     }
     if (clientEmail.trim() && !isValidEmail(clientEmail)) { setShowMore(true); setErr("The client's email address doesn't look right."); return; }
+    if (clientPhone.trim() && !isValidPhone(clientPhone)) { setShowMore(true); setErr("The client's phone number doesn't look right. Include the area code."); return; }
     const inviteBoxOpen = !editing || sendUpdate;
     const extras = inviteBoxOpen ? extraEmails.split(/[\s,;]+/).map(e => e.trim()).filter(Boolean) : [];
     const badExtra = extras.find(e => !isValidEmail(e));
@@ -205,17 +284,21 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
       ...(inviteMe && user.email ? [user.email] : []),
       ...extras,
     ].map(e => e.toLowerCase()))].slice(0, 8);
+    // Typed a name that's on your list exactly once: link it, the same as
+    // picking it.
+    const sameName = myProspects.filter(p => prospectNameKey(p) === normName(client));
+    const linkId = prospectId || (!addToList && sameName.length === 1 ? sameName[0].id : '');
     onSubmit({
       dateSetOption, appointmentDate, appointmentTime, timezone,
       presenter: presenterName, presenterId, trainee: traineeName, traineeId,
-      client, clientEmail, notes, presentationType, presentationTypeSecondary, zoomHostId: zoomHostId || null,
-      inviteEmails,
+      client, clientEmail, clientPhone, notes, presentationType, presentationTypeSecondary, zoomHostId: zoomHostId || null,
+      inviteEmails, prospectId: linkId, addToList: addToList && !linkId,
     });
   }
   function handleKeyDown(e) {
-    // Enter in the client-name box is how you pick a prospect suggestion,
+    // Enter in the client-name box is how you pick a name from your list,
     // so it never submits the form from there.
-    if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA' && !e.target.getAttribute('list')) { e.preventDefault(); submit(); }
+    if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA' && e.target !== clientInput.current) { e.preventDefault(); submit(); }
   }
 
   const presenterShown = presenterOptions.find(p => p.id === presenterId)?.display_name || '';
@@ -232,13 +315,53 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
         </div>
       )}
       <div className="tr-form-grid">
-        <label className="tr-field tr-field-wide">
-          <span>Client</span>
-          <input value={client} onChange={e => handleClientChange(e.target.value)} placeholder="Who you're presenting to" list="tr-prospect-name-options" autoComplete="off" />
-          <datalist id="tr-prospect-name-options">
-            {myProspects.map(p => <option key={p.id} value={`${p.firstName} ${p.lastName}`} />)}
-          </datalist>
-        </label>
+        <div className="tr-field tr-field-wide tr-combo">
+          <label htmlFor="tr-client-input">Client</label>
+          <input id="tr-client-input" ref={clientInput} value={client} onChange={e => handleClientChange(e.target.value)} placeholder="Who you're presenting to" autoComplete="off"
+            role="combobox" aria-autocomplete="list" aria-expanded={showCombo} aria-controls="tr-client-options"
+            aria-activedescendant={showCombo && activeIdx >= 0 ? `tr-client-opt-${comboOptions[activeIdx].key}` : undefined}
+            onKeyDown={handleClientKeyDown} onFocus={() => setMenuOpen(true)} onBlur={() => setMenuOpen(false)} />
+          {showCombo && (
+            <ul className="tr-combo-menu" id="tr-client-options" role="listbox" aria-label="People on your list">
+              {comboOptions.map((o, i) => (
+                <li key={o.key} id={`tr-client-opt-${o.key}`} role="option" aria-selected={i === activeIdx}
+                  className={`tr-combo-opt ${i === activeIdx ? 'tr-combo-opt-on' : ''} ${o.p ? '' : 'tr-combo-add'}`}
+                  onMouseDown={e => e.preventDefault()} onClick={() => pickOption(o)}>
+                  {o.p ? (
+                    <>
+                      <span className="tr-combo-avatar" aria-hidden="true">{`${(o.p.firstName || '?')[0]}${(o.p.lastName || '')[0] || ''}`.toUpperCase()}</span>
+                      <span className="tr-combo-text">
+                        <strong>{o.p.firstName} {o.p.lastName}</strong>
+                        <span>{o.p.markedSold ? 'Sold' : o.p.markedRecruited ? 'Recruited' : 'On your list'} · {prospectTotalChecked(o.p) > 0 ? `${LEANING_LABELS[prospectLeaningKey(o.p)]} ${prospectTotalChecked(o.p)}/9` : 'Not scored'}{o.p.createdAt ? ` · added ${new Date(o.p.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}</span>
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="tr-combo-avatar tr-combo-avatar-add" aria-hidden="true"><UserPlus size={15} /></span>
+                      <span className="tr-combo-text">
+                        <strong>Add "{client.trim()}" to your list</strong>
+                        <span>Saves them as a new prospect and links this appointment</span>
+                      </span>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {linked ? (
+            <div className="tr-combo-linked">
+              <Link2 size={14} aria-hidden="true" />
+              <span>Linked to <strong>{linked.firstName} {linked.lastName}</strong> on your list</span>
+              <button type="button" className="tr-link-btn" onClick={changeLink}>Change</button>
+            </div>
+          ) : addToList ? (
+            <div className="tr-combo-linked tr-combo-linked-new">
+              <UserPlus size={14} aria-hidden="true" />
+              <span><strong>{client.trim() || 'They'}</strong> will be added to your list when you save</span>
+              <button type="button" className="tr-link-btn" onClick={() => setAddToList(false)}>Undo</button>
+            </div>
+          ) : null}
+        </div>
         <div className="tr-field tr-field-wide">
           <span>Recruit, sale or both</span>
           <TypeChoice recruit={typeRecruit} sale={typeSale} onToggleRecruit={() => setTypeRecruit(v => !v)} onToggleSale={() => setTypeSale(v => !v)} />
@@ -288,7 +411,7 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
         <button type="button" className="tr-form-more-head" aria-expanded={showMore} onClick={() => setShowMore(v => !v)}>
           {showMore ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}
           <strong>More options</strong>
-          <span>Counts toward {meta.batchLabel}{traineeNote ? ` · ${traineeNote}` : ''} · client email, time zone, notes, invites</span>
+          <span>Counts toward {meta.batchLabel}{traineeNote ? ` · ${traineeNote}` : ''} · client email and phone, time zone, notes, invites</span>
         </button>
         {showMore && (
           <div className="tr-form-more-body">
@@ -296,6 +419,10 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
               <label className="tr-field">
                 <span>Client email</span>
                 <input type="email" inputMode="email" autoComplete="off" autoCapitalize="none" value={clientEmail} onChange={e => setClientEmail(e.target.value)} placeholder="name@example.com" />
+              </label>
+              <label className="tr-field">
+                <span>Client phone</span>
+                <input type="tel" inputMode="tel" autoComplete="off" value={clientPhone} onChange={e => setClientPhone(e.target.value)} placeholder="(214) 555-0187" />
               </label>
               <label className="tr-field">
                 <span>Date set</span>
@@ -575,9 +702,11 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialIntent]);
 
+  const searchDigits = searchQuery.replace(/\D/g, '');
   const searchResults = searchQuery.trim()
     ? appointments
-        .filter(a => a.client.toLowerCase().includes(searchQuery.trim().toLowerCase()))
+        .filter(a => a.client.toLowerCase().includes(searchQuery.trim().toLowerCase())
+          || (searchDigits.length >= 3 && (a.clientPhone || '').replace(/\D/g, '').includes(searchDigits)))
         .sort((a, b) => (b.appointmentDate + b.appointmentTime).localeCompare(a.appointmentDate + a.appointmentTime))
     : [];
   const [showHistory, setShowHistory] = useState(false);
@@ -589,14 +718,14 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
   }, [notice]);
 
   function handleExportAppointments() {
-    const rows = [['Date set', 'Appointment date', 'Time', 'Timezone', 'Presenter', 'Trainee', 'Client', 'Client email', 'Type', 'Status', 'Notes', 'Zoom link']];
+    const rows = [['Date set', 'Appointment date', 'Time', 'Timezone', 'Presenter', 'Trainee', 'Client', 'Client email', 'Client phone', 'Type', 'Status', 'Notes', 'Zoom link']];
     appointments
       .slice()
       .sort((a, b) => (b.appointmentDate + b.appointmentTime).localeCompare(a.appointmentDate + a.appointmentTime))
       .forEach(a => {
         rows.push([
           a.dateSetOption, a.appointmentDate, a.appointmentTime, a.appointmentTimezone,
-          a.presenter, a.trainee, a.client, a.clientEmail, typeLabel(a), a.status, a.notes, a.zoomUrl,
+          a.presenter, a.trainee, a.client, a.clientEmail, a.clientPhone, typeLabel(a), a.status, a.notes, a.zoomUrl,
         ]);
       });
     downloadCSV(`my-appointments-${todayStr()}.csv`, rows);
@@ -672,9 +801,21 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
   function openEdit(appt) { fromElsewhere.current = false; setEditingAppt(appt); setShowForm(true); }
   function openNewForm() { fromElsewhere.current = false; setShowForm(true); }
 
-  async function handleFormSubmit(form) {
+  async function handleFormSubmit(input) {
     setSaving(true);
     setError('');
+    let form = input;
+    // "Add them to your list": the new prospect first, so the appointment
+    // is linked to them from the start.
+    let listNote = '';
+    if (input.addToList && !input.prospectId) {
+      const words = input.client.trim().split(/\s+/);
+      const blank = { firstName: words[0] || '', lastName: words.slice(1).join(' '), age: '', relationshipStrength: 5, notes: '', source: '', email: input.clientEmail, phone: input.clientPhone };
+      ALL_CHARACTERISTICS.forEach(c => { blank[c.key] = false; });
+      const pr = await insertProspect(user.id, blank);
+      if (pr.ok) form = { ...input, prospectId: pr.record.id };
+      else listNote = `Couldn't add ${input.client.trim()} to your list. Add them from Pipeline → Names.`;
+    }
     if (editingAppt) {
       const isReschedule = editingAppt.status === 'needs_reschedule';
       const res = await updateAppointment(editingAppt.id, form, isReschedule);
@@ -693,6 +834,7 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
       }
       setSaving(false);
       setAppointments(prev => prev.map(a => a.id === editingAppt.id ? updatedRecord : a));
+      if (listNote) setNotice({ kind: 'warn', text: listNote });
       closeForm();
     } else {
       const res = await insertAppointment(user.id, { ...form, weekOf: weekMonday });
@@ -770,6 +912,7 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
       }
       setSaving(false);
       setAppointments(prev => [...prev, record]);
+      if (listNote) setNotice({ kind: 'warn', text: listNote });
       closeForm();
     }
   }
@@ -846,7 +989,7 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
           <div className="tr-search-row">
             <Search size={15} className="tr-search-icon" />
             <input
-              className="tr-search-input" type="text" placeholder="Search every appointment by name…"
+              className="tr-search-input" type="text" placeholder="Search every appointment by name or phone…"
               value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
             {searchQuery && (
               <button type="button" className="tr-icon-btn" onClick={() => setSearchQuery('')} title="Clear search"><X size={15} /></button>
@@ -866,7 +1009,7 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
             {searchResults.length === 0 ? (
               <div className="tr-card"><p className="tr-empty">No matches.</p></div>
             ) : (
-              <ApptGroup list={byType(searchResults)} onDelete={handleDelete} onFollowUp={setFollowUpTarget} onEdit={openEdit} empty="" />
+              <ApptGroup me={user.displayName} list={byType(searchResults)} onDelete={handleDelete} onFollowUp={setFollowUpTarget} onEdit={openEdit} empty="" />
             )}
           </>
         ) : statusView === null ? (
@@ -879,7 +1022,7 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
               note={(() => { const n = weekAppts.filter(a => a.presentingFor).length; return n ? `Includes ${n} you're presenting for your team.` : ''; })()} />
             {upcomingFollowUps.length > 0 && (
               <ApptGroup
-                title={`Upcoming follow-ups (${upcomingFollowUps.length})`}
+                title={`Upcoming follow-ups (${upcomingFollowUps.length})`} me={user.displayName}
                 list={byType(upcomingFollowUps)} onDelete={handleDelete} onFollowUp={setFollowUpTarget}
                 onEdit={openEdit} empty="" />
             )}
@@ -897,7 +1040,7 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
                   )}
                   {withItems.map(g => (
                     <ApptGroup
-                      key={g.option.value} hideSet
+                      key={g.option.value} hideSet me={user.displayName}
                       title={`${g.option.batchLabel} (${g.list.length}/${g.option.target})`}
                       list={byType(g.list)} onDelete={handleDelete} onFollowUp={setFollowUpTarget}
                       onEdit={openEdit} empty="" />
@@ -929,7 +1072,7 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
             {loading ? <SkeletonRows count={4} /> : byType(statusFiltered).length === 0 ? (
               <div className="tr-card"><p className="tr-empty">Nothing here.</p></div>
             ) : (
-              <ApptGroup list={byType(statusFiltered)} onDelete={handleDelete} onFollowUp={setFollowUpTarget} onEdit={openEdit} empty="" />
+              <ApptGroup me={user.displayName} list={byType(statusFiltered)} onDelete={handleDelete} onFollowUp={setFollowUpTarget} onEdit={openEdit} empty="" />
             )}
           </>
         )}

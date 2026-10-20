@@ -85,7 +85,7 @@ export function TeamProspectingBody({ user }) {
                           {sortedList.length === 0 ? (
                             <p className="tr-empty">No prospects logged yet.</p>
                           ) : (
-                            sortedList.map((p, i) => <ProspectCard key={p.id} prospect={p} rank={i + 1} readOnly />)
+                            sortedList.map((p, i) => <ProspectCard key={p.id} prospect={p} rank={i + 1} readOnly me={user.displayName} />)
                           )}
                         </td></tr>
                       )}

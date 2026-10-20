@@ -1,6 +1,6 @@
 // Today: four number tiles, one "Do next" list (appointments coming up, then what needs you), folds for the rest of the week, and team wins.
 import { Children, useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, Award, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, ChevronUp, ClipboardCheck, GraduationCap, List as ListIcon, Pencil, Sparkles, Target, UserPlus, Users, Video, Wallet, X } from 'lucide-react';
+import { Activity, Award, CalendarDays, Check, CheckCheck, CheckCircle2, ChevronDown, ChevronRight, ChevronUp, ClipboardCheck, GraduationCap, List as ListIcon, Pencil, Plus, Presentation, Sparkles, Target, UserPlus, Users, Video, Wallet, X } from 'lucide-react';
 import { examWhen, fetchLicensingProgress, licensingStatus } from '../licensing.js';
 import { computeOnboarding, fetchMyOnboarding, ONBOARDING_DAYS, ONBOARDING_WEEKS, onboardingDay, saveOnboardingSnapshot, setOnboardingVisibility, shouldShowOnboarding, weekForDay } from '../onboarding.js';
 import { isNativeApp, onAppResume, reminderPermission, requestReminderPermission } from '../native.js';
@@ -12,13 +12,15 @@ import { lowerFirst } from '../lib/format.js';
 import { PaycheckCard } from '../components/paycheck.jsx';
 import { computePaycheck } from '../lib/paycheck.js';
 import { TeamWinsSection } from '../components/wins.jsx';
-import { applyFollowUpToList, fetchAppointmentsImOn, fetchMyAppointments, isPastAppointment, OUTCOME_OPTIONS, persistFollowUp, typeLabel } from '../data/appointments.js';
-import { ALL_CHARACTERISTICS, fetchMyProspects, insertProspect, isStaleProspect, LEANING_LABELS, normName, prospectLeaningKey, prospectToAppointmentPrefill, prospectTotalChecked, STALE_PROSPECT_DAYS, topProspectsToCall } from '../data/prospects.js';
+import { applyFollowUpToList, fetchAppointmentsImOn, fetchMyAppointments, isPastAppointment, loggedSummary, logPresentedAppointment, OUTCOME_OPTIONS, persistFollowUp, typeLabel } from '../data/appointments.js';
+import { ALL_CHARACTERISTICS, bookedProspectKeys, fetchMyProspects, insertProspect, isStaleProspect, LEANING_LABELS, prospectLeaningKey, prospectToAppointmentPrefill, prospectTotalChecked, STALE_PROSPECT_DAYS, topProspectsToCall, updateProspectPhone } from '../data/prospects.js';
 import { fetchHierarchyPeopleShared, fetchMyLicensing, loadPromotionReadiness, seesTeam } from '../data/team.js';
 import { fetchGoogleConnectionStatus } from '../data/integrations.js';
 import { ProgressRing, SkelBlock } from '../components/ui.jsx';
 import { RemindersPrompt } from '../components/reminders.jsx';
 import { FollowUpModal } from '../components/followUpModal.jsx';
+import { appointmentTexts, CallButton, prospectTexts, TextButton } from '../components/contact.jsx';
+import { isValidPhone } from '../lib/phone.js';
 
 // The checklist card. `result` comes from computeOnboarding().
 export function FirstThirtyDays({ result, day, onGo, onHide }) {
@@ -223,6 +225,8 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
   const [facts, setFacts] = useState({ google: false, licensed: false, reminders: 'unsupported' });
   const [onboardingRow, setOnboardingRow] = useState(null);
   const [modalTarget, setModalTarget] = useState(null);
+  // An appointment you presented for someone else, open to log.
+  const [presentedTarget, setPresentedTarget] = useState(null);
   // A "How did it go?" phone reminder was tapped: open that appointment's
   // log window once Today has loaded.
   const [pendingLog, setPendingLog] = useState(null);
@@ -241,6 +245,15 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
   const [showMoreWeek, setShowMoreWeek] = useState(false);
   const [showDone, setShowDone] = useState(false);
   const [showCallList, setShowCallList] = useState(false);
+  // Call list: typing a number for someone who doesn't have one yet.
+  const [numberFor, setNumberFor] = useState(null);
+  const [numberDraft, setNumberDraft] = useState('');
+  const [numberErr, setNumberErr] = useState('');
+  const [numberBusy, setNumberBusy] = useState(false);
+  // Names, for "Dynamite Jones logged how it went".
+  const [people, setPeople] = useState(new Map());
+  // "Logged for you" rows you've hidden (this device).
+  const [seenLogged, setSeenLogged] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('pl_logged_seen') || '[]')); } catch { return new Set(); } });
   const savedSnapshotFor = useRef('');
 
   const load = useCallback(async () => {
@@ -257,6 +270,7 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
       // toward your pace) or training on.
       fetchAppointmentsImOn(user.id).catch(() => []),
     ]);
+    fetchHierarchyPeopleShared().then(list => setPeople(new Map((list || []).map(x => [x.id, x.display_name])))).catch(() => {});
     const inv = on.filter(x => x.appointmentAt && new Date(x.appointmentAt) >= start && new Date(x.appointmentAt) < end);
     const pres = on.filter(x => x.presentingFor);
     setAppointments(a);
@@ -361,6 +375,40 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
     setModalTarget(null);
     setFlash(`Moved ${rec.client} to ${fmtApptDateTime(rec)}.${info && info.emailed === true ? ' Updated invite emailed.' : info && info.emailed === false ? " The updated invite didn't send; you can resend it by editing the appointment." : ''}`);
   }
+  // Logging one you presented: it saves on the advisor's appointment, so
+  // the sale or recruit counts for them.
+  async function handlePresentedSave(id, data) {
+    setModalSaving(true);
+    const original = presenting.find(x => x.id === id);
+    const res = await logPresentedAppointment(id, data);
+    setModalSaving(false);
+    if (!res.ok) {
+      setPresentedTarget(null);
+      if (/already_logged/.test(res.error || '')) { setFlash(`${original && original.setByName ? original.setByName.split(' ')[0] : 'The advisor'} already logged this one, so it's theirs to change.`); load(); }
+      else setFlash("Couldn't save. Check your connection and try again.");
+      return;
+    }
+    setPresenting(prev => prev.map(x => (x.id === id ? { ...x, ...res.record } : x)));
+    window.dispatchEvent(new Event('paceledger:appointments-changed'));
+    setPresentedTarget(null);
+    const who = original && original.setByName ? original.setByName.split(' ')[0] : '';
+    const said = [`Saved — ${res.record.client}.`];
+    if (who) said.push(`${who} will see it on their Today.`);
+    if (res.followUp) said.push(`The follow-up is on ${who ? `${who}'s` : 'their'} list.`);
+    setFlash(said.join(' '));
+  }
+  // Call list: save a number typed for someone who didn't have one.
+  function openNumber(p) { setNumberFor(p.id); setNumberDraft(''); setNumberErr(''); }
+  async function saveNumber(e, p) {
+    e.preventDefault();
+    if (!isValidPhone(numberDraft)) { setNumberErr('Enter a phone number with the area code.'); return; }
+    setNumberBusy(true);
+    const res = await updateProspectPhone(p.id, numberDraft);
+    setNumberBusy(false);
+    if (!res.ok) { setNumberErr("Couldn't save. Check your connection and try again."); return; }
+    setProspects(prev => prev.map(x => (x.id === p.id ? { ...x, phone: res.record.phone } : x)));
+    setNumberFor(null); setNumberDraft('');
+  }
   async function handleQuickAdd(e) {
     e.preventDefault();
     if (!quickFirst.trim() || !quickLast.trim()) { setQuickErr('Enter a first and last name.'); return; }
@@ -395,7 +443,7 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
   const weekEnd = fmtDate(addDays(parseDate(weekStart), 6));
   const monthPrefix = today.slice(0, 7);
   const firstName = (user.displayName || '').split(' ')[0];
-  const apptNames = new Set(appointments.map(x => normName(x.client)));
+  const booked = bookedProspectKeys(appointments);
 
   // Today's schedule: yours plus any you're presenting/training on, from an
   // hour ago onward (so a meeting in progress still shows its Zoom link).
@@ -442,9 +490,12 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
   const toLog = appointments
     .filter(x => isPastAppointment(x) && !x.followUpCompletedAt && !inProgress(x))
     .sort((x, y) => apptStartMs(y) - apptStartMs(x));
-  const loggedToday = appointments.filter(x => isToday(x.followUpCompletedAt));
+  const loggedToday = [
+    ...appointments.filter(x => isToday(x.followUpCompletedAt) && !(x.outcomeLoggedBy && x.outcomeLoggedBy !== user.id)),
+    ...presenting.filter(x => isToday(x.followUpCompletedAt) && x.outcomeLoggedBy === user.id),
+  ];
   const setToday = appointments.filter(x => !x.isFollowUp && isToday(x.createdAt)).length;
-  const callList = topProspectsToCall(prospects, apptNames);
+  const callList = topProspectsToCall(prospects, booked);
 
   // ---- the plan ------------------------------------------------------
   const mustDo = [];
@@ -468,6 +519,47 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
       more: { label: 'See all', run: () => onNavigate('followup', 'nolog') },
     });
   }
+  // Appointments your team booked that you presented in the last few days:
+  // you can log them too (the sale or recruit still counts for whoever
+  // booked it). Older ones stay in Pipeline → Log outcome → You presented.
+  const presentedFrom = fmtDate(addDays(parseDate(today), -3));
+  const presentedToLog = presenting
+    .filter(x => isPastAppointment(x) && !x.followUpCompletedAt && (x.appointmentDate || '') >= presentedFrom)
+    .sort((x, y) => apptStartMs(y) - apptStartMs(x));
+  if (presentedToLog.length) {
+    const x = presentedToLog[0];
+    mustDo.push({
+      key: 'presented', Icon: Presentation, tone: 'blue', primary: true,
+      title: presentedToLog.length === 1
+        ? <>Log how it went with <strong>{x.client}</strong>, which you presented</>
+        : <>Log how <strong>{presentedToLog.length} appointments you presented</strong> went</>,
+      meta: presentedToLog.length === 1
+        ? `${fmtApptDateTime(x)}${x.setByName ? ` · booked by ${x.setByName}` : ''}`
+        : `${presentedToLog.slice(0, 2).map(y => y.client).join(', ')}${presentedToLog.length > 2 ? ` and ${presentedToLog.length - 2} more` : ''}`,
+      action: { label: presentedToLog.length === 1 ? 'Log' : 'Log next', run: () => setPresentedTarget(x) },
+      more: { label: 'See all', run: () => onNavigate('followup', 'presented') },
+    });
+  }
+  // Your appointments a presenter logged for you in the last three days.
+  appointments
+    .filter(x => x.userId === user.id && x.outcomeLoggedBy && x.outcomeLoggedBy !== user.id && x.followUpCompletedAt
+      && Date.now() - new Date(x.followUpCompletedAt).getTime() < 3 * 864e5 && !seenLogged.has(x.id))
+    .forEach(x => {
+      const result = loggedSummary(x);
+      const counts = x.officiallySold && x.officiallyRecruited ? 'The sale and recruit count for you.'
+        : x.officiallySold ? 'The sale counts for you.' : x.officiallyRecruited ? 'The recruit counts for you.' : '';
+      mustDo.push({
+        key: `lfm-${x.id}`, Icon: CheckCheck, tone: 'green',
+        title: <><strong>{people.get(x.outcomeLoggedBy) || (x.outcomeLoggedBy === x.presenterId && x.presenter) || 'Your presenter'}</strong> logged how it went with <strong>{x.client}</strong></>,
+        meta: `${result || 'Logged'}.${counts ? ` ${counts}` : ''}`,
+        action: { label: 'Review', run: () => setModalTarget(x) },
+        onHide: () => setSeenLogged(prev => {
+          const next = new Set(prev); next.add(x.id);
+          try { localStorage.setItem('pl_logged_seen', JSON.stringify([...next])); } catch { /* fine */ }
+          return next;
+        }),
+      });
+    });
   // Sales saved with "I'll add it later": the premium they still need,
   // so the sale counts on Track Production and the paycheck.
   const premiumFrom = fmtDate(addDays(parseDate(today), -30));
@@ -511,7 +603,7 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
   });
   loggedToday.forEach(x => mustDo.push({
     key: `logged-${x.id}`, Icon: ClipboardCheck, done: true,
-    title: <>Logged how it went with {x.client}</>,
+    title: <>Logged how it went with {x.client}{x.userId !== user.id ? ' (you presented)' : ''}</>,
     meta: (OUTCOME_OPTIONS.find(o => o.value === x.outcome) || {}).label || 'Outcome saved',
   }));
   const open = mustDo.filter(t => !t.done);
@@ -530,7 +622,7 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
     meta: x.followUpAppointmentDate ? `Next meeting ${fmtDisplayDate(x.followUpAppointmentDate)}` : `Met ${fmtDisplayDate(x.appointmentDate)}`,
     action: { label: 'Open', run: () => onNavigate('followup', 'needs') },
   }));
-  const staleCount = prospects.filter(x => isStaleProspect(x, apptNames)).length;
+  const staleCount = prospects.filter(x => isStaleProspect(x, booked)).length;
   if (staleCount) later.push({
     key: 'stale', Icon: Users, tone: 'amber',
     title: <>Reconnect with {staleCount} quiet prospect{staleCount === 1 ? '' : 's'}</>,
@@ -735,7 +827,17 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
                           {soon ? <span className="tr-dayagenda-badge">{soon}</span> : null}
                         </div>
                       </div>
-                      {x.zoomUrl ? <a className={`tr-btn tr-btn-sm ${soon ? 'tr-btn-brass' : 'tr-btn-ghost'}`} href={x.zoomUrl} target="_blank" rel="noreferrer"><Video size={14} /> Join</a> : null}
+                      {x.zoomUrl || x.clientPhone ? (
+                        <span className="tr-dayagenda-acts">
+                          {x.clientPhone ? (
+                            <>
+                              <CallButton phone={x.clientPhone} compact />
+                              <TextButton phone={x.clientPhone} name={x.client} texts={appointmentTexts(x, user.displayName)} compact />
+                            </>
+                          ) : null}
+                          {x.zoomUrl ? <a className={`tr-btn tr-btn-sm ${soon ? 'tr-btn-brass' : 'tr-btn-ghost'}`} href={x.zoomUrl} target="_blank" rel="noreferrer"><Video size={14} /> Join</a> : null}
+                        </span>
+                      ) : null}
                     </li>
                   );
                 })}
@@ -763,9 +865,30 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
                           <div className="tr-calllist-head">Best people to call</div>
                           {callList.map(p => (
                             <div className="tr-calllist-row" key={p.id}>
-                              <span className="tr-calllist-name">{p.firstName} {p.lastName}</span>
-                              <span className={`tr-calllist-lean tr-calllist-${prospectLeaningKey(p)}`}>{prospectTotalChecked(p) > 0 ? `${LEANING_LABELS[prospectLeaningKey(p)]} · ${prospectTotalChecked(p)}/9` : 'Not scored'}</span>
-                              <button type="button" className="tr-btn tr-btn-ghost tr-btn-xs" onClick={() => onNavigate('mine', { prefill: prospectToAppointmentPrefill(p) })}>Book</button>
+                              <div className="tr-calllist-who">
+                                <span className="tr-calllist-name">{p.firstName} {p.lastName}</span>
+                                <span className={`tr-calllist-lean tr-calllist-${prospectLeaningKey(p)}`}>{prospectTotalChecked(p) > 0 ? `${LEANING_LABELS[prospectLeaningKey(p)]} · ${prospectTotalChecked(p)}/9` : 'Not scored'}</span>
+                              </div>
+                              <div className="tr-calllist-acts">
+                                {p.phone ? (
+                                  <>
+                                    <CallButton phone={p.phone} compact />
+                                    <TextButton phone={p.phone} name={`${p.firstName} ${p.lastName}`} texts={prospectTexts(p.firstName, user.displayName)} compact />
+                                  </>
+                                ) : numberFor !== p.id ? (
+                                  <button type="button" className="tr-link-btn tr-calllist-addnum" onClick={() => openNumber(p)}><Plus size={13} aria-hidden="true" /> Add number</button>
+                                ) : null}
+                                <button type="button" className="tr-btn tr-btn-ghost tr-btn-xs" onClick={() => onNavigate('mine', { prefill: prospectToAppointmentPrefill(p) })}>Book</button>
+                              </div>
+                              {numberFor === p.id ? (
+                                <form className="tr-calllist-number" onSubmit={e => saveNumber(e, p)}>
+                                  <input type="tel" inputMode="tel" autoComplete="off" autoFocus aria-label={`Phone number for ${p.firstName} ${p.lastName}`} placeholder="Phone number"
+                                    className={numberErr ? 'tr-input-bad' : ''} value={numberDraft} onChange={e => { setNumberDraft(e.target.value); setNumberErr(''); }} />
+                                  <button type="submit" className="tr-btn tr-btn-ghost tr-btn-xs" disabled={numberBusy}>{numberBusy ? 'Saving…' : 'Save'}</button>
+                                  <button type="button" className="tr-link-btn" onClick={() => setNumberFor(null)}>Cancel</button>
+                                  {numberErr ? <div className="tr-error">{numberErr}</div> : null}
+                                </form>
+                              ) : null}
                             </div>
                           ))}
                         </div>
@@ -841,6 +964,9 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
 
       {modalTarget && (
         <FollowUpModal appointment={modalTarget} saving={modalSaving} onClose={() => setModalTarget(null)} onSave={handleSaveOutcome} onRescheduled={handleRescheduled} />
+      )}
+      {presentedTarget && (
+        <FollowUpModal appointment={presentedTarget} presenter setByName={presentedTarget.setByName} saving={modalSaving} onClose={() => setPresentedTarget(null)} onSave={handlePresentedSave} />
       )}
     </div>
   );

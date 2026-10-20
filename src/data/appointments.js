@@ -50,6 +50,12 @@ export function rowToRecord(row) {
     requirementsCompleted: row.requirements_completed || false,
     clientIntakeRequested: row.client_intake_requested || false,
     clientEmail: row.client_email || '',
+    clientPhone: row.client_phone || '',
+    // The prospect on your list this appointment is for (linked when you
+    // pick them, or matched once by exact name).
+    prospectId: row.prospect_id || '',
+    // Set when someone other than you (the presenter) logged how it went.
+    outcomeLoggedBy: row.outcome_logged_by || '',
     inviteeEmails: row.invitee_emails || [],
     inviteMethod: row.invite_method || '',
     inviteSentAt: row.invite_sent_at || null,
@@ -177,6 +183,8 @@ export async function saveFollowUp(id, data, followUpTimezone) {
     follow_up_appointment_date: scheduled ? (data.followUpDate || null) : null,
     follow_up_appointment_time: scheduled ? (data.followUpTime || null) : null,
     follow_up_appointment_timezone: scheduled ? (followUpTimezone || null) : null,
+    // You logged it yourself (a presenter's "Logged by" note goes away).
+    outcome_logged_by: null,
   };
   // Only ever flips this on — never overwrites an existing "yes" back to
   // "no" if a follow-up is edited/re-saved later without touching this
@@ -204,6 +212,8 @@ export async function insertFollowUpAppointment(userId, original, followUpDate, 
     trainee: original.trainee || null,
     client_name: original.client,
     client_email: original.clientEmail || null,
+    client_phone: original.clientPhone || null,
+    prospect_id: original.prospectId || null,
     notes: `Follow-up to appointment on ${fmtDisplayDate(original.appointmentDate)}`,
     presentation_type: original.presentationType || null,
     presentation_type_secondary: original.presentationTypeSecondary || null,
@@ -298,6 +308,8 @@ export async function insertAppointment(userId, form) {
     trainee_id: form.traineeId || null,
     client_name: form.client.trim(),
     client_email: (form.clientEmail || '').trim() || null,
+    client_phone: (form.clientPhone || '').trim() || null,
+    prospect_id: form.prospectId || null,
     notes: form.notes.trim() || null,
     presentation_type: form.presentationType || null,
     presentation_type_secondary: form.presentationTypeSecondary || null,
@@ -326,6 +338,8 @@ export async function updateAppointment(id, form, isReschedule) {
     trainee_id: form.traineeId || null,
     client_name: form.client.trim(),
     client_email: (form.clientEmail || '').trim() || null,
+    client_phone: (form.clientPhone || '').trim() || null,
+    prospect_id: form.prospectId || null,
     notes: form.notes.trim() || null,
     presentation_type: form.presentationType || null,
     presentation_type_secondary: form.presentationTypeSecondary || null,
@@ -365,10 +379,44 @@ export async function rescheduleAppointment(appt, { date, time, timezone }) {
     traineeId: appt.traineeId || '',
     client: appt.client || '',
     clientEmail: appt.clientEmail || '',
+    clientPhone: appt.clientPhone || '',
+    prospectId: appt.prospectId || '',
     notes: appt.notes || '',
     presentationType: appt.presentationType || '',
     presentationTypeSecondary: appt.presentationTypeSecondary || '',
   }, true);
+}
+
+// A presenter logs how an appointment they ran went (someone else booked
+// it). The database checks it's really theirs to log, saves it on that one
+// appointment, and puts any follow-up they booked on the advisor's list.
+// The sale or recruit still counts for the advisor.
+export async function logPresentedAppointment(id, data) {
+  const { data: out, error } = await supabase.rpc('log_presented_appointment', {
+    p_appointment: id,
+    p_data: {
+      outcome: data.outcome || '',
+      officiallySold: !!data.officiallySold,
+      targetPremium: data.officiallySold && Number(data.targetPremium) > 0 ? String(data.targetPremium) : '',
+      officiallyRecruited: !!data.officiallyRecruited,
+      followUpScheduled: data.followUpScheduled,
+      followUpDate: data.followUpScheduled === true ? data.followUpDate : '',
+      followUpTime: data.followUpScheduled === true ? data.followUpTime : '',
+      interestedTax: data.interestedTax,
+      interestedInsurance: data.interestedInsurance,
+      followUpDateSetOption: defaultDateSetOption(),
+      followUpWeekOf: weekStartOf(todayStr()),
+    },
+  });
+  if (error || !out) return { ok: false, error: error ? error.message : 'failed' };
+  return { ok: true, record: rowToRecord(out.appointment), followUp: out.followUp ? rowToRecord(out.followUp) : null };
+}
+
+// Links an appointment to a prospect on your list (or unlinks it, with null).
+export async function linkAppointmentToProspect(appointmentId, prospectId) {
+  const { data, error } = await supabase.from('appointments').update({ prospect_id: prospectId || null }).eq('id', appointmentId).select().single();
+  if (error) return { ok: false };
+  return { ok: true, record: rowToRecord(data) };
 }
 
 export function inviteFailureMessage(code, isUpdate = false) {
@@ -390,6 +438,15 @@ export async function markInviteSent(id, emails, method) {
 export async function deleteAppointmentRow(id) {
   const { error } = await supabase.from('appointments').delete().eq('id', id);
   return !error;
+}
+
+// What a logged appointment came to, in a few words: "Went well · Sold · $3,200".
+export function loggedSummary(a) {
+  return [
+    (OUTCOME_OPTIONS.find(o => o.value === a.outcome) || {}).label,
+    a.officiallySold ? `Sold${Number(a.targetPremium) > 0 ? ` · $${Number(a.targetPremium).toLocaleString('en-US')}` : ''}` : null,
+    a.officiallyRecruited ? 'Recruited' : null,
+  ].filter(Boolean).join(' · ');
 }
 
 export const STATUS_OPTIONS = [
@@ -436,7 +493,12 @@ export async function persistFollowUp(user, id, original, data) {
   const ok = await saveFollowUp(id, data, followUpTimezone);
   if (!ok) return { ok: false };
   let newAppt = null;
-  if (data.followUpScheduled === true && data.followUpDate && data.followUpTime && original) {
+  // Saving again (say, to add the premium later) doesn't book the same
+  // follow-up a second time.
+  const sameFollowUp = !!original && original.followUpScheduled === true
+    && original.followUpAppointmentDate === data.followUpDate
+    && String(original.followUpAppointmentTime || '').slice(0, 5) === String(data.followUpTime || '').slice(0, 5);
+  if (data.followUpScheduled === true && data.followUpDate && data.followUpTime && original && !sameFollowUp) {
     const res = await insertFollowUpAppointment(user.id, original, data.followUpDate, data.followUpTime, followUpTimezone);
     if (res.ok) newAppt = res.record;
   }
