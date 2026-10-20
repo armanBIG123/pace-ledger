@@ -4,27 +4,35 @@ import { supabase } from '../supabaseClient.js';
 import { exactReminderStatus, isNativeApp, onAppResume, onReminderTapped, REMINDER_MINUTES, reminderPermission, requestExactReminders, requestReminderPermission, syncAppointmentReminders } from '../native.js';
 import { rowToRecord } from '../data/appointments.js';
 
-// iPhone app only: keeps a phone reminder scheduled 30 minutes before each
-// upcoming appointment. Re-syncs on open, on return to the app, and
-// whenever an appointment is logged.
+// Phone app only: keeps a reminder 30 minutes before each upcoming
+// appointment, a "How did it go?" nudge about an hour after each of yours
+// that isn't logged, and a 9 AM catch-up (see syncAppointmentReminders).
+// Re-syncs on open, on return to the app, and whenever an appointment is
+// logged or changed. Tapping a nudge opens the log window for it.
 export function useAppointmentReminders(user) {
   useEffect(() => {
     if (!isNativeApp()) return undefined;
     let alive = true;
     const sync = async () => {
       if ((await reminderPermission()) !== 'granted') return;
-      // Appointments I logged, am presenting, or am training on, from now on.
+      // Appointments I logged, am presenting, or am training on, from two
+      // days ago on (recent ones may still need an outcome).
       const { data, error } = await supabase
         .from('appointments').select('*')
         .or(`user_id.eq.${user.id},presenter_id.eq.${user.id},trainee_id.eq.${user.id}`)
-        .gte('appointment_at', new Date().toISOString());
+        .gte('appointment_at', new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString());
       if (error || !alive) return; // offline etc.: keep the reminders already set
-      await syncAppointmentReminders((data || []).map(rowToRecord)).catch(() => {});
+      await syncAppointmentReminders((data || []).map(rowToRecord), user.id).catch(() => {});
     };
     sync();
     const offResume = onAppResume(sync);
     // Navigating (not window.open) lets iOS hand the link to the Zoom app.
-    const offTap = onReminderTapped(extra => { if (extra && extra.zoomUrl) window.location.href = extra.zoomUrl; });
+    const offTap = onReminderTapped(extra => {
+      if (!extra) return;
+      if (extra.kind === 'log' && extra.appointmentId) { window.dispatchEvent(new CustomEvent('paceledger:open-log', { detail: { appointmentId: extra.appointmentId } })); return; }
+      if (extra.kind === 'log-list') { window.dispatchEvent(new CustomEvent('paceledger:open-log', { detail: { list: true } })); return; }
+      if (extra.zoomUrl) window.location.href = extra.zoomUrl;
+    });
     window.addEventListener('paceledger:appointments-changed', sync);
     window.addEventListener('paceledger:reminders-enabled', sync);
     return () => {
@@ -81,7 +89,7 @@ export function RemindersPrompt() {
   return (
     <div className="tr-connect-slim tr-connect-slim-on">
       <span className="tr-connect-dot" />
-      <span className="tr-connect-text"><strong>Appointment reminders.</strong> Get a notification {REMINDER_MINUTES} minutes before each appointment, with its Zoom link.</span>
+      <span className="tr-connect-text"><strong>Appointment reminders.</strong> Get a notification {REMINDER_MINUTES} minutes before each appointment, with its Zoom link, and a nudge afterward to log how it went.</span>
       <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={enable}>Turn on</button>
     </div>
   );

@@ -36,6 +36,8 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
   const [candidates, setCandidates] = useState([]);
   const [view, setView] = useState(views.includes(intentView(initialIntent)) ? intentView(initialIntent) : views[0]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [flash, setFlash] = useState('');
+  useEffect(() => { if (!flash) return undefined; const t = setTimeout(() => setFlash(''), 6000); return () => clearTimeout(t); }, [flash]);
   const [expandedId, setExpandedId] = useState(null);
   const [noteDrafts, setNoteDrafts] = useState({});
   const [modalTarget, setModalTarget] = useState(null);
@@ -111,11 +113,19 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
     setModalSaving(false);
     if (!res.ok) return;
     setAppointments(prev => applyFollowUpToList(prev, id, data, res.followUpTimezone, res.newAppt));
+    window.dispatchEvent(new Event('paceledger:appointments-changed'));
     if (data.clientIntake === true) {
       const c = await fetchClientIntakeCandidates(user.id);
       setCandidates(c.filter(x => x.advisor_id === user.id));
     }
     setModalTarget(null);
+  }
+  // "Pick a new time" in the log window moved it back to upcoming.
+  function handleRescheduled(rec, info) {
+    setAppointments(prev => prev.map(a => (a.id === rec.id ? rec : a)));
+    window.dispatchEvent(new Event('paceledger:appointments-changed'));
+    setModalTarget(null);
+    setFlash(`Moved ${rec.client} to ${fmtApptDateTime(rec)}. It's back with your booked appointments.${info && info.emailed === true ? ' Updated invite emailed.' : info && info.emailed === false ? " The updated invite didn't send." : ''}`);
   }
   async function handleAddNote(a, preset) {
     const text = (preset || noteDrafts[a.id] || '').trim();
@@ -174,6 +184,7 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
       <div className="tr-appts-main">
         <PageHead title={FOLLOW_UP_VIEW_TITLES[view] || 'Follow up'}
           sub={view === 'all' ? `${past.length} past appointment${past.length === 1 ? '' : 's'}${counts.nolog ? ` · ${counts.nolog} still need an outcome` : ''}` : `${list.length} of ${past.length} past appointments`} />
+        {flash ? <div className="tr-flash" role="status">{flash}</div> : null}
         <div className="tr-search-row">
           <Search size={15} className="tr-search-icon" />
           <input className="tr-search-input" type="text" placeholder="Search by client name…" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
@@ -285,7 +296,7 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
         })}
         </div>
       </div>
-      {modalTarget && <FollowUpModal appointment={modalTarget} onClose={() => setModalTarget(null)} onSave={handleSaveOutcome} saving={modalSaving} />}
+      {modalTarget && <FollowUpModal appointment={modalTarget} onClose={() => setModalTarget(null)} onSave={handleSaveOutcome} onRescheduled={handleRescheduled} saving={modalSaving} />}
     </div>
   );
 }

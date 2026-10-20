@@ -313,6 +313,23 @@ export const CSS = `
 }
 .tr-followup-list { display: flex; flex-direction: column; gap: 16px; margin-top: 4px; }
 .tr-followup-subfields { display: flex; flex-direction: column; gap: 12px; padding: 12px; margin-top: -4px; border-left: 2px solid var(--line); background: var(--paper); border-radius: 0 8px 8px 0; }
+/* "How did it go?": four big answers first, then what fits. */
+.tr-log-title { margin-bottom: 2px; }
+.tr-log-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0 4px; }
+.tr-log-tile { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; min-height: 84px; padding: 10px 6px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--card); font-family: inherit; font-size: 14px; font-weight: 600; color: var(--ink); cursor: pointer; transition: border-color .12s, background .12s; }
+.tr-log-tile svg { color: var(--brass-dark); }
+.tr-log-tile:hover { border-color: var(--brass); }
+.tr-log-tiles-picked { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-bottom: 14px; }
+.tr-log-tiles-picked .tr-log-tile { min-height: 56px; gap: 4px; padding: 6px 4px; font-size: 12px; line-height: 1.15; border-radius: 10px; }
+.tr-log-tiles-picked .tr-log-tile:not(.tr-log-tile-on) { opacity: .62; }
+.tr-log-tile-on, .tr-log-tile-on:hover { background: var(--ink); border-color: var(--ink); color: #fff; opacity: 1; }
+.tr-log-tile-on svg { color: #D9B25A; }
+.tr-log-pick { margin: 10px 0 0; font-size: 12.5px; color: var(--slate-light); text-align: center; }
+.tr-log-premium { display: flex; flex-direction: column; gap: 8px; padding: 12px; margin-top: -4px; border-left: 2px solid var(--brass); background: var(--paper); border-radius: 0 8px 8px 0; }
+.tr-log-needed { font-style: normal; font-size: 11px; font-weight: 700; color: #9B3A26; background: rgba(176,67,47,0.1); border-radius: 999px; padding: 1px 7px; margin-left: 4px; }
+.tr-field input.tr-input-bad { border-color: var(--rust); box-shadow: 0 0 0 3px rgba(176,67,47,0.12); }
+.tr-check-inline { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 13.5px; color: var(--ink); cursor: pointer; }
+.tr-check-inline input { width: 18px; height: 18px; accent-color: var(--ink); }
 .tr-pillrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
 .tr-pill-btn { font-family: inherit; font-size: 13px; font-weight: 500; padding: 6px 13px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--card); color: var(--slate); cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
 .tr-pill-btn:hover { border-color: var(--ink); color: var(--ink); }

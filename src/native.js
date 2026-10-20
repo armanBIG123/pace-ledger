@@ -119,10 +119,21 @@ export async function clearAppointmentReminders() {
   } catch { /* nothing to clear */ }
 }
 
-// Replaces every reminder PaceLedger scheduled with one per upcoming
-// appointment over the next two weeks. iOS keeps at most 64 pending, so
-// this stays well under that.
-export async function syncAppointmentReminders(appointments) {
+// How long after an appointment starts the "How did it go?" nudge comes,
+// and when the morning catch-up for anything still unlogged arrives.
+export const LOG_NUDGE_MINUTES = 60;
+export const CATCH_UP_HOUR = 9;
+
+// Replaces every reminder PaceLedger scheduled:
+// - one 30 minutes before each upcoming appointment (yours, or one you're
+//   presenting or training on), over the next two weeks;
+// - "How did it go with …?" about an hour after each of your own
+//   appointments that isn't logged yet;
+// - at 9 AM, one catch-up for any of yours still waiting for an outcome.
+// It runs again whenever appointments change or the app comes back, so
+// logging something takes its nudges away. iOS keeps at most 64 pending;
+// this stays under that.
+export async function syncAppointmentReminders(appointments, userId = null) {
   if ((await reminderPermission()) !== 'granted') return;
   const pending = await LocalNotifications.getPending();
   const ours = (pending.notifications || []).filter(n => n.extra && n.extra.source === 'paceledger-appt');
@@ -130,27 +141,64 @@ export async function syncAppointmentReminders(appointments) {
 
   const now = Date.now();
   const horizon = now + 14 * 24 * 60 * 60 * 1000;
-  const upcoming = (appointments || [])
+  const startOf = a => (a.appointmentAt ? new Date(a.appointmentAt).getTime() : NaN);
+  const kindOf = a => {
+    const types = [a.presentationType, a.presentationTypeSecondary];
+    return [types.includes('recruit') ? 'Recruit' : null, types.includes('sale') ? 'Sale' : null].filter(Boolean).join(' & ');
+  };
+  const notifications = [];
+
+  (appointments || [])
     .filter(a => a.appointmentAt && !a.status)
-    .map(a => ({ a, at: new Date(a.appointmentAt).getTime() - REMINDER_MINUTES * 60 * 1000 }))
+    .map(a => ({ a, at: startOf(a) - REMINDER_MINUTES * 60 * 1000 }))
     .filter(x => x.at > now + 30 * 1000 && x.at < horizon)
     .sort((x, y) => x.at - y.at)
-    .slice(0, 40);
-  if (!upcoming.length) return;
+    .slice(0, 40)
+    .forEach(({ a, at }) => notifications.push({
+      id: notificationId(a.id),
+      title: `${a.client} in ${REMINDER_MINUTES} minutes`,
+      body: [kindOf(a) || 'Appointment', a.presenter ? `with ${a.presenter}` : null, a.zoomUrl ? 'Zoom link ready' : null].filter(Boolean).join(' · '),
+      schedule: { at: new Date(at), allowWhileIdle: true },
+      extra: { source: 'paceledger-appt', appointmentId: a.id, zoomUrl: a.zoomUrl || null },
+    }));
 
-  await LocalNotifications.schedule({
-    notifications: upcoming.map(({ a, at }) => {
-      const types = [a.presentationType, a.presentationTypeSecondary];
-      const kind = [types.includes('recruit') ? 'Recruit' : null, types.includes('sale') ? 'Sale' : null].filter(Boolean).join(' & ');
-      return {
-        id: notificationId(a.id),
-        title: `${a.client} in ${REMINDER_MINUTES} minutes`,
-        body: [kind || 'Appointment', a.presenter ? `with ${a.presenter}` : null, a.zoomUrl ? 'Zoom link ready' : null].filter(Boolean).join(' · '),
+  if (userId) {
+    const unlogged = (appointments || []).filter(a => a.userId === userId && a.appointmentAt && !a.followUpCompletedAt);
+    unlogged
+      .map(a => ({ a, at: startOf(a) + LOG_NUDGE_MINUTES * 60 * 1000 }))
+      .filter(x => x.at > now + 30 * 1000 && x.at < horizon)
+      .sort((x, y) => x.at - y.at)
+      .slice(0, 15)
+      .forEach(({ a, at }) => notifications.push({
+        id: notificationId(`log:${a.id}`),
+        title: `How did it go with ${a.client}?`,
+        body: 'Tap to log it. Takes about 10 seconds.',
         schedule: { at: new Date(at), allowWhileIdle: true },
-        extra: { source: 'paceledger-appt', appointmentId: a.id, zoomUrl: a.zoomUrl || null },
-      };
-    }),
-  });
+        extra: { source: 'paceledger-appt', kind: 'log', appointmentId: a.id },
+      }));
+
+    // The next 9 AM: anything from the two days before it (at least an hour
+    // past its start) that still has no outcome.
+    const nine = new Date(now);
+    nine.setHours(CATCH_UP_HOUR, 0, 0, 0);
+    if (nine.getTime() <= now + 30 * 1000) nine.setDate(nine.getDate() + 1);
+    const nineMs = nine.getTime();
+    const waiting = unlogged
+      .filter(a => startOf(a) < nineMs - LOG_NUDGE_MINUTES * 60 * 1000 && startOf(a) > nineMs - 48 * 60 * 60 * 1000)
+      .sort((x, y) => startOf(y) - startOf(x));
+    if (waiting.length) {
+      const names = waiting.slice(0, 2).map(a => a.client);
+      notifications.push({
+        id: notificationId('log:catch-up'),
+        title: `${waiting.length} appointment${waiting.length === 1 ? '' : 's'} still need${waiting.length === 1 ? 's' : ''} an outcome`,
+        body: `${names.join(' and ')}${waiting.length > 2 ? ` and ${waiting.length - 2} more` : ''}. Tap to log ${waiting.length === 1 ? 'it' : 'them'}.`,
+        schedule: { at: nine, allowWhileIdle: true },
+        extra: { source: 'paceledger-appt', kind: 'log-list' },
+      });
+    }
+  }
+
+  if (notifications.length) await LocalNotifications.schedule({ notifications });
 }
 
 // Runs `fn` whenever the app comes back to the foreground.
@@ -162,7 +210,8 @@ export function onAppResume(fn) {
   return () => { stopped = true; handle?.remove(); };
 }
 
-// Tapping a reminder opens its Zoom link if there is one.
+// Tapping a reminder: `fn` gets what it carries (a Zoom link, or which
+// appointment to log).
 export function onReminderTapped(fn) {
   if (!isNativeApp()) return () => {};
   let handle = null, stopped = false;

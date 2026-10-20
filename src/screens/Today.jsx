@@ -213,7 +213,7 @@ export function useNeedsYou({ user, licProfile, showLicensing, onMilestones, onR
   return { promos, licensing };
 }
 
-export function TodayBody({ user, onNavigate }) {
+export function TodayBody({ user, onNavigate, initialIntent = null, onIntentConsumed }) {
   const [loading, setLoading] = useState(true);
   const [appointments, setAppointments] = useState([]);
   const [involvedToday, setInvolvedToday] = useState([]);
@@ -223,6 +223,13 @@ export function TodayBody({ user, onNavigate }) {
   const [facts, setFacts] = useState({ google: false, licensed: false, reminders: 'unsupported' });
   const [onboardingRow, setOnboardingRow] = useState(null);
   const [modalTarget, setModalTarget] = useState(null);
+  // A "How did it go?" phone reminder was tapped: open that appointment's
+  // log window once Today has loaded.
+  const [pendingLog, setPendingLog] = useState(null);
+  useEffect(() => {
+    if (initialIntent && typeof initialIntent === 'object' && initialIntent.log) { setPendingLog(initialIntent.log); onIntentConsumed?.(); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialIntent]);
   const [modalSaving, setModalSaving] = useState(false);
   const [flash, setFlash] = useState('');
   const [quickFirst, setQuickFirst] = useState('');
@@ -274,6 +281,13 @@ export function TodayBody({ user, onNavigate }) {
     const t = setTimeout(() => setFlash(''), 4000);
     return () => clearTimeout(t);
   }, [flash]);
+  useEffect(() => {
+    if (!pendingLog || loading) return;
+    const x = appointments.find(a => a.id === pendingLog);
+    if (x) setModalTarget(x);
+    else setFlash("That appointment isn't on your list anymore.");
+    setPendingLog(null);
+  }, [pendingLog, loading, appointments]);
 
   // ---- First 30 days ------------------------------------------------
   const day = onboardingDay(user.createdAt);
@@ -339,6 +353,13 @@ export function TodayBody({ user, onNavigate }) {
     window.dispatchEvent(new Event('paceledger:appointments-changed'));
     setModalTarget(null);
     setFlash(`Saved — ${original ? original.client : 'appointment'}${res.newAppt ? '. The follow-up appointment is on your list.' : '.'}`);
+  }
+  // "Pick a new time" in the log window moved the appointment.
+  function handleRescheduled(rec, info) {
+    setAppointments(prev => prev.map(x => (x.id === rec.id ? rec : x)));
+    window.dispatchEvent(new Event('paceledger:appointments-changed'));
+    setModalTarget(null);
+    setFlash(`Moved ${rec.client} to ${fmtApptDateTime(rec)}.${info && info.emailed === true ? ' Updated invite emailed.' : info && info.emailed === false ? " The updated invite didn't send; you can resend it by editing the appointment." : ''}`);
   }
   async function handleQuickAdd(e) {
     e.preventDefault();
@@ -445,6 +466,23 @@ export function TodayBody({ user, onNavigate }) {
       meta: `${names.join(', ')}${toLog.length > 2 ? ` and ${toLog.length - 2} more` : ''}`,
       action: { label: 'Log next', run: () => setModalTarget(toLog[0]) },
       more: { label: 'See all', run: () => onNavigate('followup', 'nolog') },
+    });
+  }
+  // Sales saved with "I'll add it later": the premium they still need,
+  // so the sale counts on Track Production and the paycheck.
+  const premiumFrom = fmtDate(addDays(parseDate(today), -30));
+  const noPremium = appointments
+    .filter(x => x.userId === user.id && x.officiallySold && !(Number(x.targetPremium) > 0) && (x.appointmentDate || '') >= premiumFrom)
+    .sort((x, y) => apptStartMs(y) - apptStartMs(x));
+  if (noPremium.length) {
+    const x = noPremium[0];
+    mustDo.push({
+      key: 'premium', Icon: Wallet, tone: 'amber',
+      title: noPremium.length === 1
+        ? <>Add the premium for <strong>{x.client}</strong>'s sale</>
+        : <>Add the premium for <strong>{noPremium.length} sales</strong></>,
+      meta: noPremium.length === 1 ? `Sold ${fmtApptDateTime(x)}` : `${noPremium.slice(0, 2).map(y => y.client).join(', ')}${noPremium.length > 2 ? ` and ${noPremium.length - 2} more` : ''}`,
+      action: { label: noPremium.length === 1 ? 'Add' : 'Add next', run: () => setModalTarget(x) },
     });
   }
   mustDo.push({
@@ -802,7 +840,7 @@ export function TodayBody({ user, onNavigate }) {
       </div>
 
       {modalTarget && (
-        <FollowUpModal appointment={modalTarget} saving={modalSaving} onClose={() => setModalTarget(null)} onSave={handleSaveOutcome} />
+        <FollowUpModal appointment={modalTarget} saving={modalSaving} onClose={() => setModalTarget(null)} onSave={handleSaveOutcome} onRescheduled={handleRescheduled} />
       )}
     </div>
   );
