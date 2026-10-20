@@ -103,6 +103,17 @@ function useViewNav() {
     setGroup(cameFrom.group); setTab(cameFrom.tab); setStage(cameFrom.stage); setGrowthView(cameFrom.growthView); setCameFrom(null); window.scrollTo(0, 0);
   }
   function pickTab(t) { setCameFrom(null); setTab(t); }
+  // A tapped "How did it go?" phone reminder opens that appointment's log
+  // window on Today; the 9 AM catch-up opens Pipeline → Log outcome.
+  useEffect(() => {
+    const open = e => {
+      const d = (e && e.detail) || {};
+      if (d.list) go('followup', 'nolog');
+      else if (d.appointmentId) go('overview', { log: d.appointmentId });
+    };
+    window.addEventListener('paceledger:open-log', open);
+    return () => window.removeEventListener('paceledger:open-log', open);
+  });
   // A link from an email (…/?chat=urgent) opens that chat.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -123,7 +134,7 @@ function MyWorkScreens({ user, nav }) {
   const { tab, go, stage, setStage, growthView, setGrowthView, intentFor, clearIntent, prefillData, setPrefillData, logAppointment, cameFrom, goBack } = nav;
   return (
     <>
-      {tab === 'overview' && <TodayBody user={user} onNavigate={go} />}
+      {tab === 'overview' && <TodayBody user={user} onNavigate={go} initialIntent={intentFor('overview')} onIntentConsumed={clearIntent} />}
       {tab === 'pipeline' && (
         <PipelineBody user={user} stage={stage} onStage={setStage} intentFor={intentFor} clearIntent={clearIntent}
           prefillData={prefillData} onPrefillConsumed={() => setPrefillData(null)} cameFrom={cameFrom} onReturn={goBack}

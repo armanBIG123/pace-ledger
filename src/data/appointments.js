@@ -348,6 +348,29 @@ export async function updateAppointment(id, form, isReschedule) {
   return { ok: true, record: rowToRecord(data) };
 }
 
+// Moves an appointment that didn't happen (rescheduled, or a no-show) to a
+// new date and time from the "How did it go?" window. It's the same as
+// editing it from the Reschedule list: it counts as set this week, its
+// outcome starts fresh, and everything else (client, presenter, notes,
+// Zoom link) stays as it was.
+export async function rescheduleAppointment(appt, { date, time, timezone }) {
+  return updateAppointment(appt.id, {
+    dateSetOption: appt.dateSetOption,
+    appointmentDate: date,
+    appointmentTime: time,
+    timezone: timezone || appt.appointmentTimezone || detectTimezone(),
+    presenter: appt.presenter || '',
+    presenterId: appt.presenterId || '',
+    trainee: appt.trainee || '',
+    traineeId: appt.traineeId || '',
+    client: appt.client || '',
+    clientEmail: appt.clientEmail || '',
+    notes: appt.notes || '',
+    presentationType: appt.presentationType || '',
+    presentationTypeSecondary: appt.presentationTypeSecondary || '',
+  }, true);
+}
+
 export function inviteFailureMessage(code, isUpdate = false) {
   if (code === 'too_soon') return "Saved. An invite for this appointment was just sent, so another wasn't sent — wait a minute and try again.";
   if (code === 'daily_limit') return "Saved, but you've hit today's limit for emailed invites. Try again tomorrow.";

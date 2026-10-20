@@ -791,6 +791,11 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
     setAppointments(prev => applyFollowUpToList(prev, id, data, res.followUpTimezone, res.newAppt));
     setFollowUpTarget(null);
   }
+  function handleRescheduled(rec, info) {
+    setAppointments(prev => prev.map(a => (a.id === rec.id ? rec : a)));
+    setFollowUpTarget(null);
+    setNotice({ kind: info && info.emailed === false ? 'warn' : 'ok', text: `Moved ${rec.client} to ${fmtApptDateTime(rec)}.${info && info.emailed === true ? ' Updated invite emailed.' : info && info.emailed === false ? " The updated invite didn't send; edit the appointment to try again." : ''}` });
+  }
 
   return (
     <div className="tr-appts-shell">
@@ -933,6 +938,7 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
             appointment={followUpTarget}
             onClose={() => setFollowUpTarget(null)}
             onSave={handleSaveFollowUp}
+            onRescheduled={handleRescheduled}
             saving={followUpSaving} />
         )}
       </div>
