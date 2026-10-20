@@ -11,7 +11,7 @@ import { GapCallout, NextLevel } from '../components/milestones.jsx';
 import { lowerFirst } from '../lib/format.js';
 import { fetchAppointmentsAsTrainee, fetchAppointmentsForUserIds, fetchAppointmentsImPresenting, fetchMyAppointments } from '../data/appointments.js';
 import { fetchHierarchyPeople, fetchMyLicensing, saveLicensing } from '../data/team.js';
-import { PageHead, SkeletonCards } from '../components/ui.jsx';
+import { PageHead, RefreshButton, SkeletonCards } from '../components/ui.jsx';
 
 // The career ladder: one rung per tier, top of the ladder first. Rungs
 // already reached are marked done, your current one is highlighted, and the
@@ -188,7 +188,7 @@ export function MyProgressCard({ user }) {
       <div className="tr-card tr-progress-card">
         <div className="tr-row-head" style={{ marginBottom: 2 }}>
           <h3 className="tr-h3" style={{ margin: 0 }}>Your progress toward {progress.nextTier.name} ({progress.nextTier.key})</h3>
-          <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+          <RefreshButton onClick={refresh} />
         </div>
         <p className="tr-subtitle" style={{ margin: '2px 0 12px' }}>{HIERARCHY_TIER_WINDOW_LABELS[progress.nextTier.window]}</p>
         {summary ? <div className="tr-progress-summary"><NextLevel summary={summary} /></div> : null}

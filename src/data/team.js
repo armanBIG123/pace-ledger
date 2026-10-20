@@ -19,6 +19,27 @@ export async function fetchHierarchyPeople() {
   return data;
 }
 
+// One copy of everyone's profile, shared by every card on a screen for a
+// minute, so opening Today doesn't ask for the same list several times.
+// Anything that changes a level or role clears it.
+const SHARED_TTL_MS = 60000;
+let sharedPeople = null;
+export function fetchHierarchyPeopleShared() {
+  if (sharedPeople && Date.now() - sharedPeople.at < SHARED_TTL_MS) return sharedPeople.promise;
+  const promise = fetchHierarchyPeople();
+  sharedPeople = { at: Date.now(), promise };
+  return promise;
+}
+// The agency-wide name list (org_directory), shared the same way.
+let sharedDirectory = null;
+export function fetchOrgDirectoryShared() {
+  if (sharedDirectory && Date.now() - sharedDirectory.at < SHARED_TTL_MS) return sharedDirectory.promise;
+  const promise = fetchOrgDirectory();
+  sharedDirectory = { at: Date.now(), promise };
+  return promise;
+}
+export function clearSharedPeople() { sharedPeople = null; sharedDirectory = null; }
+
 // Officially-sold appointments recent enough to count toward any tier:
 // the rolling 30 days, or this month plus the two before it.
 export async function fetchRecentSoldAppointments() {
@@ -52,8 +73,10 @@ export function promotionSubjects(user, people) {
   return [user.id, ...downlineIds(user.id, buildChildrenMap(people))];
 }
 
-export async function loadPromotionReadiness(user, subjectIds) {
-  const [people, sold] = await Promise.all([fetchHierarchyPeople(), fetchRecentSoldAppointments()]);
+// { shared: true } reuses the shared people list (fine for Today; Team Pace
+// wants it fresh right after a promotion).
+export async function loadPromotionReadiness(user, subjectIds, { shared = false } = {}) {
+  const [people, sold] = await Promise.all([shared ? fetchHierarchyPeopleShared() : fetchHierarchyPeople(), fetchRecentSoldAppointments()]);
   const ids = subjectIds || promotionSubjects(user, people);
   return { people, sold, list: computeReadiness(people, sold, ids) };
 }
@@ -119,6 +142,7 @@ export async function fetchMyLicensing(userId) {
 }
 
 export async function saveLicensing(userId, npn, fgWritingNumber) {
+  clearSharedPeople();
   const { error } = await supabase.from('profiles').update({ npn: npn.trim() || null, fg_writing_number: fgWritingNumber.trim() || null }).eq('id', userId);
   return error ? { ok: false, error: error.message } : { ok: true };
 }
@@ -133,6 +157,7 @@ export async function fetchAllUsers() {
 }
 
 export async function changeUserRole(id, newRole) {
+  clearSharedPeople();
   const { error } = await supabase.from('profiles').update({ role: newRole }).eq('id', id);
   return !error ? null : error.message;
 }
@@ -141,6 +166,7 @@ export async function changeUserRole(id, newRole) {
 // through the delete-account function, which only super admins may use on
 // someone else. Their direct reports move up to their upline.
 export async function deleteUserProfile(id) {
+  clearSharedPeople();
   const { data } = await supabase.auth.getSession();
   if (!data.session) return 'You need to be signed in.';
   try {
@@ -160,11 +186,13 @@ export async function deleteUserProfile(id) {
 }
 
 export async function changeUserManager(id, newManagerId) {
+  clearSharedPeople();
   const { error } = await supabase.from('profiles').update({ manager_id: newManagerId || null }).eq('id', id);
   return !error ? null : error.message;
 }
 
 export async function changeUserTier(id, newTier) {
+  clearSharedPeople();
   const { error } = await supabase.from('profiles').update({ hierarchy_tier: newTier || null }).eq('id', id);
   return !error ? null : error.message;
 }

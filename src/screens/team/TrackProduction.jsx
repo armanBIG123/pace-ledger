@@ -5,7 +5,7 @@ import { shiftWeekStr, todayStr, weekStartOf } from '../../lib/dates.js';
 import { downloadCSV, fmtCurrency } from '../../lib/format.js';
 import { fetchAppointmentsForWeek } from '../../data/appointments.js';
 import { fetchTeamMembers } from '../../data/team.js';
-import { SkeletonTable, WeekNav } from '../../components/ui.jsx';
+import { RefreshButton, SkeletonTable, TitleInfo, WeekNav } from '../../components/ui.jsx';
 
 export function TrackProductionBody({ user }) {
   const [members, setMembers] = useState([]);
@@ -42,13 +42,12 @@ export function TrackProductionBody({ user }) {
     <>
       <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
       <div className="tr-row-head">
-        <h2 className="tr-h2"><TrendingUp size={18} /> Track production</h2>
+        <TitleInfo title={<><TrendingUp size={18} aria-hidden="true" /> Track production</>} info="Based on what's been marked Sold or Recruited in each person's follow-up for this week." />
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={handleExport} disabled={loading || members.length === 0}><Download size={14} /> Export CSV</button>
-          <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+          <RefreshButton onClick={refresh} />
         </div>
       </div>
-      <p className="tr-subtitle">Based on what's been marked Sold or Recruited in each person's follow-up for this week.</p>
       {loading ? <SkeletonTable rows={5} cols={4} /> : members.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">No team members yet.</p></div>
       ) : (

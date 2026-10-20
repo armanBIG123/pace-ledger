@@ -1,13 +1,17 @@
 // The app's entry point: loads the session and profile, then shows the right layout.
-import { useEffect, useRef, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
 import { supabase } from './supabaseClient.js';
-import { ClientIntakePublicForm } from './ClientIntake.jsx';
 import { hasDirectReports, seesTeam } from './data/team.js';
 import { connectGoogleCalendar, connectZoom, finishGoogleConnect, isGoogleOAuthReturn } from './data/integrations.js';
 import { Shell, Spinner } from './components/ui.jsx';
 import { AndroidBackLeavesApp } from './components/navigation.jsx';
+import { lazyScreen, ScreenBoundary } from './components/lazyScreen.jsx';
 import { AuthScreen, ResetPasswordScreen } from './screens/Auth.jsx';
 import { AdminView, AdvisorView, ManagerView } from './views/RoleViews.jsx';
+
+// The client intake form (opened from a link sent to a client) loads only
+// for that link.
+const ClientIntakePublicForm = lazyScreen(() => import('./ClientIntake.jsx'), 'ClientIntakePublicForm');
 
 // ---------------------------------------------------------------------
 // root — handles the Supabase session/profile lifecycle
@@ -26,7 +30,13 @@ export default function App() {
     return null;
   }
   const intakeToken = new URLSearchParams(window.location.search).get('intake');
-  if (intakeToken) return <ClientIntakePublicForm token={intakeToken} />;
+  if (intakeToken) {
+    return (
+      <ScreenBoundary wrap={Shell}>
+        <Suspense fallback={<Shell><Spinner label="Loading…" /></Shell>}><ClientIntakePublicForm token={intakeToken} /></Suspense>
+      </ScreenBoundary>
+    );
+  }
 
   const [session, setSession] = useState(undefined); // undefined = checking, null = logged out
   const [profile, setProfile] = useState(null);

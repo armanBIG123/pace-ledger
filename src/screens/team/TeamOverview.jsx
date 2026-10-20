@@ -12,7 +12,7 @@ import { shortMoney, tierInfo } from '../../lib/milestones.js';
 import { fetchAppointmentsForWeek } from '../../data/appointments.js';
 import { fetchHierarchyPeople, fetchRecentSoldAppointments, fetchTeamAppointmentsImOnToday, promotionSubjects } from '../../data/team.js';
 import { bodyScale, CelestialBody, CelestialDefs, makeStars, PaceRing, ringRadius } from '../../components/CelestialBody.jsx';
-import { PageHead, SkelBlock } from '../../components/ui.jsx';
+import { PageHead, RefreshButton, SkelBlock } from '../../components/ui.jsx';
 import { buildDailyChecklist, DailyChecklist } from './DailyChecklist.jsx';
 import { EmailButton } from '../../components/email.jsx';
 
@@ -236,7 +236,7 @@ export function TeamOverviewBody({ user, onNavigate }) {
   const wk = weekStartOf(todayStr());
   const md = d => parseDate(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   const head = <PageHead title="Team overview" sub={`Week of ${md(wk)} – ${md(fmtDate(addDays(parseDate(wk), 6)))}${state ? ` · ${state.team.length} ${state.team.length === 1 ? 'person' : 'people'} on your team` : ''}`}>
-    <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => { setState(null); load(); }}>Refresh</button>
+    <RefreshButton onClick={() => { setState(null); load(); }} />
   </PageHead>;
 
   if (!state) {

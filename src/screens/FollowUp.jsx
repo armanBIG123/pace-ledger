@@ -11,7 +11,7 @@ import { normName } from '../data/prospects.js';
 import { fetchOrgDirectory } from '../data/team.js';
 import { ContactLinks, PageHead, SkelBlock } from '../components/ui.jsx';
 import { RecruitSignupSection } from '../components/invites.jsx';
-import { FollowUpModal } from './Appointments.jsx';
+import { FollowUpModal } from '../components/followUpModal.jsx';
 
 // One-tap note starters, so logging a touch takes a second.
 export const QUICK_NOTE_TAGS = ['Called', 'Left voicemail', 'Texted', 'Emailed', 'Met in person', 'No answer'];

@@ -1,5 +1,7 @@
 // Shared building blocks: page layout, headers, loading skeletons, modals, badges and small controls.
-import { CalendarDays, ChevronLeft, ChevronRight, DollarSign, Loader2, UserPlus } from 'lucide-react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import { CalendarDays, ChevronLeft, ChevronRight, DollarSign, Info, Loader2, MoreHorizontal, RefreshCw, UserPlus } from 'lucide-react';
 import { CSS } from '../styles.js';
 import { joinedDate, weekLabel } from '../lib/dates.js';
 import { isRecruitType, isSaleType, STATUS_OPTIONS } from '../data/appointments.js';
@@ -37,6 +39,135 @@ export function PageHead({ title, sub, children }) {
       </div>
       {children ? <div className="tr-pagehead-actions">{children}</div> : null}
     </div>
+  );
+}
+
+// Closes a popover on a tap outside it or Escape.
+function useDismiss(open, setOpen, ref) {
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = e => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('pointerdown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('pointerdown', onDown); document.removeEventListener('keydown', onKey); };
+  }, [open, setOpen, ref]);
+}
+
+// Keeps a popover inside the screen: shifts it left when it would run off
+// the right edge.
+function useInScreen(open, wrapRef, popRef) {
+  useLayoutEffect(() => {
+    const pop = popRef.current; const wrap = wrapRef.current;
+    if (!open || !pop || !wrap) return;
+    pop.style.left = '0px';
+    const r = pop.getBoundingClientRect();
+    const over = r.right - (window.innerWidth - 12);
+    const under = 12 - (r.left - Math.max(0, over));
+    pop.style.left = `${-Math.max(0, over) + Math.max(0, under)}px`;
+  }, [open, wrapRef, popRef]);
+}
+
+// ⓘ next to a heading: the explanation that used to sit under it as a gray
+// paragraph, shown on tap.
+export function InfoTip({ label = 'About this', children }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const popRef = useRef(null);
+  const id = useId();
+  useDismiss(open, setOpen, ref);
+  useInScreen(open, ref, popRef);
+  return (
+    <span className="tr-info" ref={ref}>
+      <button type="button" className="tr-info-btn" aria-label={label} aria-expanded={open} aria-controls={id} onClick={() => setOpen(v => !v)}>
+        <Info size={16} aria-hidden="true" />
+      </button>
+      {open ? <span ref={popRef} id={id} role="note" className="tr-info-pop">{children}</span> : null}
+    </span>
+  );
+}
+
+// A screen or section title with its ⓘ explanation.
+export function TitleInfo({ title, info, as: Tag = 'h2', className = 'tr-h2', id }) {
+  return (
+    <div className="tr-titleline">
+      <Tag className={className} id={id}>{title}</Tag>
+      {info ? <InfoTip label={`About ${typeof title === 'string' ? title : 'this'}`}>{info}</InfoTip> : null}
+    </div>
+  );
+}
+
+export function RefreshButton({ onClick }) {
+  return (
+    <button type="button" className="tr-icon-btn tr-icon-btn-line" onClick={onClick} aria-label="Refresh" title="Refresh">
+      <RefreshCw size={15} aria-hidden="true" />
+    </button>
+  );
+}
+
+// ⋯ with the less common actions for a row (undo, a second email...).
+// items: [{ label, onClick, disabled }]; empty items show a spacer so the
+// rows still line up.
+export function MoreMenu({ items, label = 'More actions' }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useDismiss(open, setOpen, ref);
+  const list = (items || []).filter(Boolean);
+  if (!list.length) return <span className="tr-more-spacer" aria-hidden="true" />;
+  return (
+    <span className="tr-more" ref={ref}>
+      <button type="button" className="tr-icon-btn" aria-label={label} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(v => !v)}>
+        <MoreHorizontal size={18} aria-hidden="true" />
+      </button>
+      {open ? (
+        <span role="menu" className="tr-more-pop">
+          {list.map(it => (
+            <button key={it.label} type="button" role="menuitem" className="tr-more-item" disabled={it.disabled}
+              onClick={() => { setOpen(false); it.onClick(); }}>{it.label}</button>
+          ))}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+// True on phone-sized screens; follows rotation and window resizing.
+const PHONE_QUERY = '(max-width: 640px)';
+export function useIsPhone() {
+  const [phone, setPhone] = useState(() => typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia(PHONE_QUERY).matches);
+  useEffect(() => {
+    if (!window.matchMedia) return undefined;
+    const mq = window.matchMedia(PHONE_QUERY);
+    const on = () => setPhone(mq.matches);
+    on();
+    if (mq.addEventListener) { mq.addEventListener('change', on); return () => mq.removeEventListener('change', on); }
+    mq.addListener(on); return () => mq.removeListener(on);
+  }, []);
+  return phone;
+}
+
+// A sheet that slides up from the bottom of the screen (phones). Tapping
+// outside doesn't close it, so nothing typed is lost; Escape or the
+// sheet's own close button does.
+export function Sheet({ labelledBy, onClose, children }) {
+  const ref = useRef(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = e => { if (e.key === 'Escape') closeRef.current(); };
+    window.addEventListener('keydown', onKey);
+    return () => { document.body.style.overflow = prev; window.removeEventListener('keydown', onKey); };
+  }, []);
+  return createPortal(
+    <div className="tr-fsheet-backdrop">
+      <div ref={ref} className="tr-fsheet" role="dialog" aria-modal="true" aria-labelledby={labelledBy}>
+        <div className="tr-fsheet-grab" aria-hidden="true" />
+        {children}
+      </div>
+    </div>,
+    document.querySelector('.tr-root') || document.body,
   );
 }
 

@@ -10,7 +10,7 @@ import { personInitials, shortName } from '../../lib/format.js';
 import { BodyIcon, bodyName, bodyScale, CelestialBody, CelestialDefs, makeStars, PaceRing, ringRadius } from '../../components/CelestialBody.jsx';
 import { fetchAppointmentsForWeek } from '../../data/appointments.js';
 import { fetchHierarchyPeople, fetchRecentSoldAppointments, promotionSubjects } from '../../data/team.js';
-import { SkeletonTable, StatusBadge, WeekNav } from '../../components/ui.jsx';
+import { RefreshButton, SkeletonTable, StatusBadge, TitleInfo, WeekNav } from '../../components/ui.jsx';
 import { MilestoneCard } from './MilestoneCard.jsx';
 
 // Solar system view of the org chart: the person in focus is the centre, the
@@ -455,11 +455,10 @@ export function OrgChartBody({ user, onOpenPromotion, initialIntent, onIntentCon
   return (
     <>
       <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
-      <div className="tr-row-head">
-        <h2 className="tr-h2"><Network size={18} /> Org chart</h2>
-        <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={load}>Refresh</button>
+      <div className="tr-row-head tr-screen-head">
+        <TitleInfo title={<><Network size={18} aria-hidden="true" /> Org chart</>} info="Who reports to whom, with each person's appointment pace for the week. Open a name to see their team." />
+        <RefreshButton onClick={load} />
       </div>
-      <p className="tr-subtitle">Who reports to whom, with each person's appointment pace for the week. Open a name to see their team.</p>
       {loading ? <SkeletonTable rows={6} cols={3} /> : visiblePeople.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">No one to show yet.</p></div>
       ) : (

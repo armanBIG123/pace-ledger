@@ -8,7 +8,7 @@ import { fetchAppointmentsInRange, isRecruitType, isSaleType, typeLabel } from '
 import { createTraining, deleteTraining, deleteTrainingSeries, fetchTrainingsInRange } from '../data/trainings.js';
 import { fetchTeamMembers, seesTeam } from '../data/team.js';
 import { connectGoogleCalendar, disconnectGoogleCalendar, fetchGoogleConnectionStatus, fetchGoogleEvents, googleEventTimeKey } from '../data/integrations.js';
-import { Modal, openPicker, PageHead, SkeletonCalendar } from '../components/ui.jsx';
+import { Modal, openPicker, PageHead, RefreshButton, SkeletonCalendar } from '../components/ui.jsx';
 import { GoogleCalendarConnect } from '../components/integrations.jsx';
 
 // ---------------------------------------------------------------------
@@ -364,7 +364,7 @@ export function CalendarBody({ user, onLogAppointment }) {
         <div className="tr-weeknav-label"><CalendarDays size={16} /><span>{monthLabel}</span></div>
         <button className="tr-icon-btn" onClick={() => setMonthStartStr(shiftMonth(monthStartStr, 1))} title="Next month"><ChevronRight size={18} /></button>
         <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setMonthStartStr(monthStartOf(todayStr()))}>This month</button>
-        <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+        <RefreshButton onClick={refresh} />
         <button
           type="button" className={`tr-btn tr-btn-sm ${highlightTrainings ? 'tr-btn-brass' : 'tr-btn-ghost'}`}
           onClick={() => setHighlightTrainings(v => !v)} title="Highlight days with trainings">

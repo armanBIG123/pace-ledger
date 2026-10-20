@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { Users } from 'lucide-react';
 import { fetchAllVisibleProspects, prospectLeaningKey, prospectTotalChecked } from '../../data/prospects.js';
 import { fetchTeamMembers } from '../../data/team.js';
-import { MemberSubline, SkeletonTable } from '../../components/ui.jsx';
+import { MemberSubline, RefreshButton, SkeletonTable, TitleInfo } from '../../components/ui.jsx';
 import { ProspectCard, ProspectFunnel } from '../Prospecting.jsx';
 
 // ---------------------------------------------------------------------
@@ -34,13 +34,10 @@ export function TeamProspectingBody({ user }) {
 
   return (
     <>
-      <div className="tr-row-head">
-        <h2 className="tr-h2"><Users size={18} /> Team prospecting</h2>
-        <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+      <div className="tr-row-head tr-screen-head">
+        <TitleInfo title={<><Users size={18} aria-hidden="true" /> Team prospecting</>} info="Tap a row to see that person's actual prospect list, the same detail you'd see reviewing it with them directly." />
+        <RefreshButton onClick={refresh} />
       </div>
-      <p className="tr-subtitle">
-        Click a row to see that person's actual prospect list — same detail you'd see reviewing it with them directly.
-      </p>
       {loading ? <SkeletonTable rows={5} cols={6} /> : members.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">No team members yet.</p></div>
       ) : (
