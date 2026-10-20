@@ -434,7 +434,7 @@ export function PolicyCard({ policy, canEdit, currentUser, onSaved }) {
       <div className="tr-policy-head">
         <div>
           <strong>{policy.client}</strong>
-          <div className="tr-note">{policy.presenter} · Sold {fmtApptDateTime(policy)}</div>
+          <div className="tr-note">{policy.presenter} · Submitted {fmtApptDateTime(policy)}</div>
         </div>
         <div className="tr-mono tr-policy-premium">{fmtCurrency(policy.targetPremium)}</div>
       </div>
@@ -499,10 +499,10 @@ export function OpenRequirementsBody({ view, user }) {
   return (
     <>
       <div className="tr-row-head tr-screen-head">
-        <TitleInfo className="tr-section-title" title={view === 'issued' ? 'Issued Premium' : 'Sold Premium'}
+        <TitleInfo className="tr-section-title" title={view === 'issued' ? 'Issued Premium' : 'Submitted Premium'}
           info={view === 'issued'
             ? 'Policies whose effective date has arrived and all requirements are complete.'
-            : 'Sold policies still waiting on their effective date and/or open requirements.'} />
+            : 'Submitted policies still waiting on their effective date and/or open requirements. Your leaders can see these too and add notes to help get them issued.'} />
         <RefreshButton onClick={refresh} />
       </div>
       {loading ? <SkeletonCards count={2} /> : filtered.length === 0 ? (
@@ -810,7 +810,7 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
           type="button"
           className={`tr-sidebar-item tr-sidebar-item-amber ${statusView === SOLD_PREMIUM_VIEW ? 'tr-sidebar-item-active' : ''}`}
           onClick={() => setStatusView(SOLD_PREMIUM_VIEW)}>
-          <span>Sold Premium</span>
+          <span>Submitted Premium</span>
         </button>
         <button
           type="button"

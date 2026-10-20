@@ -41,7 +41,7 @@ export function PaycheckCard({ user, appointments, plan, onNavigate }) {
             {p.issuedEst > 0 && p.issuedEst < p.est ? <li>{money(p.issuedEst)} of it is from policies already issued</li> : null}
             {p.lastEst > 0 ? <li>Last month: {money(p.lastEst)}</li> : null}
             {p.next && p.premium > 0 ? <li className="tr-pay-next">At {p.next.name} ({p.next.commission}%), this month would be {money(p.nextEst)}</li> : null}
-            {p.missingPremium > 0 ? <li className="tr-pay-warn">{p.missingPremium} sale{p.missingPremium === 1 ? ' has' : 's have'} no target premium yet. Add it under Sold Premium.</li> : null}
+            {p.missingPremium > 0 ? <li className="tr-pay-warn">{p.missingPremium} sale{p.missingPremium === 1 ? ' has' : 's have'} no target premium yet. Add it under Submitted Premium.</li> : null}
           </ul>
         </>
       ) : (

@@ -1609,6 +1609,16 @@ export const CSS = `
 .tr-screen-failed p { margin: 0 0 6px; color: var(--slate-light); font-size: 14px; }
 .tr-count-line { margin: 0 0 10px; font-size: 14px; color: var(--slate-light); }
 .tr-count-line strong { color: var(--ink); font-weight: 700; }
+.tr-count-line .tr-count-warn { color: var(--rust); }
+.tr-seg-view { margin: 0 0 12px; align-self: flex-start; width: max-content; max-width: 100%; }
+/* Submitted, not issued */
+.tr-pend-item + .tr-pend-item { border-top: 1px solid var(--line); }
+.tr-pend-premium { margin-left: 6px; font-size: 13px; color: var(--ink); }
+.tr-pend-note { margin-top: 4px; font-size: 12.5px; color: var(--slate); font-style: italic; }
+.tr-pend-note span { font-style: normal; color: var(--slate-light); margin-left: 4px; }
+.tr-pend-open { padding: 0 16px 14px 36px; }
+.tr-pend-open .tr-policy-card { margin: 0; }
+.tr-pend-foot { font-size: 12px; color: var(--slate-light); margin: 10px 2px 0; }
 .tr-promo-ready-text { display: inline-flex; align-items: center; gap: 3px; font-size: 13.5px; font-weight: 600; color: var(--green); }
 .tr-promo-waiting-text { font-size: 13px; font-weight: 600; color: var(--brass-dark); }
 .tr-ft-card .tr-titleline { margin: 0 0 8px; }

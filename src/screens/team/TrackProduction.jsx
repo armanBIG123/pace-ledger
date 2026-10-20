@@ -1,4 +1,4 @@
-// Track Production: sales, sold premium and recruits for the week, counted
+// Track Production: sales, submitted premium and recruits for the week, counted
 // in the week the appointment took place (whenever it was booked).
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import { ChevronDown, ChevronUp, Download, TrendingUp } from 'lucide-react';
@@ -7,6 +7,7 @@ import { downloadCSV, fmtCurrency } from '../../lib/format.js';
 import { fetchAppointmentsHeldInWeek, isPolicyIssued } from '../../data/appointments.js';
 import { fetchTeamMembers } from '../../data/team.js';
 import { RefreshButton, SkeletonTable, TitleInfo, WeekNav } from '../../components/ui.jsx';
+import { PendingIssueView } from './PendingIssue.jsx';
 
 const byTime = list => list.slice().sort((a, b) => apptStartMs(a) - apptStartMs(b));
 const withWhom = a => (a.presenter && a.presenterId !== a.userId ? ` · with ${a.presenter}` : '');
@@ -52,6 +53,8 @@ export function TrackProductionBody({ user }) {
   const [loading, setLoading] = useState(true);
   const [weekMonday, setWeekMonday] = useState(weekStartOf(todayStr()));
   const [expanded, setExpanded] = useState(null);
+  const [view, setView] = useState('week'); // 'week' | 'pending'
+  const [pendingKey, setPendingKey] = useState(0);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -76,12 +79,34 @@ export function TrackProductionBody({ user }) {
   }
 
   function handleExport() {
-    const rows = [['Team member', 'Role', 'Sales', 'Sold premium', 'Sales with no premium entered', 'Recruits']];
+    const rows = [['Team member', 'Role', 'Sales', 'Submitted premium', 'Sales with no premium entered', 'Recruits']];
     members.forEach(m => {
       const t = tally(m);
       rows.push([m.display_name, m.role, t.sold.length, t.premium, t.noPremium, t.recruited.map(a => a.client).join('; ')]);
     });
     downloadCSV(`track-production-week-of-${weekMonday}.csv`, rows);
+  }
+
+  const switcher = (
+    <div className="tr-seg tr-seg-view" role="group" aria-label="Show">
+      <button type="button" className={view === 'week' ? 'tr-seg-on' : ''} aria-pressed={view === 'week'} onClick={() => setView('week')}>This week</button>
+      <button type="button" className={view === 'pending' ? 'tr-seg-on' : ''} aria-pressed={view === 'pending'} onClick={() => setView('pending')}>Submitted, not issued</button>
+    </div>
+  );
+
+  if (view === 'pending') {
+    return (
+      <>
+        <div className="tr-row-head tr-screen-head">
+          <TitleInfo title={<><TrendingUp size={18} aria-hidden="true" /> Track production</>} info="Every policy someone on your team has submitted that isn't issued yet, oldest first. Open one to see its notes and add your own, or email the advisor to help get it issued." />
+          <RefreshButton onClick={() => { refresh(); setPendingKey(k => k + 1); }} />
+        </div>
+        {switcher}
+        {loading ? <SkeletonTable rows={5} cols={3} /> : members.length === 0 ? (
+          <div className="tr-card"><p className="tr-empty">No team members yet.</p></div>
+        ) : <PendingIssueView key={pendingKey} user={user} members={members} />}
+      </>
+    );
   }
 
   return (
@@ -94,13 +119,14 @@ export function TrackProductionBody({ user }) {
           <RefreshButton onClick={refresh} />
         </div>
       </div>
+      {switcher}
       {loading ? <SkeletonTable rows={5} cols={4} /> : members.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">No team members yet.</p></div>
       ) : (
         <div className="tr-card tr-summary-card">
           <div className="tr-table-wrap">
             <table className="tr-table tr-table-summary">
-              <thead><tr><th>Team member</th><th>Sales</th><th>Sold premium</th><th>Recruits</th></tr></thead>
+              <thead><tr><th>Team member</th><th>Sales</th><th>Submitted premium</th><th>Recruits</th></tr></thead>
               <tbody>
                 {members.map(m => {
                   const { sold, recruited, premium, noPremium } = tally(m);
