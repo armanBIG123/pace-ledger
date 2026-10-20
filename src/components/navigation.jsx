@@ -10,14 +10,14 @@ import { minimizeAndroidApp, onAndroidBack } from '../native.js';
 // nothing hides off the edge of the screen.
 // ---------------------------------------------------------------------
 // Pipeline = Prospecting + My Appointments + Follow Up; Growth = Milestones
-// + Business Plan + paycheck; Resources = Documents. `phone: false` keeps a
-// tab off the phone's bottom bar (Resources sits inside Growth there).
+// + Business Plan + paycheck; Resources = Documents (PDFs, PowerPoints and
+// important links), on the phone's bottom bar too.
 export const MY_WORK_TABS = [
   { id: 'overview', label: 'Today', short: 'Today', Icon: Sun },
   { id: 'pipeline', label: 'Pipeline', short: 'Pipeline', Icon: Kanban },
   { id: 'calendar', label: 'Calendar', short: 'Calendar', Icon: Calendar },
   { id: 'growth', label: 'Growth', short: 'Growth', Icon: TrendingUp },
-  { id: 'resources', label: 'Resources', short: 'Resources', Icon: FolderOpen, phone: false },
+  { id: 'resources', label: 'Resources', short: 'Resources', Icon: FolderOpen },
 ];
 
 export const TEAM_TABS = [
@@ -32,9 +32,8 @@ export const ADMIN_TEAM_TABS = [...TEAM_TABS, { id: 'clientforms', label: 'Clien
 
 export function TabNav({ tabs, tab, onSelect, onNew }) {
   const [moreOpen, setMoreOpen] = useState(false);
-  const barTabs = tabs.filter(t => t.phone !== false);
-  const primary = barTabs.length > 5 ? barTabs.slice(0, 4) : barTabs;
-  const overflow = barTabs.length > 5 ? barTabs.slice(4) : [];
+  const primary = tabs.length > 5 ? tabs.slice(0, 4) : tabs;
+  const overflow = tabs.length > 5 ? tabs.slice(4) : [];
   const inOverflow = overflow.some(t => t.id === tab);
   function pick(id) {
     setMoreOpen(false);
