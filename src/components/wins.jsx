@@ -57,8 +57,8 @@ function whoList(names) {
 
 const KIND_WORD = { sale: 'sale', first_sale: 'first sale', recruit: 'recruit', joined: 'welcome', licensed: 'license', promotion: 'promotion' };
 
-// compact: Today's side column (3 wins, then "See all"; only the leader of
-// each top-3 list, plus where you rank).
+// compact: Today's side column (3 wins, then "See all", and the top 3
+// lists in full).
 export function TeamWinsSection({ user, compact = false }) {
   const first0 = compact ? 3 : PAGE;
   const [wins, setWins] = useState(null);
@@ -200,7 +200,7 @@ export function TeamWinsSection({ user, compact = false }) {
               <div className="tr-top3-label">{label}</div>
               {top3[key].length === 0 ? <p className="tr-top3-empty">Nobody yet this week. Be the first!</p> : (
                 <ol className="tr-top3-list">
-                  {(compact ? top3[key].slice(0, 1) : top3[key]).map((r, i) => (
+                  {top3[key].map((r, i) => (
                     <li key={r.user_id} className={r.user_id === user.id ? 'tr-top3-you' : ''}>
                       <span className="tr-top3-medal" aria-hidden="true">{['🥇', '🥈', '🥉'][i]}</span>
                       <span className="tr-top3-name">{r.display_name}{r.user_id === user.id ? <span className="tr-org-you">you</span> : null}</span>
@@ -209,9 +209,7 @@ export function TeamWinsSection({ user, compact = false }) {
                   ))}
                 </ol>
               )}
-              {compact && top3[key].findIndex(r => r.user_id === user.id) > 0 ? (
-                <div className="tr-top3-rank">You're #{top3[key].findIndex(r => r.user_id === user.id) + 1} · {top3[key].find(r => r.user_id === user.id).n}</div>
-              ) : null}
+
             </div>
           ))}
         </section>

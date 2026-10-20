@@ -1711,7 +1711,6 @@ export const CSS = `
 /* Today → wins in the side column */
 .tr-wins-compact { grid-template-columns: 1fr; margin-top: 0; gap: 16px; }
 .tr-wins-compact .tr-wins-sub { margin-bottom: 6px; }
-.tr-top3-rank { font-size: 12px; font-weight: 600; color: var(--brass-dark); margin: 2px 0 0 8px; }
 @media (max-width: 760px) {
   .tr-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .tr-tile { padding: 10px 12px; }
