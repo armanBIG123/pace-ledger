@@ -81,7 +81,7 @@ export function isPastAppointment(a) {
   return dt.getTime() < Date.now();
 }
 
-// A sold policy moves from "Submitted Premium" to "Issued Premium" once the
+// A sold policy moves from "Sold Premium" to "Issued Premium" once the
 // effective date has arrived AND requirements are marked complete —
 // computed live, nothing needs to manually "move" it.
 export function isPolicyIssued(a) {
@@ -128,17 +128,6 @@ export async function fetchPolicyNotes(appointmentId) {
   const { data, error } = await supabase
     .from('policy_notes').select('*').eq('appointment_id', appointmentId)
     .order('created_at', { ascending: true });
-  if (error) { console.error(error); return []; }
-  return data;
-}
-
-// Notes for several policies at once, newest first (for the leaders'
-// "submitted, not issued" list).
-export async function fetchPolicyNotesFor(appointmentIds) {
-  if (!appointmentIds.length) return [];
-  const { data, error } = await supabase
-    .from('policy_notes').select('*').in('appointment_id', appointmentIds)
-    .order('created_at', { ascending: false }).limit(1000);
   if (error) { console.error(error); return []; }
   return data;
 }
