@@ -21,6 +21,18 @@ export function isAndroidApp() {
   try { return Capacitor.getPlatform() === 'android'; } catch { return false; }
 }
 
+// Picking a photo. In the iPhone app, the photo picker offers "Take Photo",
+// and iPhones close an app that opens the camera without a note in its
+// settings saying why. That note is in every app build after 1.0.0, so the
+// 1.0.0 app sends people to the website for this instead.
+export async function canPickPhotos() {
+  if (!isNativeApp() || isAndroidApp()) return true;
+  try {
+    const info = await CapApp.getInfo();
+    return !!(info && info.version && info.version !== '1.0.0');
+  } catch { return false; }
+}
+
 // Base for shareable links: the real site when running in the app,
 // otherwise wherever this page is being served from.
 export function publicBaseUrl() {

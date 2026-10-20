@@ -6,7 +6,9 @@ import { fetchMyOnboarding, onboardingDay, setOnboardingVisibility, shouldShowOn
 import { PUBLIC_SITE_URL } from '../native.js';
 import { deleteMyAccount, signOut } from '../data/auth.js';
 import { fetchMyLicensing, updateMyProfile } from '../data/team.js';
+import { avatarUrl, removeAllMyAvatarFiles } from '../data/avatars.js';
 import { InviteShare } from './invites.jsx';
+import { ProfilePhoto } from './profilePhoto.jsx';
 
 // The navy band at the top: brand, search, + New and account on one row,
 // and (when a view passes `nav`) the section tabs on a second row, so
@@ -32,6 +34,7 @@ export function Header({ user, nav, search, onNew, chat }) {
           {chat || null}
           {onNew ? <button type="button" className="tr-btn tr-btn-brass tr-btn-sm tr-header-new" onClick={onNew} aria-haspopup="menu"><Plus size={15} /> New</button> : null}
           <button type="button" className="tr-header-account" onClick={() => { setFocusName(false); setAccountOpen(true); }} title="Your account and profile">
+            {user.avatarPath ? <img className="tr-header-avatar" src={avatarUrl(user.avatarPath)} alt="" aria-hidden="true" /> : null}
             <span className="tr-header-name">{user.displayName}</span>
             <span className="tr-header-firstname">{(user.displayName || '').trim().split(/\s+/)[0]}</span>
             <span className="tr-header-role">{user.role === 'super_admin' ? 'Admin' : user.role}</span>
@@ -206,6 +209,7 @@ export function AccountSheet({ user, focusName = false, onClose }) {
   const [error, setError] = useState('');
   async function handleDelete() {
     setBusy(true); setError('');
+    await removeAllMyAvatarFiles(user.id);
     const res = await deleteMyAccount();
     if (!res.ok) {
       setBusy(false);
@@ -223,6 +227,7 @@ export function AccountSheet({ user, focusName = false, onClose }) {
           <h3 className="tr-h3" id="tr-account-title" style={{ margin: 0 }}>Your account</h3>
           <button type="button" className="tr-icon-btn" onClick={onClose} aria-label="Close"><X size={16} /></button>
         </div>
+        <ProfilePhoto user={user} />
         <ProfileForm user={user} focusName={focusName} />
         <dl className="tr-account-list">
           <div><dt>Email</dt><dd>{user.email || '—'}</dd></div>
@@ -244,7 +249,7 @@ export function AccountSheet({ user, focusName = false, onClose }) {
             <>
               <h4 className="tr-h4" style={{ color: 'var(--rust)' }}>Delete your account permanently</h4>
               <p className="tr-account-warn">
-                This deletes your login and everything you've added: appointments, prospects, follow-up notes, your business plan,
+                This deletes your login and everything you've added: your profile photo, appointments, prospects, follow-up notes, your business plan,
                 client intake forms you sent, and your Google Calendar and Zoom connections. It can't be undone.
                 Anyone who reports to you will move up to report to your upline.
               </p>

@@ -93,6 +93,10 @@ workflows:
           # Status bar text stays light on the navy header.
           $PB -c "Delete :UIStatusBarStyle" "$PLIST" 2>/dev/null || true
           $PB -c "Add :UIStatusBarStyle string UIStatusBarStyleLightContent" "$PLIST"
+          # Profile photos: the photo picker offers "Take Photo", and iOS closes
+          # any app that opens the camera without saying why.
+          plutil -replace NSCameraUsageDescription -string "PaceLedger uses the camera only when you choose to take a profile photo." "$PLIST"
+          plutil -replace NSPhotoLibraryUsageDescription -string "PaceLedger opens your photos only when you choose a profile photo." "$PLIST"
           # iPhone only (no iPad screenshots or iPad review needed).
           sed -i '' 's/TARGETED_DEVICE_FAMILY = "1,2";/TARGETED_DEVICE_FAMILY = 1;/g' ios/App/App.xcodeproj/project.pbxproj
 
