@@ -1,15 +1,16 @@
 // Follow Up: past appointments, notes, next steps, intake forms and recruit sign-up.
 import { useEffect, useState } from 'react';
-import { ChevronDown, ChevronUp, Plus, Search, Trash2, X } from 'lucide-react';
+import { CheckCheck, ChevronDown, ChevronUp, Plus, Presentation, Search, Trash2, X } from 'lucide-react';
 import { supabase } from '../supabaseClient.js';
 import { createClientIntakeCandidate, deleteClientIntakeCandidate, fetchClientIntakeCandidates } from '../clientIntake.js';
 import { ClientIntakeSection } from '../ClientIntake.jsx';
 import { addFollowUpNote, deleteFollowUpNote, fetchMyFollowUpNotes } from '../followUpNotes.js';
 import { daysSince, fmtApptDateTime, fmtFollowUpDateTime, fmtNoteStamp } from '../lib/dates.js';
-import { applyFollowUpToList, fetchMyAppointments, isPastAppointment, isRecruitType, isSaleType, OUTCOME_OPTIONS, persistFollowUp, STATUS_OPTIONS, typeLabel } from '../data/appointments.js';
+import { applyFollowUpToList, fetchAppointmentsImOn, fetchMyAppointments, isPastAppointment, isRecruitType, isSaleType, loggedSummary, logPresentedAppointment, OUTCOME_OPTIONS, persistFollowUp, STATUS_OPTIONS, typeLabel } from '../data/appointments.js';
 import { normName } from '../data/prospects.js';
 import { fetchOrgDirectory } from '../data/team.js';
-import { ContactLinks, PageHead, SkelBlock } from '../components/ui.jsx';
+import { PageHead, SkelBlock } from '../components/ui.jsx';
+import { appointmentTexts, ContactRow } from '../components/contact.jsx';
 import { RecruitSignupSection } from '../components/invites.jsx';
 import { FollowUpModal } from '../components/followUpModal.jsx';
 
@@ -17,13 +18,17 @@ import { FollowUpModal } from '../components/followUpModal.jsx';
 export const QUICK_NOTE_TAGS = ['Called', 'Left voicemail', 'Texted', 'Emailed', 'Met in person', 'No answer'];
 
 export const FOLLOW_UP_VIEW_TITLES = {
-  all: 'All past appointments', nolog: 'Outcome not logged', needs: 'Needs follow-up', reschedule: 'Needs reschedule',
+  all: 'All past appointments', nolog: 'Outcome not logged', presented: 'You presented', needs: 'Needs follow-up', reschedule: 'Needs reschedule',
   completed: 'Completed', not_completed: "Didn't happen",
   nointake: 'Intake not started', sent: 'Intake link sent', received: 'Intake received',
   recruit_open: 'Recruits not signed up yet', recruit_joined: 'Recruits signed up',
 };
 
-const ALL_VIEWS = ['all', 'nolog', 'needs', 'reschedule', 'completed', 'not_completed', 'nointake', 'sent', 'received', 'recruit_open', 'recruit_joined'];
+const ALL_VIEWS = ['all', 'nolog', 'presented', 'needs', 'reschedule', 'completed', 'not_completed', 'nointake', 'sent', 'received', 'recruit_open', 'recruit_joined'];
+// "You presented": appointments your team booked that you presented, from
+// the last 30 days. You can log how they went; the advisor's own log stands.
+export const PRESENTED_DAYS = 30;
+
 const intentView = i => (i === 'intake' ? 'nointake' : i);
 
 // views: which of the lists above this screen offers (Pipeline shows "Log
@@ -44,6 +49,8 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
   const [modalSaving, setModalSaving] = useState(false);
   const [busyId, setBusyId] = useState(null);
   const [orgDirectory, setOrgDirectory] = useState([]);
+  const [presented, setPresented] = useState([]);
+  const [presentedTarget, setPresentedTarget] = useState(null);
 
   useEffect(() => { if (initialIntent) onIntentConsumed?.(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Requests that arrive while this tab is already open (+ New → Log how it went).
@@ -52,9 +59,13 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
   }, [initialIntent]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     let alive = true;
-    Promise.all([fetchMyAppointments(user.id), fetchMyFollowUpNotes(user.id), fetchClientIntakeCandidates(user.id), fetchOrgDirectory()]).then(([a, n, c, org]) => {
+    Promise.all([
+      fetchMyAppointments(user.id), fetchMyFollowUpNotes(user.id), fetchClientIntakeCandidates(user.id), fetchOrgDirectory(),
+      views.includes('presented') ? fetchAppointmentsImOn(user.id).catch(() => []) : Promise.resolve([]),
+    ]).then(([a, n, c, org, on]) => {
       if (!alive) return;
       setOrgDirectory(org);
+      setPresented(on.filter(x => x.presentingFor));
       setAppointments(a);
       setNotes(n);
       setCandidates(c.filter(x => x.advisor_id === user.id));
@@ -88,9 +99,13 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
     if (v === 'not_completed') return a.status === 'not_completed';
     return intakeState(a) === (v === 'nointake' ? 'none' : v);
   };
+  const presentedFrom = Date.now() - PRESENTED_DAYS * 864e5;
+  const presentedPast = presented.filter(a => isPastAppointment(a) && apptTime(a) >= presentedFrom).sort((a, b) => apptTime(b) - apptTime(a));
+  const nameOf = id => (orgDirectory.find(p => p.id === id) || {}).display_name || '';
   const counts = {
     all: past.length,
     nolog: past.filter(a => matchesView(a, 'nolog')).length,
+    presented: presentedPast.filter(a => !a.followUpCompletedAt).length,
     reschedule: past.filter(a => matchesView(a, 'reschedule')).length,
     completed: past.filter(a => matchesView(a, 'completed')).length,
     not_completed: past.filter(a => matchesView(a, 'not_completed')).length,
@@ -102,9 +117,11 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
     received: past.filter(a => intakeState(a) === 'received').length,
   };
   const q = searchQuery.trim().toLowerCase();
-  const list = past
+  const qDigits = q.replace(/\D/g, '');
+  const found = a => !q || a.client.toLowerCase().includes(q) || (qDigits.length >= 3 && (a.clientPhone || '').replace(/\D/g, '').includes(qDigits));
+  const list = view === 'presented' ? presentedPast.filter(found) : past
     .filter(a => matchesView(a, view))
-    .filter(a => !q || a.client.toLowerCase().includes(q));
+    .filter(found);
 
   async function handleSaveOutcome(id, data) {
     setModalSaving(true);
@@ -119,6 +136,28 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
       setCandidates(c.filter(x => x.advisor_id === user.id));
     }
     setModalTarget(null);
+  }
+  // One you presented: saved on the advisor's appointment, so the sale or
+  // recruit counts for them.
+  async function handlePresentedSave(id, data) {
+    setModalSaving(true);
+    const original = presented.find(a => a.id === id);
+    const res = await logPresentedAppointment(id, data);
+    setModalSaving(false);
+    const who = original && original.setByName ? original.setByName.split(' ')[0] : 'The advisor';
+    if (!res.ok) {
+      if (/already_logged/.test(res.error || '')) {
+        setPresentedTarget(null);
+        setFlash(`${who} already logged this one, so it's theirs to change.`);
+        const on = await fetchAppointmentsImOn(user.id).catch(() => null);
+        if (on) setPresented(on.filter(x => x.presentingFor));
+      } else setFlash("Couldn't save. Check your connection and try again.");
+      return;
+    }
+    setPresented(prev => prev.map(a => (a.id === id ? { ...a, ...res.record } : a)));
+    window.dispatchEvent(new Event('paceledger:appointments-changed'));
+    setPresentedTarget(null);
+    setFlash(`Saved — ${res.record.client}. ${who} will see it on their Today.${res.followUp ? ` The follow-up is on ${who === 'The advisor' ? 'their' : `${who}'s`} list.` : ''}`);
   }
   // "Pick a new time" in the log window moved it back to upcoming.
   function handleRescheduled(rec, info) {
@@ -170,30 +209,56 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
     <div className="tr-appts-shell">
       <nav className="tr-appts-sidebar">
         {[
-          ['To do', [['nolog', 'Outcome not logged', 'rust'], ['needs', 'Needs follow-up', 'amber'], ['reschedule', 'Needs reschedule', 'violet']]],
+          ['To do', [['nolog', 'Outcome not logged', 'rust'], ['presented', 'You presented', 'blue'], ['needs', 'Needs follow-up', 'amber'], ['reschedule', 'Needs reschedule', 'violet']]],
           ['Done', [['completed', 'Completed', 'green'], ['not_completed', "Didn't happen", 'rust']]],
           ['Client intake', [['nointake', 'Intake not started', 'none'], ['sent', 'Intake link sent', 'amber'], ['received', 'Intake received', 'green']]],
           ['Recruits', [['recruit_open', 'Recruit not signed up', 'recruit'], ['recruit_joined', 'Recruit signed up', 'green']]],
           ['', [['all', 'All past', 'week']]],
         ].map(([group, items]) => {
-          const shown = items.filter(([v]) => views.includes(v));
+          // "You presented" only for people who present for their team.
+          const shown = items.filter(([v]) => views.includes(v) && (v !== 'presented' || presentedPast.length > 0 || view === 'presented'));
           if (!shown.length) return null;
           return [group && views.length > shown.length ? <div key={`d-${group}`} className="tr-sidebar-divider">{group}</div> : null, ...shown.map(([v, label, color]) => navBtn(v, label, color))];
         })}
       </nav>
       <div className="tr-appts-main">
         <PageHead title={FOLLOW_UP_VIEW_TITLES[view] || 'Follow up'}
-          sub={view === 'all' ? `${past.length} past appointment${past.length === 1 ? '' : 's'}${counts.nolog ? ` · ${counts.nolog} still need an outcome` : ''}` : `${list.length} of ${past.length} past appointments`} />
+          sub={view === 'presented'
+            ? `Your team booked these and you presented them (last ${PRESENTED_DAYS} days). Log how they went; the sale or recruit still counts for the person who booked it.`
+            : view === 'all' ? `${past.length} past appointment${past.length === 1 ? '' : 's'}${counts.nolog ? ` · ${counts.nolog} still need an outcome` : ''}` : `${list.length} of ${past.length} past appointments`} />
         {flash ? <div className="tr-flash" role="status">{flash}</div> : null}
         <div className="tr-search-row">
           <Search size={15} className="tr-search-icon" />
-          <input className="tr-search-input" type="text" placeholder="Search by client name…" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+          <input className="tr-search-input" type="text" placeholder="Search by client name or phone…" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
           {searchQuery && <button type="button" className="tr-icon-btn" onClick={() => setSearchQuery('')} title="Clear search"><X size={15} /></button>}
         </div>
         <div className="tr-fu-list">
         {list.length === 0 ? (
-          <div className="tr-card"><p className="tr-empty">{past.length === 0 ? 'Appointments land here once their time has passed.' : 'Nothing matches this view.'}</p></div>
-        ) : list.map(a => {
+          <div className="tr-card"><p className="tr-empty">{view === 'presented' ? `Nothing you presented in the last ${PRESENTED_DAYS} days${q ? ' matches' : ''}.` : past.length === 0 ? 'Appointments land here once their time has passed.' : 'Nothing matches this view.'}</p></div>
+        ) : view === 'presented' ? list.map(a => {
+          const loggedByMe = a.outcomeLoggedBy === user.id;
+          const logger = loggedByMe ? 'you' : (a.outcomeLoggedBy ? nameOf(a.outcomeLoggedBy) : '') || a.setByName || 'the advisor';
+          return (
+            <div className="tr-card tr-fu-card" key={a.id}>
+              <div className="tr-fu-head tr-fu-head-static">
+                <div>
+                  <strong>{a.client}</strong>
+                  {typeLabel(a) ? <span className="tr-empty"> · {typeLabel(a)}</span> : null}
+                  <span className="tr-presented-tag"><Presentation size={12} aria-hidden="true" /> You presented</span>
+                  <div className="tr-empty" style={{ margin: 0 }}>{fmtApptDateTime(a)}{a.setByName ? <> · set by <strong className="tr-fu-setby">{a.setByName}</strong></> : null}</div>
+                  {a.followUpCompletedAt ? (
+                    <div className="tr-fu-logged"><CheckCheck size={13} aria-hidden="true" /> Logged by {logger}{loggedSummary(a) ? ` · ${loggedSummary(a)}` : ''}</div>
+                  ) : null}
+                </div>
+                <div className="tr-fu-chips">
+                  {!a.followUpCompletedAt
+                    ? <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={() => setPresentedTarget(a)}>Log outcome</button>
+                    : loggedByMe ? <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setPresentedTarget(a)}>Edit</button> : null}
+                </div>
+              </div>
+            </div>
+          );
+        }) : list.map(a => {
           const open = expandedId === a.id;
           const st = STATUS_OPTIONS.find(o => o.value === a.status);
           const outcome = OUTCOME_OPTIONS.find(o => o.value === a.outcome);
@@ -211,6 +276,9 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
                   {typeLabel(a) ? <span className="tr-empty"> · {typeLabel(a)}</span> : null}
                   <div className="tr-empty" style={{ margin: 0 }}>{fmtApptDateTime(a)}</div>
                   {a.followUpAppointmentDate && <div className="tr-empty" style={{ margin: 0 }}>Next: {fmtFollowUpDateTime(a)}</div>}
+                  {a.followUpCompletedAt && a.outcomeLoggedBy && a.outcomeLoggedBy !== user.id ? (
+                    <div className="tr-fu-logged"><CheckCheck size={13} aria-hidden="true" /> Logged by {nameOf(a.outcomeLoggedBy) || a.presenter || 'your presenter'}</div>
+                  ) : null}
                   {apptNotes.length > 0 && (
                     <div className="tr-fu-lastnote">
                       Last touch {daysSince(apptNotes[0].created_at) === 0 ? 'today' : `${daysSince(apptNotes[0].created_at)}d ago`}: {apptNotes[0].note}
@@ -233,10 +301,10 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
                       <h4 className="tr-h4" style={{ margin: 0 }}>Outcome</h4>
                       <span className="tr-empty" style={{ margin: 0 }}>{outcome ? outcome.label : 'Not logged yet'}</span>
                     </div>
-                    <ContactLinks email={a.clientEmail} />
+                    <ContactRow phone={a.clientPhone} email={a.clientEmail} name={a.client} texts={appointmentTexts(a, user.displayName)} />
                     <div className="tr-form-actions" style={{ marginTop: 8, justifyContent: 'flex-start' }}>
                       <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={() => setModalTarget(a)}>{a.followUpCompletedAt ? 'Update outcome' : 'Log outcome'}</button>
-                      <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => onScheduleNext({ client: a.client, notes: '', clientEmail: a.clientEmail, typeRecruit: isRecruitType(a), typeSale: isSaleType(a) })}>
+                      <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => onScheduleNext({ client: a.client, notes: '', clientEmail: a.clientEmail, clientPhone: a.clientPhone, prospectId: a.prospectId, typeRecruit: isRecruitType(a), typeSale: isSaleType(a) })}>
                         <Plus size={13} /> Schedule next appointment
                       </button>
                     </div>
@@ -297,6 +365,7 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
         </div>
       </div>
       {modalTarget && <FollowUpModal appointment={modalTarget} onClose={() => setModalTarget(null)} onSave={handleSaveOutcome} onRescheduled={handleRescheduled} saving={modalSaving} />}
+      {presentedTarget && <FollowUpModal appointment={presentedTarget} presenter setByName={presentedTarget.setByName} onClose={() => setPresentedTarget(null)} onSave={handlePresentedSave} saving={modalSaving} />}
     </div>
   );
 }

@@ -48,7 +48,7 @@ const ROUTES = {
   milestones: { tab: 'growth', growth: 'path' },
   documents: { tab: 'resources' },
 };
-const OUTCOME_INTENTS = new Set(['nolog', 'reschedule']);
+const OUTCOME_INTENTS = new Set(['nolog', 'presented', 'reschedule']);
 
 // Shared navigation for every layout: which group and tab is showing, and
 // go(tab, intent), which lets one place send you to a specific spot in

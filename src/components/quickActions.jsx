@@ -6,6 +6,7 @@ import { apptLocalDate, apptStartMs, fmtApptDateTime, todayStr } from '../lib/da
 import { buildChildrenMap, downlineIds, hierarchyTierLabel } from '../hierarchy.js';
 import { fetchMyAppointments, typeLabel } from '../data/appointments.js';
 import { fetchMyProspects, LEANING_LABELS, prospectLeaningKey, prospectTotalChecked } from '../data/prospects.js';
+import { fmtPhone } from '../lib/phone.js';
 import { fetchHierarchyPeople } from '../data/team.js';
 import { InviteSomeone } from './Header.jsx';
 
@@ -106,6 +107,10 @@ const rank = (hay, terms) => { const words = norm(hay).split(/[\s-]+/); return t
 export function searchEverything(data, query, nowMs = Date.now()) {
   const terms = norm(query).split(/\s+/).filter(Boolean);
   if (!terms.length || !data) return [];
+  // A phone number (or part of one) finds clients and prospects by number.
+  const digits = String(query).replace(/\D/g, '');
+  const byPhone = digits.length >= 3 && !/[a-z]/i.test(query);
+  const phoneHit = ph => byPhone && String(ph || '').replace(/\D/g, '').includes(digits);
   const groups = [];
   const people = (data.people || []).filter(p => hit(p.display_name, terms))
     .sort((a, b) => rank(a.display_name, terms) - rank(b.display_name, terms) || (a.display_name || '').localeCompare(b.display_name || '')).slice(0, 5)
@@ -118,7 +123,7 @@ export function searchEverything(data, query, nowMs = Date.now()) {
     });
   if (people.length) groups.push({ label: 'People', items: people });
   const today = todayStr();
-  const appts = (data.appts || []).filter(a => hit(a.client, terms))
+  const appts = (data.appts || []).filter(a => hit(a.client, terms) || phoneHit(a.clientPhone))
     .sort((a, b) => {
       const r = rank(a.client, terms) - rank(b.client, terms);
       if (r) return r;
@@ -128,17 +133,17 @@ export function searchEverything(data, query, nowMs = Date.now()) {
     }).slice(0, 5)
     .map(a => ({
       kind: 'appointment', id: a.id, title: a.client, Icon: CalendarDays, search: a.client,
-      sub: `${typeLabel(a) || 'Appointment'} · ${fmtApptDateTime(a)}`,
+      sub: `${typeLabel(a) || 'Appointment'} · ${fmtApptDateTime(a)}${phoneHit(a.clientPhone) ? ` · ${fmtPhone(a.clientPhone)}` : ''}`,
       tag: apptLocalDate(a) === today ? 'Today' : a.officiallySold ? 'Sold' : a.officiallyRecruited ? 'Recruited' : null,
     }));
   if (appts.length) groups.push({ label: 'Appointments and clients', items: appts });
-  const prospects = (data.prospects || []).filter(p => hit(`${p.firstName} ${p.lastName}`, terms))
+  const prospects = (data.prospects || []).filter(p => hit(`${p.firstName} ${p.lastName}`, terms) || phoneHit(p.phone))
     .sort((a, b) => rank(`${a.firstName} ${a.lastName}`, terms) - rank(`${b.firstName} ${b.lastName}`, terms)).slice(0, 5)
     .map(p => {
       const n = prospectTotalChecked(p);
       return {
         kind: 'prospect', id: p.id, title: `${p.firstName} ${p.lastName}`, Icon: Star, search: `${p.firstName} ${p.lastName}`,
-        sub: [n > 0 ? `${LEANING_LABELS[prospectLeaningKey(p)]} · ${n}/9` : 'Not scored yet', p.source || ''].filter(Boolean).join(' · '),
+        sub: [n > 0 ? `${LEANING_LABELS[prospectLeaningKey(p)]} · ${n}/9` : 'Not scored yet', phoneHit(p.phone) ? fmtPhone(p.phone) : p.source || ''].filter(Boolean).join(' · '),
       };
     });
   if (prospects.length) groups.push({ label: 'Prospects', items: prospects });
@@ -215,7 +220,7 @@ export function GlobalSearch({ user, go, withPeople }) {
   const placeholder = withPeople ? 'Search people, clients, prospects…' : 'Search clients and prospects…';
 
   function results() {
-    if (!q.trim()) return <p className="tr-gsearch-empty">Type a name to find {withPeople ? 'teammates, ' : ''}appointments, clients and prospects.</p>;
+    if (!q.trim()) return <p className="tr-gsearch-empty">Type a name to find {withPeople ? 'teammates, ' : ''}appointments, clients and prospects, or a phone number to find a client or prospect.</p>;
     if (!data) return <p className="tr-gsearch-empty">Searching…</p>;
     if (!flat.length) return <p className="tr-gsearch-empty">No matches for “{q.trim()}”.</p>;
     let n = -1;
