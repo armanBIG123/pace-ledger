@@ -767,7 +767,6 @@ export const CSS = `
 .tr-ov-goal { margin-bottom: 14px; }
 .tr-ov-goal-head { display: flex; justify-content: space-between; align-items: baseline; font-size: 13.5px; color: var(--slate); margin-bottom: 6px; }
 .tr-ov-hello { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
-.tr-ov-hello-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .tr-ov-attention { box-shadow: inset 3px 0 0 var(--rust); }
 .tr-ov-attn-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 6px; background: transparent; border: none; border-top: 1px solid var(--line); font-family: inherit; font-size: 14px; color: var(--ink); text-align: left; cursor: pointer; }
 .tr-ov-attn-row:first-of-type { border-top: none; }
@@ -1112,6 +1111,11 @@ export const CSS = `
 .tr-journey { position: relative; display: block; width: 100%; max-width: 420px; margin: 10px 0 0; overflow: visible; }
 .tr-journey-label { fill: #7F8E9C; font-size: 10px; font-weight: 600; }
 .tr-journey-you { fill: #F2C866; font-weight: 700; }
+/* Growth → My path is full width: the path sits beside you, not under. */
+@media (min-width: 900px) {
+  .tr-growth .tr-path-hero { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 40px; padding: 22px 32px; }
+  .tr-growth .tr-path-hero .tr-journey { max-width: 540px; margin: 0; justify-self: end; }
+}
 .tr-progress-summary { margin: 2px 0 12px; }
 .tr-progress-summary .tr-ms-next { margin-top: 0; padding-top: 0; border-top: none; }
 @media (prefers-reduced-motion: reduce) {
@@ -1303,8 +1307,6 @@ export const CSS = `
   .tr-ov-flow { flex-wrap: nowrap; overflow-x: auto; margin: 0 -14px; padding: 0 14px 2px; scrollbar-width: none; }
   .tr-ov-flow::-webkit-scrollbar { display: none; }
   .tr-ov-flow button { flex: 0 0 auto; white-space: nowrap; }
-  .tr-ov-hello-actions { width: 100%; }
-  .tr-ov-hello-actions .tr-btn { flex: 1 1 0; justify-content: center; }
 
   /* Weekly pace: two batches per row, smaller dots */
   .tr-pace-grid { grid-template-columns: 1fr 1fr !important; gap: 14px 16px; }
@@ -1611,6 +1613,59 @@ export const CSS = `
 .tr-count-line strong { color: var(--ink); font-weight: 700; }
 .tr-count-line .tr-count-warn { color: var(--rust); }
 .tr-seg-view { margin: 0 0 12px; align-self: flex-start; width: max-content; max-width: 100%; }
+
+/* My work → Pipeline: five stages a name moves through, left to right. The
+   wrappers step aside so each arrow gets its own narrow column. */
+.tr-pipeline, .tr-growth { display: flex; flex-direction: column; gap: 16px; }
+.tr-won { display: flex; flex-direction: column; gap: 14px; }
+.tr-won .tr-seg-view, .tr-won .tr-count-line { margin: 0; }
+.tr-stages { display: grid; grid-template-columns: minmax(0, 1fr) repeat(4, 22px minmax(0, 1fr)); align-items: stretch; }
+.tr-stage-wrap { display: contents; }
+.tr-stage-arrow { align-self: center; justify-self: center; color: var(--line-strong); }
+.tr-stage { min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px 14px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); font-family: inherit; color: var(--ink); text-align: left; cursor: pointer; transition: border-color .12s, box-shadow .12s; }
+.tr-stage:hover { border-color: var(--line-strong); }
+.tr-stage-on, .tr-stage-on:hover { border-color: var(--brass); box-shadow: 0 0 0 3px var(--brass-tint); }
+.tr-stage-top { display: flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 600; color: var(--slate); white-space: nowrap; }
+.tr-stage-on .tr-stage-top { color: var(--brass-dark); }
+.tr-stage-n { font-family: 'Newsreader', serif; font-size: 30px; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.tr-stage-sub { max-width: 100%; font-size: 12.5px; color: var(--slate-light); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Screens shown inside Pipeline or Growth: their side list becomes a row
+   of chips above the content, so the page reads top to bottom. */
+.tr-flat .tr-appts-shell { flex-direction: column; align-items: stretch; gap: 14px; }
+.tr-flat .tr-appts-sidebar { position: static; flex-direction: row; flex-wrap: wrap; width: auto; max-height: none; overflow: visible; gap: 6px; }
+.tr-flat .tr-sidebar-divider, .tr-flat .tr-bizplan-glance { display: none; }
+.tr-flat .tr-sidebar-item { flex: 0 0 auto; min-height: 36px; padding: 6px 14px; white-space: nowrap; background: var(--card); border-color: var(--line); border-radius: 999px; font-size: 13.5px; }
+.tr-flat .tr-sidebar-item:hover { border-color: var(--line-strong); }
+.tr-flat .tr-sidebar-item-active, .tr-flat .tr-sidebar-item-active:hover { background: var(--ink); color: #fff; border-color: var(--ink); }
+.tr-flat .tr-sidebar-item-active .tr-mono { background: rgba(255,255,255,0.16); color: #fff; }
+.tr-flat .tr-appts-main { width: 100%; }
+/* A screen with its own sections inside (Business Plan in Growth): those
+   look like a small switch, so they read as a level below. */
+.tr-flat .tr-appts-main .tr-appts-sidebar { align-self: flex-start; width: max-content; max-width: 100%; gap: 2px; padding: 3px; border-radius: 9px; background: rgba(19,33,46,0.07); }
+.tr-flat .tr-appts-main .tr-sidebar-item { min-height: 32px; padding: 5px 12px; border: none; border-radius: 6px; background: transparent; font-size: 13px; }
+.tr-flat .tr-appts-main .tr-sidebar-item-active, .tr-flat .tr-appts-main .tr-sidebar-item-active:hover { background: var(--card); color: var(--ink); box-shadow: 0 1px 3px rgba(19,33,46,0.12); }
+.tr-pipeline .tr-flat .tr-h2 { font-size: 22px; }
+@media (max-width: 960px) {
+  .tr-stages { grid-template-columns: minmax(0, 1fr) repeat(4, 14px minmax(0, 1fr)); }
+  .tr-stage-arrow { width: 12px; }
+  .tr-stage { padding: 10px; }
+  .tr-stage-n { font-size: 26px; }
+}
+/* Phones: the stages scroll sideways. */
+@media (max-width: 640px) {
+  .tr-stages { display: flex; overflow-x: auto; margin: 0 -14px; padding: 2px 14px 6px; scrollbar-width: none; }
+  .tr-stages::-webkit-scrollbar { display: none; }
+  .tr-stage { flex: 0 0 136px; }
+  .tr-stage-arrow { flex: 0 0 auto; }
+  .tr-stage-n { font-size: 24px; }
+  .tr-pipeline .tr-flat .tr-h2 { font-size: 20px; }
+  .tr-flat .tr-appts-sidebar { flex-wrap: nowrap; overflow-x: auto; gap: 8px; }
+  .tr-flat .tr-sidebar-item { min-height: 40px; }
+  .tr-flat .tr-appts-main .tr-appts-sidebar { margin: 0; padding: 3px; gap: 2px; -webkit-mask-image: none; mask-image: none; }
+  .tr-flat .tr-appts-main .tr-sidebar-item { min-height: 36px; border: none; font-size: 13px !important; }
+  .tr-flat .tr-appts-main .tr-sidebar-item-active, .tr-flat .tr-appts-main .tr-sidebar-item-active:hover { background: var(--card); color: var(--ink); }
+}
 /* Submitted, not issued */
 .tr-pend-item + .tr-pend-item { border-top: 1px solid var(--line); }
 .tr-pend-premium { margin-left: 6px; font-size: 13px; color: var(--ink); }

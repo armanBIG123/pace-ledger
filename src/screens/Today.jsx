@@ -1,6 +1,6 @@
 // Today: four number tiles, one "Do next" list (appointments coming up, then what needs you), folds for the rest of the week, and team wins.
 import { Children, useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, Award, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, ChevronUp, ClipboardCheck, GraduationCap, List as ListIcon, Pencil, Plus, Sparkles, Target, UserPlus, Users, Video, Wallet, X } from 'lucide-react';
+import { Activity, Award, CalendarDays, Check, CheckCircle2, ChevronDown, ChevronRight, ChevronUp, ClipboardCheck, GraduationCap, List as ListIcon, Pencil, Sparkles, Target, UserPlus, Users, Video, Wallet, X } from 'lucide-react';
 import { examWhen, fetchLicensingProgress, licensingStatus } from '../licensing.js';
 import { computeOnboarding, fetchMyOnboarding, ONBOARDING_DAYS, ONBOARDING_WEEKS, onboardingDay, saveOnboardingSnapshot, setOnboardingVisibility, shouldShowOnboarding, weekForDay } from '../onboarding.js';
 import { isNativeApp, onAppResume, reminderPermission, requestReminderPermission } from '../native.js';
@@ -350,7 +350,7 @@ export function TodayBody({ user, onNavigate }) {
     if (!res.ok) { setQuickErr(res.error || "Couldn't save. Try again."); return; }
     setProspects(prev => [res.record, ...prev]);
     setQuickFirst(''); setQuickLast('');
-    setFlash(`Added ${res.record.firstName} ${res.record.lastName}. Score them in Prospecting when you have a minute.`);
+    setFlash(`Added ${res.record.firstName} ${res.record.lastName}. Score them in Pipeline → Names when you have a minute.`);
   }
 
   if (loading) {
@@ -637,10 +637,6 @@ export function TodayBody({ user, onNavigate }) {
         <div>
           <h2 className="tr-h2" style={{ margin: 0 }}>{greetingFor(now)}{firstName ? `, ${firstName}` : ''}</h2>
           <p className="tr-empty" style={{ margin: '2px 0 0' }}>{now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
-        </div>
-        <div className="tr-ov-hello-actions">
-          <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => onNavigate('systems', 'new')}><Plus size={14} /> Add prospect</button>
-          <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={() => onNavigate('mine', 'new')}><Plus size={14} /> Log appointment</button>
         </div>
       </div>
 
