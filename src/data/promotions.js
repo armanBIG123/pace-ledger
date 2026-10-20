@@ -4,6 +4,7 @@
 // submit-promotion function.
 import { supabase } from '../supabaseClient.js';
 import { requirementView } from '../lib/milestones.js';
+import { clearSharedPeople } from './team.js';
 
 // Where promotion submissions are emailed (set by the submit-promotion
 // function; shown here so people know before they submit).
@@ -65,6 +66,7 @@ export function resendPromotionEmail(requestId) {
 }
 
 export async function approvePromotionRequest(requestId) {
+  clearSharedPeople();
   const { data, error } = await supabase.rpc('approve_promotion', { p_request: requestId });
   if (error) return { ok: false, error: error.message };
   return { ok: true, row: data };

@@ -87,7 +87,6 @@ export function ImportantLinksSection({ user }) {
           </button>
         )}
       </div>
-      <p className="tr-subtitle">Quick access to the resources the whole team uses regularly.</p>
       {error && <div className="tr-error">{error}</div>}
       {showAdd && (
         <div className="tr-card tr-form">
@@ -251,7 +250,6 @@ export function DocumentsBody({ user }) {
             </button>
           )}
         </div>
-        <p className="tr-subtitle">Training and presentation materials the whole team can download and practice with.</p>
         {error && <div className="tr-error">{error}</div>}
         {showUpload && (
           <div className="tr-card tr-form">

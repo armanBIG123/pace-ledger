@@ -4,7 +4,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Award, DollarSign, GraduationCap, Sparkles, Star, Trophy, UserPlus, X } from 'lucide-react';
 import { addHighFive, fetchNewHighFives, fetchReactions, fetchWeeklyTop3, fetchWins, HIGH_FIVES, removeHighFive } from '../data/wins.js';
-import { fetchOrgDirectory } from '../data/team.js';
+import { fetchOrgDirectoryShared } from '../data/team.js';
 import { tierInfo } from '../lib/milestones.js';
 import { addDays, fmtDate, parseDate, todayStr, weekStartOf } from '../lib/dates.js';
 
@@ -57,30 +57,50 @@ function whoList(names) {
 
 const KIND_WORD = { sale: 'sale', first_sale: 'first sale', recruit: 'recruit', joined: 'welcome', licensed: 'license', promotion: 'promotion' };
 
-export function TeamWinsSection({ user }) {
+// compact: Today's side column (3 wins, then "See all"; only the leader of
+// each top-3 list, plus where you rank).
+export function TeamWinsSection({ user, compact = false }) {
+  const first0 = compact ? 3 : PAGE;
   const [wins, setWins] = useState(null);
   const [reactions, setReactions] = useState([]);
   const [names, setNames] = useState(() => new Map());
   const [top3, setTop3] = useState(null);
-  const [limit, setLimit] = useState(PAGE);
+  const [limit, setLimit] = useState(first0);
   const [note, setNote] = useState(null);
   const seenKey = `pl_highfives_seen:${user.id}`;
   const weekStart = weekStartOf(todayStr());
 
+  // Names and the top 3 once; wins again when "See all" asks for more.
+  useEffect(() => {
+    let alive = true;
+    Promise.all([fetchOrgDirectoryShared(), fetchWeeklyTop3(weekStart)]).then(([dir, t]) => {
+      if (!alive) return;
+      setNames(new Map(dir.map(p => [p.id, p.display_name])));
+      setTop3(t);
+    });
+    return () => { alive = false; };
+  }, [weekStart]);
   const load = useCallback(async (n) => {
-    const [w, dir, t] = await Promise.all([fetchWins(n + 1), fetchOrgDirectory(), fetchWeeklyTop3(weekStart)]);
-    setNames(new Map(dir.map(p => [p.id, p.display_name])));
-    setTop3(t);
+    const w = await fetchWins(n + 1);
     if (w.unavailable) { setWins(false); return; }
     setWins(w.rows);
     setReactions(await fetchReactions(w.rows.map(x => x.id)));
-  }, [weekStart]);
-  useEffect(() => { load(limit); }, [load, limit]);
+  }, []);
+  // The first load waits a beat so the top of the screen shows first.
+  const firstLoad = React.useRef(true);
+  useEffect(() => {
+    const wait = firstLoad.current ? 250 : 0;
+    firstLoad.current = false;
+    const t = setTimeout(() => load(limit), wait);
+    return () => clearTimeout(t);
+  }, [load, limit]);
 
   // "Tasha and 3 others high-fived your sale", once per new batch.
   useEffect(() => {
-    let since;
-    try { since = localStorage.getItem(seenKey); } catch { since = null; }
+    let since; let checked = 0;
+    try { since = localStorage.getItem(seenKey); checked = Number(localStorage.getItem(`${seenKey}:checked`)) || 0; } catch { since = null; }
+    if (Date.now() - checked < 10 * 60000) return;
+    try { localStorage.setItem(`${seenKey}:checked`, String(Date.now())); } catch { /* ignore */ }
     const from = since || new Date(Date.now() - 7 * 864e5).toISOString();
     fetchNewHighFives(user.id, from).then(({ reactions: rx, wins: mine }) => {
       try { localStorage.setItem(seenKey, new Date().toISOString()); } catch { /* ignore */ }
@@ -110,13 +130,14 @@ export function TeamWinsSection({ user }) {
   const fmtDay = d => parseDate(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
   return (
-    <div className="tr-wins-wrap">
+    <div className={`tr-wins-wrap ${compact ? 'tr-wins-compact' : ''}`}>
       {wins !== false && (
         <section className="tr-card tr-wins" aria-labelledby="tr-wins-title">
           <div className="tr-row-head">
             <h3 className="tr-h3" id="tr-wins-title" style={{ margin: 0 }}><Trophy size={16} aria-hidden="true" /> Team wins</h3>
+            {compact ? <span className="tr-wins-scope" title="Sales, recruits, licenses and promotions across the agency, as they happen">agency</span> : null}
           </div>
-          <p className="tr-wins-sub">Sales, recruits, licenses and promotions across the agency, as they happen. Give them a high-five.</p>
+          {compact ? null : <p className="tr-wins-sub">Sales, recruits, licenses and promotions across the agency, as they happen. Give them a high-five.</p>}
           {note && (
             <div className="tr-wins-note" role="status">
               <span>🙌 {whoList(note.people.map(id => first(nameOf(id))))} high-fived {note.what}!</span>
@@ -157,20 +178,29 @@ export function TeamWinsSection({ user }) {
               })}
             </ul>
           )}
-          {more && <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm tr-wins-more" onClick={() => setLimit(l => l + PAGE * 2)}>Show more</button>}
+          {more && <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm tr-wins-more" onClick={() => setLimit(l => l + PAGE * 2)}>{limit === first0 && compact ? 'See all wins' : 'Show more'}</button>}
         </section>
       )}
 
       {top3 && (
         <section className="tr-card tr-top3" aria-labelledby="tr-top3-title">
-          <h3 className="tr-h3" id="tr-top3-title" style={{ margin: 0 }}>This week's top 3</h3>
-          <p className="tr-wins-sub">{fmtDay(weekStart)} – {fmtDay(weekEnd)} · the whole agency</p>
+          {compact ? (
+            <div className="tr-row-head">
+              <h3 className="tr-h3" id="tr-top3-title" style={{ margin: 0 }}>This week's top 3</h3>
+              <span className="tr-wins-scope">{fmtDay(weekStart)} – {fmtDay(weekEnd)}</span>
+            </div>
+          ) : (
+            <>
+              <h3 className="tr-h3" id="tr-top3-title" style={{ margin: 0 }}>This week's top 3</h3>
+              <p className="tr-wins-sub">{fmtDay(weekStart)} – {fmtDay(weekEnd)} · the whole agency</p>
+            </>
+          )}
           {[['pace', 'Appointments set'], ['sales', 'Sales'], ['recruits', 'Recruits']].map(([key, label]) => (
             <div key={key} className="tr-top3-group">
               <div className="tr-top3-label">{label}</div>
               {top3[key].length === 0 ? <p className="tr-top3-empty">Nobody yet this week. Be the first!</p> : (
                 <ol className="tr-top3-list">
-                  {top3[key].map((r, i) => (
+                  {(compact ? top3[key].slice(0, 1) : top3[key]).map((r, i) => (
                     <li key={r.user_id} className={r.user_id === user.id ? 'tr-top3-you' : ''}>
                       <span className="tr-top3-medal" aria-hidden="true">{['🥇', '🥈', '🥉'][i]}</span>
                       <span className="tr-top3-name">{r.display_name}{r.user_id === user.id ? <span className="tr-org-you">you</span> : null}</span>
@@ -179,6 +209,9 @@ export function TeamWinsSection({ user }) {
                   ))}
                 </ol>
               )}
+              {compact && top3[key].findIndex(r => r.user_id === user.id) > 0 ? (
+                <div className="tr-top3-rank">You're #{top3[key].findIndex(r => r.user_id === user.id) + 1} · {top3[key].find(r => r.user_id === user.id).n}</div>
+              ) : null}
             </div>
           ))}
         </section>

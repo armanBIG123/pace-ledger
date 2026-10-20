@@ -103,6 +103,8 @@ export function useAndroidBackButton(tab, goHome) {
     if (searchCancel) { searchCancel.click(); return; }
     const overlays = document.querySelectorAll('.tr-modal-backdrop, .tr-sheet-backdrop, .tr-new-backdrop');
     if (overlays.length) { overlays[overlays.length - 1].click(); return; }
+    const formSheet = document.querySelector('.tr-fsheet-close');
+    if (formSheet) { formSheet.click(); return; }
     if (tabRef.current !== 'overview') { homeRef.current(); window.scrollTo(0, 0); return; }
     minimizeAndroidApp();
   }), []);

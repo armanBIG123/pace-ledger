@@ -6,7 +6,7 @@ import { ChevronDown, ChevronUp, ClipboardCheck, Search, X } from 'lucide-react'
 import { fetchAllIntakeForms, fetchIntakeAnswers } from '../../clientIntake.js';
 import { IntakeResponsesView } from '../../ClientIntake.jsx';
 import { fetchHierarchyPeople } from '../../data/team.js';
-import { SkelBlock, SkeletonTable } from '../../components/ui.jsx';
+import { RefreshButton, SkelBlock, SkeletonTable, TitleInfo } from '../../components/ui.jsx';
 
 const fmtDay = iso => (iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '');
 const isDone = r => r.status === 'submitted';
@@ -68,13 +68,10 @@ export function ClientFormsBody() {
 
   return (
     <>
-      <div className="tr-row-head">
-        <h2 className="tr-h2"><ClipboardCheck size={18} /> Client intake forms</h2>
-        <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+      <div className="tr-row-head tr-screen-head">
+        <TitleInfo title={<><ClipboardCheck size={18} aria-hidden="true" /> Client intake forms</>} info="Every advisor's client intake forms, newest first. Only super admins see this page. It's read only: the advisor who sent a form is the only one who can remove it." />
+        <RefreshButton onClick={refresh} />
       </div>
-      <p className="tr-subtitle">
-        Every advisor's client intake forms, newest first. Only super admins see this page. It's read only: the advisor who sent a form is the only one who can remove it.
-      </p>
       {failed && <div className="tr-error" style={{ marginBottom: 12 }}>Couldn't load the forms. Try Refresh.</div>}
 
       <div className="tr-toolbar tr-forms-toolbar">

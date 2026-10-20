@@ -8,7 +8,7 @@ import { fmtApptDateTime } from '../../lib/dates.js';
 import { loadPromotionReadiness } from '../../data/team.js';
 import { fetchUpcomingAppointments, setAppointmentTrainee } from '../../data/recruits.js';
 import { EmailButton } from '../../components/email.jsx';
-import { SkeletonTable, TypeBadge } from '../../components/ui.jsx';
+import { MoreMenu, RefreshButton, SkeletonTable, TitleInfo, TypeBadge } from '../../components/ui.jsx';
 
 const SEATS_SHOWN = 8;
 const first = name => (name || '').trim().split(/\s+/)[0] || 'there';
@@ -71,13 +71,11 @@ export function FieldTrainingSubView({ user, members, loadingMembers, emptyMessa
 
   return (
     <>
-      <div className="tr-row-head">
-        <h2 className="tr-h2"><GraduationCap size={18} /> Field training</h2>
-        <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+      <div className="tr-row-head tr-screen-head">
+        <TitleInfo title={<><GraduationCap size={18} aria-hidden="true" /> Field training</>}
+          info="Field Associate takes 3 observation sales in 30 days: appointments someone sits in on as the trainee that end in a sale. Here's who still needs them, and upcoming appointments they can sit in on." />
+        <RefreshButton onClick={refresh} />
       </div>
-      <p className="tr-subtitle">
-        Field Associate takes 3 observation sales in 30 days: appointments someone sits in on as the trainee that end in a sale. Here's who still needs them, and upcoming appointments they can sit in on.
-      </p>
       {notice && <div className={notice.kind === 'ok' ? 'tr-flash' : 'tr-error'} style={{ marginBottom: 12 }}>{notice.text}</div>}
       <div className="tr-org-stats">
         <span><strong>{needers.length}</strong> need observation sales</span>
@@ -91,14 +89,15 @@ export function FieldTrainingSubView({ user, members, loadingMembers, emptyMessa
         {needers.length === 0 ? <p className="tr-empty">Nobody on your team is working toward Field Associate right now.</p> : (
           <ul className="tr-ft-list">
             {needers.map(n => (
-              <li key={n.person.id} className={`tr-ft-row ${n.booked.length ? '' : 'tr-ft-row-warn'}`}>
+              <li key={n.person.id} className="tr-ft-row">
+                <span className={`tr-rec-dot ${n.booked.length ? '' : 'tr-rec-dot-stuck'}`} aria-hidden="true" />
                 <div className="tr-ft-main">
                   <strong>{n.person.display_name}</strong>
-                  {n.person.manager_id ? <span className="tr-rec-sub"> · reports to {nameOf(n.person.manager_id)}</span> : null}
-                  <div className="tr-ft-booked">
+                  {n.person.manager_id ? <span className="tr-rec-context">{n.person.manager_id === user.id ? 'Your team' : `${nameOf(n.person.manager_id)}'s team`}</span> : null}
+                  <div className="tr-rec-detail">
                     {n.booked.length
-                      ? n.booked.map(a => <span key={a.id} className="tr-ft-when">{fmtApptDateTime(a)} with {a.presenterId === n.person.id ? 'them presenting' : a.presenter || nameOf(a.presenterId)}</span>)
-                      : <span className="tr-rec-flagchip tr-rec-flagchip-stuck">Nothing booked this week</span>}
+                      ? n.booked.map(a => `${fmtApptDateTime(a)} with ${a.presenterId === n.person.id ? 'them presenting' : a.presenter || nameOf(a.presenterId)}`).join(' · ')
+                      : <span className="tr-rec-flagtext">Nothing booked this week</span>}
                   </div>
                 </div>
                 <Dots current={n.current} target={n.target} />
@@ -109,8 +108,7 @@ export function FieldTrainingSubView({ user, members, loadingMembers, emptyMessa
       </section>
 
       <section className="tr-card tr-ft-card">
-        <h3 className="tr-h3">Open seats this week</h3>
-        <p className="tr-ft-hint">Upcoming appointments with no trainee yet, presented by someone above a person who needs observation sales.</p>
+        <TitleInfo as="h3" className="tr-h3" title="Open seats this week" info="Upcoming appointments with no trainee yet, presented by someone above a person who needs observation sales." />
         {seats.length === 0 ? <p className="tr-empty">No open seats in the next 7 days.</p> : (
           <ul className="tr-ft-list">
             {(allSeats ? seats : seats.slice(0, SEATS_SHOWN)).map(({ appt, eligible }) => {
@@ -157,7 +155,7 @@ export function FieldTrainingSubView({ user, members, loadingMembers, emptyMessa
                   <div className="tr-ft-assign">
                     {t.email ? <EmailButton to={t.email} name={t.display_name} subject={`Field training ${fmtApptDateTime(a)}`}
                       body={`Hi ${first(t.display_name)},\n\nYou're sitting in on ${presenter}'s appointment ${fmtApptDateTime(a)} as the trainee.${a.zoomUrl ? `\n\nZoom: ${a.zoomUrl}` : ''}\n\nIt's on your Today screen in PaceLedger too. Watch how the conversation flows and take notes; we'll go over it after.\n\n${me}`} /> : null}
-                    <button type="button" className="tr-link-btn tr-rec-undo" disabled={busyId === a.id} onClick={() => remove(a)}>Remove</button>
+                    <MoreMenu label={`More for ${t.display_name}`} items={[{ label: 'Take them off this appointment', disabled: busyId === a.id, onClick: () => remove(a) }]} />
                   </div>
                 </li>
               );

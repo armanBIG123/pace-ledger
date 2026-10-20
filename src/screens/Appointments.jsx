@@ -1,6 +1,6 @@
 // My Appointments: the weekly batches, the appointment form, outcomes and Open Requirements.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ClipboardCheck, Download, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, ClipboardCheck, Download, Pencil, Plus, Search, Trash2, X } from 'lucide-react';
 import { supabase } from '../supabaseClient.js';
 import { isNativeApp, openInBrowserSheet } from '../native.js';
 import { computeDownline, computeUpline } from '../hierarchy.js';
@@ -8,13 +8,14 @@ import { checkAppointmentConflict } from '../schedule.js';
 import { DATE_SET_OPTIONS, dateSetMeta, defaultDateSetOption } from '../lib/pace.js';
 import { addMinutesToDateTime, detectTimezone, fmtApptDateTime, fmtDisplayDate, fmtFollowUpDateTime, parseDate, shiftWeekStr, timezoneOptionsWithDetected, todayStr, weekStartOf } from '../lib/dates.js';
 import { downloadCSV, fmtCurrency, isValidEmail } from '../lib/format.js';
-import { addPolicyNote, applyFollowUpToList, boolToYesNo, deleteAppointmentRow, fetchAppointmentsImPresenting, fetchMyAppointments, fetchPolicyNotes, fetchSoldPolicies, fetchZoomConnectedManagers, insertAppointment, inviteFailureMessage, isPastAppointment, isPolicyIssued, isRecruitType, isSaleType, ISSUED_PREMIUM_VIEW, markInviteSent, OUTCOME_OPTIONS, persistFollowUp, SOLD_PREMIUM_VIEW, STATUS_OPTIONS, typeLabel, updateAppointment, updatePolicyFields, YES_NO_OPTIONS, yesNoToBool } from '../data/appointments.js';
+import { addPolicyNote, applyFollowUpToList, deleteAppointmentRow, fetchAppointmentsImPresenting, fetchMyAppointments, fetchPolicyNotes, fetchSoldPolicies, fetchZoomConnectedManagers, insertAppointment, inviteFailureMessage, isPastAppointment, isPolicyIssued, isRecruitType, isSaleType, ISSUED_PREMIUM_VIEW, markInviteSent, persistFollowUp, SOLD_PREMIUM_VIEW, STATUS_OPTIONS, typeLabel, updateAppointment, updatePolicyFields } from '../data/appointments.js';
 import { fetchMyProspects, normName, prospectLeaningKey, prospectNameKey } from '../data/prospects.js';
 import { fetchOrgDirectory } from '../data/team.js';
 import { connectZoom, createZoomMeeting, disconnectZoom, fetchZoomConnectionStatus, pushAppointmentToGoogleCalendar, sendAppointmentInviteEmail, updateAppointmentZoomUrl, zoomOAuthUrl } from '../data/integrations.js';
-import { Modal, openPicker, PageHead, PillChoice, SkelBlock, SkeletonCards, SkeletonRows, StatusChip, TypeBadge, TypeChoice, TypeFilter, WeekNav } from '../components/ui.jsx';
+import { openPicker, PageHead, RefreshButton, Sheet, SkelBlock, SkeletonCards, SkeletonRows, StatusChip, TitleInfo, TypeBadge, TypeChoice, TypeFilter, useIsPhone, WeekNav } from '../components/ui.jsx';
 import { MyCoachingNotes, PaceStrip, PaceTrend, PersonalBests } from '../components/pace.jsx';
 import { ZoomConnect } from '../components/integrations.jsx';
+import { FollowUpModal } from '../components/followUpModal.jsx';
 
 export function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty, hideSet }) {
   // Only show the Trainee column when someone in this group actually has one.
@@ -74,95 +75,7 @@ export function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty, hi
   );
 }
 
-export function FollowUpModal({ appointment, onClose, onSave, saving }) {
-  const [outcome, setOutcome] = useState(appointment.outcome || '');
-  const [followUpScheduled, setFollowUpScheduled] = useState(boolToYesNo(appointment.followUpScheduled));
-  const [followUpDate, setFollowUpDate] = useState(appointment.followUpAppointmentDate || '');
-  const [followUpTime, setFollowUpTime] = useState(appointment.followUpAppointmentTime || '');
-  const [officiallyRecruited, setOfficiallyRecruited] = useState(boolToYesNo(appointment.officiallyRecruited));
-  const [officiallySold, setOfficiallySold] = useState(boolToYesNo(appointment.officiallySold));
-  const [targetPremium, setTargetPremium] = useState(appointment.targetPremium != null ? String(appointment.targetPremium) : '');
-  const [interestedTax, setInterestedTax] = useState(boolToYesNo(appointment.interestedTax));
-  const [interestedInsurance, setInterestedInsurance] = useState(boolToYesNo(appointment.interestedInsurance));
-  const [clientIntake, setClientIntake] = useState(appointment.clientIntakeRequested ? 'yes' : '');
-  const [err, setErr] = useState('');
-
-  function submit() {
-    if (followUpScheduled === 'yes' && (!followUpDate || !followUpTime)) {
-      setErr('Enter the date and time for the follow-up appointment.');
-      return;
-    }
-    setErr('');
-    onSave(appointment.id, {
-      outcome,
-      followUpScheduled: yesNoToBool(followUpScheduled),
-      followUpDate: followUpScheduled === 'yes' ? followUpDate : null,
-      followUpTime: followUpScheduled === 'yes' ? followUpTime : null,
-      officiallyRecruited: yesNoToBool(officiallyRecruited),
-      officiallySold: yesNoToBool(officiallySold),
-      targetPremium,
-      interestedTax: yesNoToBool(interestedTax),
-      interestedInsurance: yesNoToBool(interestedInsurance),
-      clientIntake: clientIntake === 'yes',
-    });
-  }
-
-  return (
-    <Modal onClose={onClose}>
-      <h3 className="tr-h3">Follow-up — {appointment.client}</h3>
-      <p className="tr-subtitle">
-        {fmtApptDateTime(appointment)}
-      </p>
-      <div className="tr-followup-list">
-        <div className="tr-field"><span>How'd it go?</span><PillChoice options={OUTCOME_OPTIONS} value={outcome} onChange={setOutcome} /></div>
-        <div className="tr-field"><span>Follow-up appointment scheduled?</span><PillChoice options={YES_NO_OPTIONS} value={followUpScheduled} onChange={setFollowUpScheduled} /></div>
-        {followUpScheduled === 'yes' && (
-          <div className="tr-followup-subfields">
-            <label className="tr-field">
-              <span>Follow-up date</span>
-              <input type="date" value={followUpDate} onChange={e => setFollowUpDate(e.target.value)} onClick={openPicker} />
-            </label>
-            <label className="tr-field">
-              <span>Follow-up time</span>
-              <input type="time" value={followUpTime} onChange={e => setFollowUpTime(e.target.value)} onClick={openPicker} />
-            </label>
-            <p className="tr-empty" style={{ margin: 0 }}>This'll be added to your appointments log automatically when you save.</p>
-          </div>
-        )}
-        <div className="tr-field"><span>Officially recruited?</span><PillChoice options={YES_NO_OPTIONS} value={officiallyRecruited} onChange={setOfficiallyRecruited} /></div>
-        <div className="tr-field"><span>Sold a policy?</span><PillChoice options={YES_NO_OPTIONS} value={officiallySold} onChange={setOfficiallySold} /></div>
-        {officiallySold === 'yes' && (
-          <label className="tr-field">
-            <span>Target premium</span>
-            <input type="number" min="0" step="1" inputMode="decimal" value={targetPremium} onChange={e => setTargetPremium(e.target.value)} placeholder="e.g. 1200" />
-          </label>
-        )}
-        <div className="tr-field"><span>Interested in tax strategies?</span><PillChoice options={YES_NO_OPTIONS} value={interestedTax} onChange={setInterestedTax} /></div>
-        <div className="tr-field"><span>Interested in reviewing home/auto insurance?</span><PillChoice options={YES_NO_OPTIONS} value={interestedInsurance} onChange={setInterestedInsurance} /></div>
-        <div className="tr-field">
-          <span>Client intake?</span>
-          {appointment.clientIntakeRequested ? (
-            <p className="tr-empty" style={{ margin: 0 }}>Already added to your Client Intake tab.</p>
-          ) : (
-            <>
-              <PillChoice options={YES_NO_OPTIONS} value={clientIntake} onChange={setClientIntake} />
-              {clientIntake === 'yes' && (
-                <p className="tr-empty" style={{ margin: 0 }}>We'll add {appointment.client} to Client Intake and generate their link when you save.</p>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-      {err && <div className="tr-error">{err}</div>}
-      <div className="tr-form-actions">
-        <button type="button" className="tr-btn tr-btn-ghost" onClick={onClose}>Cancel</button>
-        <button type="button" className="tr-btn tr-btn-brass" onClick={submit} disabled={saving}>{saving ? 'Saving…' : 'Save follow-up'}</button>
-      </div>
-    </Modal>
-  );
-}
-
-export function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onSubmit, saving }) {
+export function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onSubmit, saving, sheet = false }) {
   const [dateSetOption, setDateSetOption] = useState(editing?.dateSetOption || defaultDateSetOption());
   const [appointmentDate, setAppointmentDate] = useState(editing?.appointmentDate || prefillData?.appointmentDate || '');
   const [appointmentTime, setAppointmentTime] = useState(editing?.appointmentTime || '');
@@ -185,6 +98,9 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
   const [checking, setChecking] = useState(false);
   const [zoomManagers, setZoomManagers] = useState([]);
   const [myProspects, setMyProspects] = useState([]);
+  // Client email, date set, time zone, trainee, notes and invites fold away
+  // (open when editing, since that's often why you're here).
+  const [showMore, setShowMore] = useState(!!editing);
   const timezoneOptions = timezoneOptionsWithDetected();
 
   useEffect(() => {
@@ -251,14 +167,14 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
 
   async function submit() {
     if (!appointmentDate || !appointmentTime || !presenterId || !client.trim() || (!typeRecruit && !typeSale)) {
-      setErr('Fill in the appointment date/time, presenter, client/recruit, and whether it\'s a recruit and/or sale.');
+      setErr('Fill in the client, the date and time, the presenter, and whether it\'s a recruit, a sale or both.');
       return;
     }
-    if (clientEmail.trim() && !isValidEmail(clientEmail)) { setErr("The client's email address doesn't look right."); return; }
+    if (clientEmail.trim() && !isValidEmail(clientEmail)) { setShowMore(true); setErr("The client's email address doesn't look right."); return; }
     const inviteBoxOpen = !editing || sendUpdate;
     const extras = inviteBoxOpen ? extraEmails.split(/[\s,;]+/).map(e => e.trim()).filter(Boolean) : [];
     const badExtra = extras.find(e => !isValidEmail(e));
-    if (badExtra) { setErr(`"${badExtra}" doesn't look like an email address.`); return; }
+    if (badExtra) { setShowMore(true); setErr(`"${badExtra}" doesn't look like an email address.`); return; }
     setErr('');
     // Stop a double-booking before it's ever saved: does the presenter
     // already have an appointment at this exact date/time, or have they
@@ -302,134 +218,170 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
     if (e.key === 'Enter' && e.target.tagName !== 'TEXTAREA' && !e.target.getAttribute('list')) { e.preventDefault(); submit(); }
   }
 
-  return (
-    <div className="tr-card tr-form" onKeyDown={handleKeyDown}>
-      <h3 className="tr-h3">{editing ? 'Edit appointment' : 'Log a new appointment'}</h3>
+  const presenterShown = presenterOptions.find(p => p.id === presenterId)?.display_name || '';
+  const traineePick = traineeOptions.find(p => p.id === traineeId);
+  const traineeNote = !traineePick ? '' : traineePick.id === user.id ? "you're the trainee" : `${traineePick.display_name} sits in`;
+  const title = editing ? 'Edit appointment' : 'Log an appointment';
+  const saveLabel = checking ? 'Checking…' : saving ? 'Saving…' : editing ? 'Save changes' : 'Save appointment';
+
+  const fields = (
+    <>
       {editing?.status === 'needs_reschedule' && (
         <div className="tr-badge tr-badge-weekday tr-form-section">
-          This one needs to be rescheduled — saving will count it toward this week's batch as a new entry, and clear its old follow-up status.
+          This one needs to be rescheduled. Saving counts it toward this week's batch as a new entry and clears its old follow-up status.
         </div>
       )}
-      {!editing && zoomHostOptions.length > 0 && (
-        <label className="tr-field tr-field-wide tr-form-section">
-          <span>Which manager is presenting? (uses their connected Zoom to create the meeting — picking one sets them as Presenter below)</span>
-          <select value={zoomHostId} onChange={e => handleZoomHostChange(e.target.value)}>
-            <option value="">None — I'm presenting, or one of my downline is</option>
-            {uplineNonSelf.length > 0 && (
-              <optgroup label="Your upline">
-                {uplineNonSelf.map(m => (
-                  <option key={m.id} value={m.id}>{m.display_name}{zoomManagers.some(z => z.id === m.id) ? ' (Zoom connected)' : ''}</option>
-                ))}
-              </optgroup>
-            )}
-            {otherZoomManagers.length > 0 && (
-              <optgroup label="Other managers with Zoom connected">
-                {otherZoomManagers.map(m => (
-                  <option key={m.id} value={m.id}>{m.display_name} (Zoom connected)</option>
-                ))}
-              </optgroup>
-            )}
-          </select>
-        </label>
-      )}
-      <div className="tr-field tr-field-wide tr-form-section">
-        <span>Recruit and/or sale presentation? (pick both if it's both)</span>
-        <TypeChoice recruit={typeRecruit} sale={typeSale} onToggleRecruit={() => setTypeRecruit(v => !v)} onToggleSale={() => setTypeSale(v => !v)} />
-      </div>
       <div className="tr-form-grid">
-        <label className="tr-field">
-          <span>Appointment date</span>
-          <input type="date" value={appointmentDate} onChange={e => setAppointmentDate(e.target.value)} onClick={openPicker} />
-        </label>
-        <label className="tr-field">
-          <span>Appointment time</span>
-          <input type="time" value={appointmentTime} onChange={e => setAppointmentTime(e.target.value)} onClick={openPicker} />
-        </label>
-        <label className="tr-field">
-          <span>Presenter</span>
-          {lockedToZoomHost ? (
-            <div className="tr-locked-value">{presenterOptions[0]?.display_name}</div>
-          ) : (
-            <select value={presenterId} onChange={e => handlePresenterChange(e.target.value)}>
-              {presenterOptions.map(p => <option key={p.id} value={p.id}>{p.display_name}{p.id === user.id ? ' (you)' : ''}</option>)}
-            </select>
-          )}
-        </label>
-        <label className="tr-field">
-          <span>Client / recruit</span>
-          <input value={client} onChange={e => handleClientChange(e.target.value)} placeholder="Who is being presented to" list="tr-prospect-name-options" autoComplete="off" />
+        <label className="tr-field tr-field-wide">
+          <span>Client</span>
+          <input value={client} onChange={e => handleClientChange(e.target.value)} placeholder="Who you're presenting to" list="tr-prospect-name-options" autoComplete="off" />
           <datalist id="tr-prospect-name-options">
             {myProspects.map(p => <option key={p.id} value={`${p.firstName} ${p.lastName}`} />)}
           </datalist>
         </label>
-        <label className="tr-field">
-          <span>Client email (optional)</span>
-          <input type="email" inputMode="email" autoComplete="off" autoCapitalize="none" value={clientEmail} onChange={e => setClientEmail(e.target.value)} placeholder="name@example.com" />
-        </label>
-        <label className="tr-field">
-          <span>Date set</span>
-          <select value={dateSetOption} onChange={e => setDateSetOption(e.target.value)}>
-            {DATE_SET_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-        </label>
-        <div className="tr-field">
-          <span>Counts toward</span>
-          <div className={`tr-badge tr-badge-${meta.category}`}>
-            {meta.batchLabel} ({meta.target}) · week of {parseDate(weekMonday).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-          </div>
+        <div className="tr-field tr-field-wide">
+          <span>Recruit, sale or both</span>
+          <TypeChoice recruit={typeRecruit} sale={typeSale} onToggleRecruit={() => setTypeRecruit(v => !v)} onToggleSale={() => setTypeSale(v => !v)} />
         </div>
-        <label className="tr-field">
-          <span>Time zone</span>
-          <select value={timezone} onChange={e => setTimezone(e.target.value)}>
-            {timezoneOptions.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
-          </select>
+        <label className="tr-field tr-field-half">
+          <span>Date</span>
+          <input type="date" value={appointmentDate} onChange={e => setAppointmentDate(e.target.value)} onClick={openPicker} />
         </label>
-        {traineeOptions.length > 0 && (
+        <label className="tr-field tr-field-half">
+          <span>Time</span>
+          <input type="time" value={appointmentTime} onChange={e => setAppointmentTime(e.target.value)} onClick={openPicker} />
+        </label>
+        {!editing && zoomHostOptions.length > 0 && (
+          <label className={`tr-field ${lockedToZoomHost ? 'tr-field-wide' : ''}`}>
+            <span>Presenting manager</span>
+            <select value={zoomHostId} onChange={e => handleZoomHostChange(e.target.value)}>
+              <option value="">None: me or my downline</option>
+              {uplineNonSelf.length > 0 && (
+                <optgroup label="Your upline">
+                  {uplineNonSelf.map(m => (
+                    <option key={m.id} value={m.id}>{m.display_name}{zoomManagers.some(z => z.id === m.id) ? ' (Zoom connected)' : ''}</option>
+                  ))}
+                </optgroup>
+              )}
+              {otherZoomManagers.length > 0 && (
+                <optgroup label="Other managers with Zoom connected">
+                  {otherZoomManagers.map(m => (
+                    <option key={m.id} value={m.id}>{m.display_name} (Zoom connected)</option>
+                  ))}
+                </optgroup>
+              )}
+            </select>
+            {lockedToZoomHost ? <small className="tr-field-hint">{presenterShown || 'They'} present{presenterShown ? 's' : ''}, and their Zoom makes the meeting link.</small> : null}
+          </label>
+        )}
+        {!lockedToZoomHost && (
           <label className="tr-field">
-            <span>Trainee (optional)</span>
-            <select value={traineeId} onChange={e => setTraineeId(e.target.value)}>
-              <option value="">— none —</option>
-              {traineeOptions.map(p => <option key={p.id} value={p.id}>{p.display_name}{p.id === user.id ? ' (you)' : ''}</option>)}
+            <span>Presenter</span>
+            <select value={presenterId} onChange={e => handlePresenterChange(e.target.value)}>
+              {presenterOptions.map(p => <option key={p.id} value={p.id}>{p.display_name}{p.id === user.id ? ' (you)' : ''}</option>)}
             </select>
           </label>
         )}
-        <label className="tr-field tr-field-wide">
-          <span>Notes (optional)</span>
-          <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Anything else worth noting" />
-        </label>
       </div>
-      {editing && (
-        <label className="tr-checkbox-field" style={{ marginTop: 12 }}>
-          <input type="checkbox" checked={sendUpdate} onChange={e => setSendUpdate(e.target.checked)} />
-          <span>Email an updated invite (new time / Zoom link){editing.inviteSentAt ? ` — last sent ${new Date(editing.inviteSentAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}</span>
-        </label>
-      )}
-      {(!editing || sendUpdate) && (
-        <div className="tr-invite-box">
-          <div className="tr-invite-title">{editing ? 'Send the updated invite to' : 'Email the meeting invite to'}</div>
-          <p className="tr-empty" style={{ margin: '0 0 4px', fontSize: 12.5 }}>
-            {editing && editing.inviteMethod === 'google'
-              ? 'The first invite came from Google Calendar; this update is emailed separately by PaceLedger.'
-              : 'Includes the Zoom link whenever a meeting is created. Sent from your Google Calendar if it’s connected, otherwise by PaceLedger.'}
-          </p>
-          <label className="tr-checkbox-field">
-            <input type="checkbox" checked={inviteClient && !!clientEmail.trim()} disabled={!clientEmail.trim()} onChange={e => setInviteClient(e.target.checked)} />
-            <span>The client{clientEmail.trim() ? ` (${clientEmail.trim()})` : ' — add their email above'}</span>
-          </label>
-          <label className="tr-checkbox-field">
-            <input type="checkbox" checked={inviteMe} onChange={e => setInviteMe(e.target.checked)} />
-            <span>Me{user.email ? ` (${user.email})` : ''}</span>
-          </label>
-          <label className="tr-field" style={{ marginTop: 6 }}>
-            <span>Anyone else? (optional — separate emails with commas)</span>
-            <input type="text" inputMode="email" autoComplete="off" autoCapitalize="none" value={extraEmails} onChange={e => setExtraEmails(e.target.value)} placeholder="spouse@example.com, manager@example.com" />
-          </label>
+
+      <div className={`tr-form-more ${showMore ? 'tr-form-more-open' : ''}`}>
+        <button type="button" className="tr-form-more-head" aria-expanded={showMore} onClick={() => setShowMore(v => !v)}>
+          {showMore ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}
+          <strong>More options</strong>
+          <span>Counts toward {meta.batchLabel}{traineeNote ? ` · ${traineeNote}` : ''} · client email, time zone, notes, invites</span>
+        </button>
+        {showMore && (
+          <div className="tr-form-more-body">
+            <div className="tr-form-grid">
+              <label className="tr-field">
+                <span>Client email</span>
+                <input type="email" inputMode="email" autoComplete="off" autoCapitalize="none" value={clientEmail} onChange={e => setClientEmail(e.target.value)} placeholder="name@example.com" />
+              </label>
+              <label className="tr-field">
+                <span>Date set</span>
+                <select value={dateSetOption} onChange={e => setDateSetOption(e.target.value)}>
+                  {DATE_SET_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                <small className="tr-field-hint">Counts toward {meta.batchLabel} ({meta.target}), week of {parseDate(weekMonday).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</small>
+              </label>
+              <label className="tr-field">
+                <span>Time zone</span>
+                <select value={timezone} onChange={e => setTimezone(e.target.value)}>
+                  {timezoneOptions.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+                </select>
+              </label>
+              {traineeOptions.length > 0 && (
+                <label className="tr-field">
+                  <span>Trainee</span>
+                  <select value={traineeId} onChange={e => setTraineeId(e.target.value)}>
+                    <option value="">None</option>
+                    {traineeOptions.map(p => <option key={p.id} value={p.id}>{p.display_name}{p.id === user.id ? ' (you)' : ''}</option>)}
+                  </select>
+                </label>
+              )}
+              <label className="tr-field tr-field-wide">
+                <span>Notes</span>
+                <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Anything worth noting" />
+              </label>
+            </div>
+            {editing && (
+              <label className="tr-checkbox-field" style={{ marginTop: 12 }}>
+                <input type="checkbox" checked={sendUpdate} onChange={e => setSendUpdate(e.target.checked)} />
+                <span>Email an updated invite (new time or Zoom link){editing.inviteSentAt ? `. Last sent ${new Date(editing.inviteSentAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}</span>
+              </label>
+            )}
+            {(!editing || sendUpdate) && (
+              <div className="tr-invite-box">
+                <div className="tr-invite-title">{editing ? 'Send the updated invite to' : 'Email the meeting invite to'}</div>
+                <p className="tr-empty" style={{ margin: '0 0 4px', fontSize: 12.5 }}>
+                  {editing && editing.inviteMethod === 'google'
+                    ? 'The first invite came from Google Calendar; this update is emailed separately by PaceLedger.'
+                    : 'Includes the Zoom link whenever a meeting is created. Sent from your Google Calendar if it’s connected, otherwise by PaceLedger.'}
+                </p>
+                <label className="tr-checkbox-field">
+                  <input type="checkbox" checked={inviteClient && !!clientEmail.trim()} disabled={!clientEmail.trim()} onChange={e => setInviteClient(e.target.checked)} />
+                  <span>The client{clientEmail.trim() ? ` (${clientEmail.trim()})` : ' (add their email above)'}</span>
+                </label>
+                <label className="tr-checkbox-field">
+                  <input type="checkbox" checked={inviteMe} onChange={e => setInviteMe(e.target.checked)} />
+                  <span>Me{user.email ? ` (${user.email})` : ''}</span>
+                </label>
+                <label className="tr-field" style={{ marginTop: 6 }}>
+                  <span>Anyone else? (separate emails with commas)</span>
+                  <input type="text" inputMode="email" autoComplete="off" autoCapitalize="none" value={extraEmails} onChange={e => setExtraEmails(e.target.value)} placeholder="spouse@example.com" />
+                </label>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </>
+  );
+
+  // On a phone it slides up as a sheet, with Save always in reach.
+  if (sheet) {
+    return (
+      <Sheet labelledBy="tr-apptform-title" onClose={onCancel}>
+        <div className="tr-fsheet-head">
+          <h3 className="tr-h3" id="tr-apptform-title">{title}</h3>
+          <button type="button" className="tr-icon-btn tr-fsheet-close" onClick={onCancel} aria-label="Close"><X size={18} /></button>
         </div>
-      )}
+        <div className="tr-fsheet-body" onKeyDown={handleKeyDown}>{fields}</div>
+        <div className="tr-fsheet-actions">
+          {err && <div className="tr-error">{err}</div>}
+          <button type="button" className="tr-btn tr-btn-brass" onClick={submit} disabled={saving || checking}>{saveLabel}</button>
+        </div>
+      </Sheet>
+    );
+  }
+  return (
+    <div className="tr-card tr-form" onKeyDown={handleKeyDown}>
+      <h3 className="tr-h3">{title}</h3>
+      {fields}
       {err && <div className="tr-error">{err}</div>}
       <div className="tr-form-actions">
         <button type="button" className="tr-btn tr-btn-ghost" onClick={onCancel}>Cancel</button>
-        <button type="button" className="tr-btn tr-btn-brass" onClick={submit} disabled={saving || checking}>{checking ? 'Checking…' : saving ? 'Saving…' : editing ? 'Save changes' : 'Save appointment'}</button>
+        <button type="button" className="tr-btn tr-btn-brass" onClick={submit} disabled={saving || checking}>{saveLabel}</button>
       </div>
     </div>
   );
@@ -546,15 +498,13 @@ export function OpenRequirementsBody({ view, user }) {
 
   return (
     <>
-      <div className="tr-row-head">
-        <h2 className="tr-section-title">{view === 'issued' ? 'Issued Premium' : 'Sold Premium'}</h2>
-        <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+      <div className="tr-row-head tr-screen-head">
+        <TitleInfo className="tr-section-title" title={view === 'issued' ? 'Issued Premium' : 'Sold Premium'}
+          info={view === 'issued'
+            ? 'Policies whose effective date has arrived and all requirements are complete.'
+            : 'Sold policies still waiting on their effective date and/or open requirements.'} />
+        <RefreshButton onClick={refresh} />
       </div>
-      <p className="tr-subtitle">
-        {view === 'issued'
-          ? 'Policies whose effective date has arrived and all requirements are complete.'
-          : 'Sold policies still waiting on their effective date and/or open requirements.'}
-      </p>
       {loading ? <SkeletonCards count={2} /> : filtered.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">Nothing here yet.</p></div>
       ) : (
@@ -566,7 +516,8 @@ export function OpenRequirementsBody({ view, user }) {
   );
 }
 
-export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initialIntent, onIntentConsumed }) {
+export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initialIntent, onIntentConsumed, cameFrom = null, onReturn }) {
+  const isPhone = useIsPhone();
   const [appointments, setAppointments] = useState([]);
   const [presenting, setPresenting] = useState([]); // set by someone else, you're presenting: counts toward your pace
   const [loading, setLoading] = useState(true);
@@ -592,8 +543,10 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
   // captured into local state immediately, since the parent clears its
   // own copy right after handing it off — AppointmentForm reads from
   // this local copy instead, which isn't affected by that.
+  const fromElsewhere = useRef(false);
   useEffect(() => {
     if (prefillData) {
+      fromElsewhere.current = !!cameFrom;
       setStatusView(null);
       setEditingAppt(null);
       setPendingPrefillData(prefillData);
@@ -707,8 +660,11 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
     .filter(a => (a.status || '') === statusView)
     .sort((a, b) => (b.appointmentDate + b.appointmentTime).localeCompare(a.appointmentDate + a.appointmentTime));
 
-  function closeForm() { setShowForm(false); setEditingAppt(null); setPendingPrefillData(null); }
-  function openEdit(appt) { setEditingAppt(appt); setShowForm(true); }
+  function closeForm() { setShowForm(false); setEditingAppt(null); setPendingPrefillData(null); fromElsewhere.current = false; }
+  // Cancel on a form you opened from another screen takes you back there.
+  function cancelForm() { const back = fromElsewhere.current; closeForm(); if (back && onReturn) onReturn(); }
+  function openEdit(appt) { fromElsewhere.current = false; setEditingAppt(appt); setShowForm(true); }
+  function openNewForm() { fromElsewhere.current = false; setShowForm(true); }
 
   async function handleFormSubmit(form) {
     setSaving(true);
@@ -866,14 +822,14 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
 
       <div className="tr-appts-main">
         <PageHead title="My appointments">
-          <button className="tr-btn tr-btn-brass" onClick={() => (showForm ? closeForm() : setShowForm(true))}>
+          <button className="tr-btn tr-btn-brass" onClick={() => (showForm ? closeForm() : openNewForm())}>
             {showForm ? <><X size={16} /> Close</> : <><Plus size={16} /> Log appointment</>}
           </button>
         </PageHead>
         {error && <div className="tr-error">{error}</div>}
         {notice && <div className={notice.kind === 'ok' ? 'tr-flash' : 'tr-error'}>{notice.text}</div>}
         {showForm && (
-          <AppointmentForm user={user} weekMonday={weekMonday} editing={editingAppt} prefillData={!editingAppt ? pendingPrefillData : null} onCancel={closeForm} onSubmit={handleFormSubmit} saving={saving} />
+          <AppointmentForm user={user} weekMonday={weekMonday} editing={editingAppt} prefillData={!editingAppt ? pendingPrefillData : null} onCancel={cancelForm} onSubmit={handleFormSubmit} saving={saving} sheet={isPhone} />
         )}
         <div className="tr-toolbar">
           <div className="tr-search-row">

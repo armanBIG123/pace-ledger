@@ -1,5 +1,6 @@
 // Appointments: loading, saving, outcomes/follow-ups, sold policies and invites.
 import { supabase } from '../supabaseClient.js';
+import { fetchHierarchyPeopleShared } from './team.js';
 import { createClientIntakeCandidate } from '../clientIntake.js';
 import { dateSetMeta, defaultDateSetOption } from '../lib/pace.js';
 import { detectTimezone, fmtDisplayDate, todayStr, weekStartOf } from '../lib/dates.js';
@@ -204,19 +205,25 @@ export async function insertFollowUpAppointment(userId, original, followUpDate, 
 
 // Appointments someone else set with you as the presenter (they count
 // toward your pace too). Each gets setByName: who set it.
-export async function fetchAppointmentsImPresenting(userId) {
-  const { data, error } = await supabase
-    .from('appointments').select('*').eq('presenter_id', userId).neq('user_id', userId)
-    .order('appointment_date', { ascending: true });
+// Appointments someone else set that you're on: presenting (these count
+// toward your pace) or sitting in as the trainee. One request for both.
+// Each comes back with presentingFor and the name of who set it.
+export async function fetchAppointmentsImOn(userId) {
+  const [{ data, error }, people] = await Promise.all([
+    supabase.from('appointments').select('*')
+      .or(`presenter_id.eq.${userId},trainee_id.eq.${userId}`).neq('user_id', userId)
+      .order('appointment_date', { ascending: true }),
+    fetchHierarchyPeopleShared().catch(() => []),
+  ]);
   if (error) { console.error(error); return []; }
-  const rows = (data || []).filter(r => r.presenter_id === userId && r.user_id !== userId);
-  const ids = [...new Set(rows.map(r => r.user_id))];
-  let names = new Map();
-  if (ids.length) {
-    const { data: people } = await supabase.from('profiles').select('id, display_name').in('id', ids);
-    names = new Map((people || []).map(p => [p.id, p.display_name]));
-  }
-  return rows.map(r => ({ ...rowToRecord(r), presentingFor: true, setByName: names.get(r.user_id) || '' }));
+  const names = new Map((people || []).map(p => [p.id, p.display_name]));
+  return (data || [])
+    .filter(r => r.user_id !== userId && (r.presenter_id === userId || r.trainee_id === userId))
+    .map(r => ({ ...rowToRecord(r), presentingFor: r.presenter_id === userId, setByName: names.get(r.user_id) || '' }));
+}
+
+export async function fetchAppointmentsImPresenting(userId) {
+  return (await fetchAppointmentsImOn(userId)).filter(a => a.presentingFor);
 }
 
 export async function fetchMyAppointments(userId) {

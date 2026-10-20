@@ -1,6 +1,6 @@
 // Team Pace: weekly pace, promotion readiness and licensing for the team.
 import React, { useCallback, useEffect, useState } from 'react';
-import { ChevronDown, ChevronUp, UserCog, Users } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, UserCog, Users } from 'lucide-react';
 import { daysBetween, examWhen, fetchLicensingForUsers, leaderStepText, licensingStatus } from '../../licensing.js';
 import { fetchTeamOnboarding, ONBOARDING_DAYS, onboardingDay, onboardingStepTitle, onboardingStepWeek } from '../../onboarding.js';
 import { hierarchyTierLabel } from '../../hierarchy.js';
@@ -9,7 +9,7 @@ import { addDays, apptStartMsSafe, fmtApptDateTime, fmtDate, fmtShortDate, parse
 import { fetchAppointmentsForWeek, isPastAppointment, isRecruitType, isSaleType } from '../../data/appointments.js';
 import { addCoachingNote, approvePromotion, fetchCoachingNotes, fetchDirectManagers, fetchHierarchyPeople, fetchTeamMembers, loadPromotionReadiness, logAuditEvent } from '../../data/team.js';
 import { AGENCY_EMAIL, approvePromotionRequest, fetchPromotionRequests, resendPromotionEmail, sendBackPromotion, submitErrorText, submitPromotion } from '../../data/promotions.js';
-import { MemberSubline, MiniBar, SkelBlock, SkeletonTable, StatusBadge, StatusChip, TypeBadge, TypeFilter, WeekNav } from '../../components/ui.jsx';
+import { MemberSubline, MiniBar, RefreshButton, SkelBlock, SkeletonTable, StatusBadge, StatusChip, TitleInfo, TypeBadge, TypeFilter, WeekNav } from '../../components/ui.jsx';
 import { RequirementRow } from '../Milestones.jsx';
 import { RecruitsSubView } from './Recruits.jsx';
 import { FieldTrainingSubView } from './FieldTraining.jsx';
@@ -231,9 +231,9 @@ export function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, 
   return (
     <>
       <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
-      <div className="tr-row-head">
-        <h2 className="tr-h2"><Icon size={18} /> {heading}</h2>
-        <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refreshAppts}>Refresh</button>
+      <div className="tr-row-head tr-screen-head">
+        <h2 className="tr-h2"><Icon size={18} aria-hidden="true" /> {heading}</h2>
+        <RefreshButton onClick={refreshAppts} />
       </div>
       {!loadingMembers && <NewAdvisorsCard members={members} />}
       <div className="tr-typefilter-row">
@@ -465,18 +465,18 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
 
   return (
     <>
-      <div className="tr-row-head">
-        <h2 className="tr-h2">Promotion readiness</h2>
-        <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+      <div className="tr-row-head tr-screen-head">
+        <TitleInfo title="Promotion readiness" info={<>
+          Live progress toward each person's next tier, the same numbers their own Milestones page shows them.
+          {noSubmissions
+            ? (isAdmin ? ' Approve a promotion here when someone is ready.' : ' Super admins approve promotions.')
+            : (isAdmin
+              ? ' Approve submitted promotions here, or send them back.'
+              : ' When someone is ready, their direct manager submits it for approval and the agency is emailed. A super admin approves it.')}
+          {' '}Tap a name to see each requirement.
+        </>} />
+        <RefreshButton onClick={refresh} />
       </div>
-      <p className="tr-subtitle">
-        Live progress toward each person's next tier — the same numbers their own Milestones page shows them.
-        {noSubmissions
-          ? (isAdmin ? ' Approve a promotion here when someone is ready.' : ' Super admins approve promotions.')
-          : (isAdmin
-            ? ' Approve submitted promotions here, or send them back.'
-            : ' When someone is ready, their direct manager submits it for approval and the agency is emailed. A super admin approves it.')}
-      </p>
       {notice && <div className={notice.kind === 'ok' ? 'tr-flash' : 'tr-error'} style={{ marginBottom: 12 }}>{notice.text}</div>}
       {isLoading ? <SkeletonTable rows={5} cols={4} /> : members.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">{emptyMessage}</p></div>
@@ -484,16 +484,11 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
         <div className="tr-card"><p className="tr-empty">No one here has a hierarchy tier set yet, or everyone's already at the top of the ladder.</p></div>
       ) : (
         <>
-          {(readyCount > 0 || waitingCount > 0) && (
-            <div className="tr-health-line">
-              {readyCount > 0 && <span className="tr-type-badge tr-type-badge-both">🎉 {readyCount} ready for promotion</span>}
-              {waitingCount > 0 && <span className="tr-type-badge tr-promo-waiting">{waitingCount} waiting for approval</span>}
-            </div>
-          )}
+          <p className="tr-count-line"><strong>{readyCount}</strong> ready · <strong>{waitingCount}</strong> waiting for approval</p>
           <div className="tr-card tr-summary-card">
             <div className="tr-table-wrap">
               <table className="tr-table tr-table-summary">
-                <thead><tr><th>{memberLabel}</th><th>Current tier</th><th>Next tier</th><th>Progress</th></tr></thead>
+                <thead><tr><th>{memberLabel}</th><th>Now</th><th>Next</th><th><span className="tr-sr-only">Progress</span></th></tr></thead>
                 <tbody>
                   {progressList.map(({ member, progress }) => {
                     const isOpen = expanded === member.id;
@@ -511,12 +506,12 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
                             <span className="tr-row-toggle">{isOpen ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</span>
                             {member.display_name}
                           </td>
-                          <td>{hierarchyTierLabel(member.hierarchy_tier)}</td>
-                          <td>{progress.nextTier.name} ({progress.nextTier.key})</td>
+                          <td title={hierarchyTierLabel(member.hierarchy_tier)}>{member.hierarchy_tier || '—'}</td>
+                          <td>{progress.nextTier.name}</td>
                           <td>
                             <span className="tr-promo-ready-cell">
-                              {waiting ? <span className="tr-type-badge tr-promo-waiting">Waiting for approval</span>
-                                : progress.allMet ? <span className="tr-type-badge tr-type-badge-both">✓ Ready!</span> : null}
+                              {waiting ? <span className="tr-promo-waiting-text">Waiting for approval</span>
+                                : progress.allMet ? <span className="tr-promo-ready-text"><Check size={14} aria-hidden="true" /> Ready</span> : null}
                               {!progress.allMet ? <span className="tr-mono">{metCount} / {totalCount} met{waiting ? ' now' : ''}</span> : null}
                               {isAdmin && waiting ? (
                                 <>
@@ -531,7 +526,7 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
                               ) : null}
                               {canSubmit ? (
                                 <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" disabled={busy} onClick={stop(() => submit(member, progress))}>
-                                  {busy ? 'Submitting…' : 'Submit for approval'}
+                                  {busy ? 'Submitting…' : 'Submit'}
                                 </button>
                               ) : null}
                               {!noSubmissions && !isAdmin && !isDirect && progress.allMet && !waiting ? <span className="tr-promo-note">Their direct manager submits it</span> : null}
@@ -596,11 +591,10 @@ export function TeamLicensingSubView({ members, loadingMembers, memberLabel, emp
 
   return (
     <>
-      <div className="tr-row-head">
-        <h2 className="tr-h2">Licensing</h2>
-        <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={refresh}>Refresh</button>
+      <div className="tr-row-head tr-screen-head">
+        <TitleInfo title="Licensing" info={`Where everyone on your team is on the path to licensed. "Stuck" means no progress in ${LICENSING_STUCK_DAYS}+ days, so it's a good time to check in.`} />
+        <RefreshButton onClick={refresh} />
       </div>
-      <p className="tr-subtitle">Where everyone on your team is on the path to licensed. "Stuck" means no progress in {LICENSING_STUCK_DAYS}+ days, so it's a good time to check in.</p>
       <div className="tr-org-stats">
         <span><strong>{open.length}</strong> not licensed yet</span>
         {stuck > 0 && <span className="tr-lic-stat-warn"><strong>{stuck}</strong> stuck</span>}
