@@ -153,11 +153,11 @@ export default function App() {
     return () => { cancelled = true; };
   }, [session]);
 
-  // Your account -> Save changes: show the new name right away.
+  // Your account -> Save changes (or a new photo): show it right away.
   useEffect(() => {
     const changed = e => {
       const d = (e && e.detail) || {};
-      setProfile(p => (p ? { ...p, ...(d.display_name ? { display_name: d.display_name } : {}), npn: d.npn ?? p.npn, fg_writing_number: d.fg_writing_number ?? p.fg_writing_number, licensed_at: d.licensed_at ?? p.licensed_at } : p));
+      setProfile(p => (p ? { ...p, ...(d.display_name ? { display_name: d.display_name } : {}), npn: d.npn ?? p.npn, fg_writing_number: d.fg_writing_number ?? p.fg_writing_number, licensed_at: d.licensed_at ?? p.licensed_at, avatar_path: d.avatar_path !== undefined ? d.avatar_path : p.avatar_path } : p));
     };
     window.addEventListener('paceledger:profile-changed', changed);
     return () => window.removeEventListener('paceledger:profile-changed', changed);
@@ -176,7 +176,7 @@ export default function App() {
   }
   if (profileLoading || !profile) return <Shell><AndroidBackLeavesApp /><Spinner label="Loading your account…" /></Shell>;
 
-  const user = { id: session.user.id, email: session.user.email || profile.email || '', displayName: profile.display_name, role: profile.role, hierarchyTier: profile.hierarchy_tier, managerId: profile.manager_id, createdAt: profile.created_at, isLeader: !!profile._leads };
+  const user = { id: session.user.id, email: session.user.email || profile.email || '', displayName: profile.display_name, role: profile.role, hierarchyTier: profile.hierarchy_tier, managerId: profile.manager_id, createdAt: profile.created_at, isLeader: !!profile._leads, avatarPath: profile.avatar_path || '' };
   return (
     <>
       <ConnectionBanner banner={connectionBanner} onDismiss={() => setConnectionBanner(null)} />

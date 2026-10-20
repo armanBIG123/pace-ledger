@@ -12,6 +12,7 @@ import { fetchAppointmentsForWeek } from '../../data/appointments.js';
 import { fetchHierarchyPeople, fetchRecentSoldAppointments, promotionSubjects } from '../../data/team.js';
 import { RefreshButton, SkeletonTable, StatusBadge, TitleInfo, WeekNav } from '../../components/ui.jsx';
 import { MilestoneCard } from './MilestoneCard.jsx';
+import { Avatar, useAvatars } from '../../components/avatar.jsx';
 
 // Solar system view of the org chart: the person in focus is the centre, the
 // people who report to them orbit around them. Everyone is drawn as their
@@ -266,6 +267,7 @@ export function SolarSystemView({ user, isAdmin, roots, byId, children, stats, r
 
 export function OrgChartBody({ user, onOpenPromotion, initialIntent, onIntentConsumed }) {
   const [people, setPeople] = useState([]);
+  const avatars = useAvatars();
   const [weekAppts, setWeekAppts] = useState([]);
   const [readyIds, setReadyIds] = useState(new Map());
   const [progressById, setProgressById] = useState(new Map());
@@ -418,7 +420,7 @@ export function OrgChartBody({ user, onOpenPromotion, initialIntent, onIntentCon
               {expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
             </button>
           ) : <span className="tr-org-toggle tr-org-toggle-none" aria-hidden="true" />}
-          <span className="tr-org-avatar" aria-hidden="true">{personInitials(person.display_name)}</span>
+          <Avatar url={avatars.get(person.id)} className="tr-org-avatar">{personInitials(person.display_name)}</Avatar>
           <div className="tr-org-main">
             <div className="tr-org-name">
               <strong>{person.display_name}</strong>{person.id === user.id ? <span className="tr-org-you">you</span> : null}

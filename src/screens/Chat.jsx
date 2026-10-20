@@ -11,6 +11,7 @@ import {
 } from '../data/chat.js';
 import { fetchHierarchyPeopleShared } from '../data/team.js';
 import { Modal, MoreMenu, SkelBlock, useIsPhone } from '../components/ui.jsx';
+import { Avatar, useAvatars } from '../components/avatar.jsx';
 
 const ICONS = { general: Hash, work: Briefcase, urgent: LifeBuoy, reports: Flag };
 const REASONS = ['Harassment or bullying', 'Hate or discrimination', 'Sexual or graphic content', "A client's private information", 'Spam', 'Something else'];
@@ -229,6 +230,7 @@ export function ChatBody({ user, initialChannel, onIntentConsumed }) {
   const [phoneList, setPhoneList] = useState(!initialChannel);
   const [byChannel, setByChannel] = useState({}); // channel -> { messages, more, loading }
   const [people, setPeople] = useState(new Map());
+  const avatars = useAvatars();
   const [blocked, setBlocked] = useState([]);
   const [unread, setUnread] = useState(null);
   const [drafts, setDrafts] = useState({});
@@ -489,7 +491,7 @@ export function ChatBody({ user, initialChannel, onIntentConsumed }) {
       <div key={m.id} className={`tr-chat-msg ${grouped ? '' : 'tr-chat-msg-first'} ${mine ? 'tr-chat-msg-mine' : ''}`}>
         {grouped
           ? <span className="tr-chat-gutter" aria-hidden="true"><time>{timeOf(m.createdAt)}</time></span>
-          : <span className="tr-chat-avatar" style={{ background: avatarColor(m.userId) }} aria-hidden="true">{initials(name(m.userId))}</span>}
+          : <Avatar url={avatars.get(m.userId)} className="tr-chat-avatar" style={{ background: avatarColor(m.userId) }}>{initials(name(m.userId))}</Avatar>}
         <div className="tr-chat-msg-main">
           {grouped ? null : (
             <div className="tr-chat-meta">

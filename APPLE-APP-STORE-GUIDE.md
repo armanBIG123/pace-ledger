@@ -198,6 +198,7 @@ or all countries.
      premium figures)
    - **User Content → Other User Content** (appointments, prospects,
      notes)
+   - **User Content → Photos or Videos** (profile photo; from version 1.0.1)
    - **Identifiers → User ID**
 3. For each one, answer:
    - Used for: **App Functionality** only.
