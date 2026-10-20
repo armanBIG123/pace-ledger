@@ -1662,7 +1662,9 @@ export const CSS = `
   .tr-pipeline .tr-flat .tr-h2 { font-size: 20px; }
   .tr-flat .tr-appts-sidebar { flex-wrap: nowrap; overflow-x: auto; gap: 8px; }
   .tr-flat .tr-sidebar-item { min-height: 40px; }
-  .tr-flat .tr-appts-main .tr-appts-sidebar { margin: 0; padding: 3px; gap: 2px; -webkit-mask-image: none; mask-image: none; }
+  .tr-flat .tr-appts-main .tr-appts-sidebar { margin: 0; padding: 3px; gap: 2px; flex-wrap: wrap; overflow: visible; -webkit-mask-image: none; mask-image: none; }
+  /* Resources: all three (PDFs, PowerPoints, links) in view, no swiping. */
+  .tr-appts-sidebar.tr-docs-tabs { flex-wrap: wrap; overflow: visible; margin: 0; padding: 2px 0 4px; -webkit-mask-image: none; mask-image: none; }
   .tr-flat .tr-appts-main .tr-sidebar-item { min-height: 36px; border: none; font-size: 13px !important; }
   .tr-flat .tr-appts-main .tr-sidebar-item-active, .tr-flat .tr-appts-main .tr-sidebar-item-active:hover { background: var(--card); color: var(--ink); }
 }

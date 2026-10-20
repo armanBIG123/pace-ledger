@@ -220,7 +220,7 @@ export function DocumentsBody({ user }) {
 
   return (
     <div className="tr-appts-shell">
-      <nav className="tr-appts-sidebar">
+      <nav className="tr-appts-sidebar tr-docs-tabs">
         <button
           type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'pdf' ? 'tr-sidebar-item-active' : ''}`}
           onClick={() => switchView('pdf')}>

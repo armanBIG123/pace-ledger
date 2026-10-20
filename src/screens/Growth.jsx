@@ -1,7 +1,7 @@
 // Growth: everything about moving up, in one tab. My path (where you are and
 // the next level), Paycheck & plan (this month's paycheck and the Business
 // Plan behind the goal), Licensing, Incentives and the full promotion guide.
-// On phones, Resources sits here too (it has its own tab on a computer).
+// On phones, Resources is here too, as well as on the bottom bar.
 import { useEffect, useState } from 'react';
 import { fetchMyAppointments } from '../data/appointments.js';
 import { fetchBusinessPlan, rowToBusinessPlanFields } from '../businessPlan.js';
@@ -68,13 +68,13 @@ export function GrowthBody({ user, view, onView }) {
             )}
             {current === 'licensing' && <LicensingBody user={user} />}
             {current === 'incentives' && <IncentivesBody />}
+            {current === 'resources' && <DocumentsBody user={user} />}
             {current === 'guide' && (
               <>
                 <PageHead title="Promotion guide" sub={tier ? `Your level: ${hierarchyTierLabel(user.hierarchyTier)} · ${tier.commission}% commission` : "Your level hasn't been set yet. Ask a super admin to set it in Manage Team."} />
                 <TierLadder currentTierKey={user.hierarchyTier} />
               </>
             )}
-            {current === 'resources' && <DocumentsBody user={user} />}
           </div>
         </div>
       </div>
