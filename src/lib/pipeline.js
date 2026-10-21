@@ -1,4 +1,4 @@
-// The numbers on My work → Pipeline's five stages (Names → Booked → Log
+// The numbers on My work → Pipeline's five stages (Prospects → Appointments → Log
 // outcome → Follow-up → Won), worked out from the same rules the screens
 // behind each stage use.
 import { isPastAppointment, isPolicyIssued } from '../data/appointments.js';

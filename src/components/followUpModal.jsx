@@ -4,7 +4,7 @@
 //   follow-up, tax and home/auto interest, and client intake, as before.
 // - No show / Rescheduled: pick the new date and time right here (the same
 //   as editing it from the Reschedule list), or "Not now".
-// Used on Today, Pipeline (Booked, Log outcome, Follow-up), and by leaders
+// Used on Today, Pipeline (Appointments, Log outcome, Follow-up), and by leaders
 // for appointments they presented (presenter: no time picking, no intake).
 // onEdit: "Edit the appointment" instead (wrong time or details).
 import { useState } from 'react';

@@ -1,5 +1,5 @@
 // Pipeline: Prospecting, My Appointments and Follow Up as one flow. Five
-// stages a name moves through, left to right: Names → Booked → Log outcome
+// stages a name moves through, left to right: Prospects → Appointments → Log outcome
 // → Follow-up → Won. Each stage opens the screen that does that job; the
 // counts on top come from the same rules those screens use.
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -14,8 +14,8 @@ import { MyAppointmentsBody, OpenRequirementsBody } from './Appointments.jsx';
 import { FollowUpBody } from './FollowUp.jsx';
 
 export const PIPELINE_STAGES = [
-  { key: 'names', label: 'Names', Icon: Users },
-  { key: 'booked', label: 'Booked', Icon: CalendarDays },
+  { key: 'names', label: 'Prospects', Icon: Users },
+  { key: 'booked', label: 'Appointments', Icon: CalendarDays },
   { key: 'outcome', label: 'Log outcome', Icon: ListChecks },
   { key: 'followup', label: 'Follow-up', Icon: MessageCircle },
   { key: 'won', label: 'Won', Icon: Award },
@@ -94,7 +94,7 @@ export function PipelineBody({ user, stage, onStage, intentFor, clearIntent, pre
   return (
     <div className="tr-pipeline">
       <div className="tr-row-head tr-screen-head">
-        <TitleInfo title="Pipeline" info="Every name from first contact to a won sale or recruit, in one place. Tap a stage to see who is in it: your list, booked appointments, outcomes to log, follow-ups, and sales and recruits won." />
+        <TitleInfo title="Pipeline" info="Every name from first contact to a won sale or recruit, in one place. Tap a stage to see who is in it: your prospects, appointments, outcomes to log, follow-ups, and sales and recruits won." />
       </div>
       <div className="tr-stages" ref={strip} role="tablist" aria-label="Pipeline stages">
         {PIPELINE_STAGES.map(({ key, label, Icon }, i) => (
