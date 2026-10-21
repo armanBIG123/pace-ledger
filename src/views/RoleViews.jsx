@@ -23,6 +23,7 @@ const TrackProductionBody = lazyScreen(() => import('../screens/team/TrackProduc
 const OrgChartBody = lazyScreen(() => import('../screens/team/OrgChart.jsx'), 'OrgChartBody');
 const ManageUsersView = lazyScreen(() => import('../screens/team/ManageTeam.jsx'), 'ManageUsersView');
 const ClientFormsBody = lazyScreen(() => import('../screens/team/ClientForms.jsx'), 'ClientFormsBody');
+const ProfilesBody = lazyScreen(() => import('../screens/team/Profiles.jsx'), 'ProfilesBody');
 
 // The screen area: a loading placeholder while a screen's file arrives, and
 // a "didn't load" message (instead of a blank page) if it can't.
@@ -227,6 +228,7 @@ export function AdminView({ user }) {
         <Screens id={`${group}:${tab}`}>
           <MyWorkScreens user={user} nav={nav} />
           <TeamScreens user={user} nav={nav} />
+          {tab === 'profiles' && <ProfilesBody />}
           {tab === 'clientforms' && <ClientFormsBody />}
           {tab === 'users' && <ManageUsersView currentUserId={user.id} currentUserName={user.displayName} />}
         </Screens>

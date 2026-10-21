@@ -1,6 +1,6 @@
 // Tab lists, the tab bar / phone bottom bar, and the Android back button.
 import { useEffect, useRef, useState } from 'react';
-import { Calendar, ChevronRight, ClipboardCheck, DollarSign, FolderOpen, Kanban, LayoutDashboard, Menu, Network, Plus, Sun, TrendingUp, UserCog, Users } from 'lucide-react';
+import { BookUser, Calendar, ChevronRight, ClipboardCheck, DollarSign, FolderOpen, Kanban, LayoutDashboard, Menu, Network, Plus, Sun, TrendingUp, UserCog, Users } from 'lucide-react';
 import { minimizeAndroidApp, onAndroidBack } from '../native.js';
 
 // ---------------------------------------------------------------------
@@ -28,7 +28,7 @@ export const TEAM_TABS = [
   { id: 'org', label: 'Org Chart', short: 'Org', Icon: Network },
 ];
 
-export const ADMIN_TEAM_TABS = [...TEAM_TABS, { id: 'clientforms', label: 'Client Forms', short: 'Forms', Icon: ClipboardCheck }, { id: 'users', label: 'Manage Team', short: 'Manage', Icon: UserCog }];
+export const ADMIN_TEAM_TABS = [...TEAM_TABS, { id: 'profiles', label: 'Profiles', short: 'Profiles', Icon: BookUser }, { id: 'clientforms', label: 'Client Forms', short: 'Forms', Icon: ClipboardCheck }, { id: 'users', label: 'Manage Team', short: 'Manage', Icon: UserCog }];
 
 export function TabNav({ tabs, tab, onSelect, onNew }) {
   const [moreOpen, setMoreOpen] = useState(false);
@@ -105,6 +105,9 @@ export function useAndroidBackButton(tab, goHome) {
     if (overlays.length) { overlays[overlays.length - 1].click(); return; }
     const formSheet = document.querySelector('.tr-fsheet-close');
     if (formSheet) { formSheet.click(); return; }
+    // A screen showing one item (a profile) goes back to its list first.
+    const inner = document.querySelector('[data-android-back]');
+    if (inner) { inner.click(); return; }
     if (tabRef.current !== 'overview') { homeRef.current(); window.scrollTo(0, 0); return; }
     minimizeAndroidApp();
   }), []);
