@@ -2,19 +2,31 @@ import { supabase } from './supabaseClient.js';
 
 // ---------------------------------------------------------------------
 // manager availability ("My Schedule") — blocked-out times a manager
-// posts for themselves, visible to everyone (same visibility model as
-// Trainings), plus the conflict check that runs before any appointment
-// is saved so advisors can't double-book a presenter who's already busy.
+// posts for themselves, plus the conflict check that runs before any
+// appointment is saved so advisors can't double-book a presenter who's
+// already busy.
+//
+// Who sees a blocked-out time (enforced by the database): the person who
+// blocked it, everyone above them, and super admins. The people below
+// them get it from upline_busy_times() without the reason, so they can
+// still book around it.
 // ---------------------------------------------------------------------
 export async function fetchScheduleBlocksInRange(startDate, endDate) {
-  const { data, error } = await supabase
-    .from('manager_availability_blocks').select('*')
-    .gte('block_date', startDate)
-    .lte('block_date', endDate)
-    .order('block_date', { ascending: true })
-    .order('start_time', { ascending: true });
-  if (error) { console.error(error); return []; }
-  return data;
+  const [visible, upline] = await Promise.all([
+    supabase.from('manager_availability_blocks').select('*')
+      .gte('block_date', startDate)
+      .lte('block_date', endDate)
+      .order('block_date', { ascending: true })
+      .order('start_time', { ascending: true }),
+    supabase.rpc('upline_busy_times', { p_start: startDate, p_end: endDate }),
+  ]);
+  if (visible.error) { console.error(visible.error); return []; }
+  const rows = visible.data || [];
+  const seen = new Set(rows.map(b => b.id));
+  // Before migration-calendar-privacy.sql has run this call fails; the
+  // calendar just shows what it showed before.
+  const above = upline.error ? [] : (upline.data || []).filter(b => b && b.id && !seen.has(b.id));
+  return [...rows, ...above].sort((a, b) => `${a.block_date} ${a.start_time}`.localeCompare(`${b.block_date} ${b.start_time}`));
 }
 export async function createScheduleBlock({ userId, userName, date, startTime, endTime, label, timezone, recurring, repeatUntil }) {
   const base = { user_id: userId, user_name: userName || null, start_time: startTime, end_time: endTime, label: label || null, timezone: timezone || null };
