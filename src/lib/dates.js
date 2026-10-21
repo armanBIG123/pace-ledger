@@ -83,17 +83,78 @@ export function timezoneOptionsWithDetected() {
   return [{ value: detected, label: `Your timezone (${detected})` }, ...TIMEZONE_OPTIONS];
 }
 
-// Shows the appointment converted to whoever is looking at it right now.
-// Falls back to the raw stored value (old behavior) for appointments
-// logged before timezones were tracked.
+// Shows the appointment converted to whoever is looking at it right now,
+// with when it ends: "Wed, Oct 21 · 6:30 – 7:30 PM CDT". Falls back to the
+// raw stored value (old behavior) for appointments logged before timezones
+// were tracked.
 export function fmtApptDateTime(a) {
-  if (a.appointmentAt) {
-    const d = new Date(a.appointmentAt);
-    const dateStr = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-    const timeStr = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
-    return `${dateStr} · ${timeStr}`;
-  }
-  return `${fmtDisplayDate(a.appointmentDate)} · ${fmtTime(a.appointmentTime)}`;
+  const start = new Date(apptStartMs(a));
+  const end = new Date(apptEndMs(a));
+  const dateStr = a.appointmentAt
+    ? start.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+    : fmtDisplayDate(a.appointmentDate);
+  return `${dateStr} · ${fmtClockRange(start, end, !!a.appointmentAt)}`;
+}
+
+// ---------------------------------------------------------------------
+// appointment lengths — every appointment has one (duration_minutes);
+// rows from before lengths were saved count as 30 minutes, the length
+// their Zoom meeting and invite were made with.
+// ---------------------------------------------------------------------
+export const LEGACY_APPT_MINUTES = 30;
+
+export function apptMinutes(a) {
+  const n = Number(a && a.durationMinutes);
+  return n > 0 ? n : LEGACY_APPT_MINUTES;
+}
+
+export function apptEndMs(a) {
+  return apptStartMs(a) + apptMinutes(a) * 60000;
+}
+
+// The end time as a clock, "7:30 PM", for whoever is looking.
+export function apptEndClock(a) {
+  return new Date(apptEndMs(a)).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+const CLOCK = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
+function clockParts(d) {
+  const p = {};
+  // (Older Safari calls the AM/PM part "dayperiod".)
+  CLOCK.formatToParts(d).forEach(x => { if (x.type !== 'literal') p[x.type.toLowerCase()] = x.value; });
+  return { hm: `${p.hour}:${p.minute}`, ampm: p.dayperiod || '', zone: p.timezonename || '' };
+}
+
+// "6:30 – 7:30 PM CDT", or "11:30 AM – 12:30 PM CDT" across noon.
+export function fmtClockRange(start, end, withZone = true) {
+  const s = clockParts(start), e = clockParts(end);
+  const from = s.ampm === e.ampm ? s.hm : [s.hm, s.ampm].filter(Boolean).join(' ');
+  return `${from} – ${[e.hm, e.ampm, withZone ? e.zone : ''].filter(Boolean).join(' ')}`;
+}
+
+// "30 min", "1 hr", "1 hr 30 min".
+export function durationLabel(minutes) {
+  const n = Math.round(Number(minutes) || 0);
+  const h = Math.floor(n / 60), m = n % 60;
+  if (!h) return `${m} min`;
+  return m ? `${h} hr ${m} min` : `${h} hr`;
+}
+
+// "HH:MM" plus some minutes, on a 24-hour clock ("23:30" + 60 = "00:30").
+export function addMinutesToTime(timeStr, minutes) {
+  const [h, m] = String(timeStr || '').split(':').map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return '';
+  const total = (((h * 60 + m + Math.round(minutes)) % 1440) + 1440) % 1440;
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
+
+// Minutes from one "HH:MM" to the next; an end earlier than the start runs
+// past midnight. 0 when they're the same or either is missing.
+export function minutesBetweenTimes(startStr, endStr) {
+  const toMin = t => { const [h, m] = String(t || '').split(':').map(Number); return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : NaN; };
+  const s = toMin(startStr), e = toMin(endStr);
+  if (!Number.isFinite(s) || !Number.isFinite(e)) return 0;
+  return (((e - s) % 1440) + 1440) % 1440;
 }
 
 // A training posted at, say, 7pm ET needs to show as 6pm for someone in

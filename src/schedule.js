@@ -59,8 +59,11 @@ export async function deleteScheduleBlockSeries(groupId, fromDate) {
   const { error } = await supabase.from('manager_availability_blocks').delete().eq('recurring_group_id', groupId).gte('block_date', fromDate);
   return !error;
 }
-// Asks the database whether this presenter already has an appointment at
-// this exact date/time, or has marked it unavailable via My Schedule.
+// Asks the database whether this presenter already has an appointment that
+// overlaps this one (from its start for durationMinutes), or has marked
+// that time unavailable via My Schedule. When it's taken, starts_at and
+// ends_at say when they're busy (only for people allowed to see their
+// calendar).
 // Runs through a security-definer function rather than a direct query so
 // it works for any advisor checking any presenter in their upline,
 // without needing broad read access to that presenter's whole calendar.
@@ -69,11 +72,15 @@ export async function deleteScheduleBlockSeries(groupId, fromDate) {
 // against a presenter who blocked 7:30pm Eastern — the same instant), so
 // the chosen time zone is passed through and compared as a true instant
 // on the database side rather than as raw wall-clock digits.
-export async function checkAppointmentConflict(presenterId, date, time, timezone, excludeAppointmentId) {
-  const { data, error } = await supabase.rpc('check_appointment_conflict', {
+export async function checkAppointmentConflict(presenterId, date, time, timezone, excludeAppointmentId, durationMinutes) {
+  const args = {
     p_presenter_id: presenterId, p_date: date, p_time: time, p_timezone: timezone || null,
     p_exclude_appointment_id: excludeAppointmentId || null,
-  });
+  };
+  let { data, error } = await supabase.rpc('check_appointment_conflict', { ...args, p_duration: durationMinutes || null });
+  // Before migration-appointment-end-times.sql has run, the check doesn't
+  // take a length yet: ask the old way (same start time only).
+  if (error) ({ data, error } = await supabase.rpc('check_appointment_conflict', args));
   if (error) { console.error(error); return { conflict: false }; } // fail open — never block saving over a network hiccup
   return data;
 }

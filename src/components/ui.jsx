@@ -293,11 +293,21 @@ export function openPicker(e) {
 // ---------------------------------------------------------------------
 // follow-up — quick, tap-to-answer questions for past appointments
 // ---------------------------------------------------------------------
-export function Modal({ onClose, children }) {
+// A window over the screen. It takes the keyboard focus when it opens (so
+// Escape closes it) and gives it back to whatever had it when it closes.
+export function Modal({ onClose, children, className = '', labelledBy }) {
+  const card = useRef(null);
+  useEffect(() => {
+    const before = document.activeElement;
+    const el = card.current;
+    if (el && !el.contains(document.activeElement)) el.focus({ preventScroll: true });
+    return () => { if (before && before.isConnected && typeof before.focus === 'function') before.focus({ preventScroll: true }); };
+  }, []);
   function handleKeyDown(e) { if (e.key === 'Escape') onClose(); }
   return (
     <div className="tr-modal-backdrop" onClick={onClose} onKeyDown={handleKeyDown} tabIndex={-1}>
-      <div className="tr-modal-card" onClick={e => e.stopPropagation()}>{children}</div>
+      <div ref={card} className={`tr-modal-card ${className}`} onClick={e => e.stopPropagation()}
+        role="dialog" aria-modal="true" aria-labelledby={labelledBy} tabIndex={-1}>{children}</div>
     </div>
   );
 }

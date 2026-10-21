@@ -3,12 +3,13 @@ import { useCallback, useEffect, useState } from 'react';
 import { Ban, CalendarDays, ChevronLeft, ChevronRight, GraduationCap, Plus, Trash2 } from 'lucide-react';
 import { isNativeApp, openInBrowserSheet, PUBLIC_SITE_URL } from '../native.js';
 import { createScheduleBlock, deleteScheduleBlock, deleteScheduleBlockSeries, fetchScheduleBlocksInRange } from '../schedule.js';
-import { addDays, apptLocalDate, apptLocalTimeKey, buildMonthGrid, detectTimezone, fmtApptDateTime, fmtDate, fmtDisplayDate, fmtTime, monthStartOf, parseDate, shiftMonth, timezoneOptionsWithDetected, todayStr, trainingLocalDate, trainingLocalTimeKey } from '../lib/dates.js';
+import { addDays, apptEndClock, apptLocalDate, apptLocalTimeKey, buildMonthGrid, detectTimezone, fmtApptDateTime, fmtDate, fmtDisplayDate, fmtTime, monthStartOf, parseDate, shiftMonth, timezoneOptionsWithDetected, todayStr, trainingLocalDate, trainingLocalTimeKey } from '../lib/dates.js';
 import { fetchAppointmentsInRange, isRecruitType, isSaleType, typeLabel } from '../data/appointments.js';
 import { createTraining, deleteTraining, deleteTrainingSeries, fetchTrainingsInRange } from '../data/trainings.js';
 import { fetchTeamMembers, seesTeam } from '../data/team.js';
 import { connectGoogleCalendar, disconnectGoogleCalendar, fetchGoogleConnectionStatus, fetchGoogleEvents, googleEventTimeKey } from '../data/integrations.js';
-import { Modal, openPicker, PageHead, RefreshButton, SkeletonCalendar } from '../components/ui.jsx';
+import { Modal, openPicker, PageHead, RefreshButton, SkeletonCalendar, useIsPhone } from '../components/ui.jsx';
+import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../components/appointmentPanel.jsx';
 import { GoogleCalendarConnect } from '../components/integrations.jsx';
 
 // ---------------------------------------------------------------------
@@ -195,7 +196,9 @@ export function calendarItems(appts, googleEvents, trainings, scheduleBlocks) {
   ].sort((a, b) => a.timeKey.localeCompare(b.timeKey));
 }
 
-export function CalendarDay({ cell, appts, googleEvents, trainings, scheduleBlocks, highlightTrainings, ownerName, onOpen }) {
+// canOpen: an appointment opens straight from the grid (on a computer; on
+// a phone they're dots, and a tap opens the day).
+export function CalendarDay({ cell, appts, googleEvents, trainings, scheduleBlocks, highlightTrainings, onOpen, canOpen = false }) {
   const isToday = cell.date === todayStr();
   const items = calendarItems(appts, googleEvents, trainings, scheduleBlocks);
   const visible = items.slice(0, 3);
@@ -207,11 +210,17 @@ export function CalendarDay({ cell, appts, googleEvents, trainings, scheduleBloc
       onClick={() => onOpen(cell.date, appts, googleEvents, trainings, scheduleBlocks)}>
       <div className="tr-cal-daynum"><span>{cell.dayNum}</span></div>
       <div className="tr-cal-appts">
-        {visible.map((item, i) => item.kind === 'appt' ? (
-          <div key={item.data.id} className={`tr-cal-appt ${isRecruitType(item.data) && isSaleType(item.data) ? 'tr-cal-appt-both' : isRecruitType(item.data) ? 'tr-cal-appt-recruit' : isSaleType(item.data) ? 'tr-cal-appt-sale' : ''}`}>
-            {fmtTime(item.timeKey)} {item.data.client}
-          </div>
-        ) : item.kind === 'training' ? (
+        {visible.map(item => item.kind === 'appt' ? (() => {
+          const cls = `tr-cal-appt ${isRecruitType(item.data) && isSaleType(item.data) ? 'tr-cal-appt-both' : isRecruitType(item.data) ? 'tr-cal-appt-recruit' : isSaleType(item.data) ? 'tr-cal-appt-sale' : ''}`;
+          return canOpen ? (
+            <button key={item.data.id} type="button" className={`${cls} tr-cal-appt-btn`} title={`${item.data.client} · ${fmtTime(item.timeKey)} to ${apptEndClock(item.data)}`}
+              onClick={e => { e.stopPropagation(); openAppointment(item.data); }}>
+              {fmtTime(item.timeKey)} {item.data.client}
+            </button>
+          ) : (
+            <div key={item.data.id} className={cls}>{fmtTime(item.timeKey)} {item.data.client}</div>
+          );
+        })() : item.kind === 'training' ? (
           <div key={item.data.id} className="tr-cal-appt tr-cal-appt-training">
             <GraduationCap size={9} /> {fmtTime(item.timeKey)} {item.data.title}
           </div>
@@ -231,6 +240,7 @@ export function CalendarDay({ cell, appts, googleEvents, trainings, scheduleBloc
 }
 
 export function CalendarBody({ user, onLogAppointment }) {
+  const isPhone = useIsPhone();
   const [monthStartStr, setMonthStartStr] = useState(monthStartOf(todayStr()));
   // The month grid gets cramped on a phone, so phones start on the list.
   const [calView, setCalView] = useState(() => (typeof window !== 'undefined' && window.innerWidth < 640 ? 'agenda' : 'month'));
@@ -252,8 +262,9 @@ export function CalendarBody({ user, onLogAppointment }) {
   const rangeStart = cells[0].date;
   const rangeEnd = cells[cells.length - 1].date;
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  // quiet: no loading placeholder (after an appointment was changed).
+  const load = useCallback(async quiet => {
+    if (!quiet) setLoading(true);
     // One extra day each side: appointments are placed by your local date,
     // which can differ by a day from the stored date across timezones.
     const tasks = [fetchAppointmentsInRange(fmtDate(addDays(parseDate(rangeStart), -1)), fmtDate(addDays(parseDate(rangeEnd), 1))), fetchGoogleConnectionStatus(), fetchTrainingsInRange(rangeStart, rangeEnd), fetchScheduleBlocksInRange(rangeStart, rangeEnd)];
@@ -273,8 +284,15 @@ export function CalendarBody({ user, onLogAppointment }) {
     }
     setLoading(false);
   }, [rangeStart, rangeEnd, user.id, user.role, user.isLeader]);
+  const refresh = useCallback(() => load(false), [load]);
 
   useEffect(() => { refresh(); }, [refresh]);
+  // An appointment opened from here was saved, moved or deleted.
+  useAppointmentEdits(change => {
+    if (change.reload) load(true);
+    else setAppts(prev => applyAppointmentEdit(prev, change));
+  });
+  function openAppt(a) { setDayModal(null); openAppointment(a); }
   // Re-check once a Google connection finishes in the background.
   useEffect(() => {
     window.addEventListener('paceledger:google-connected', refresh);
@@ -397,18 +415,39 @@ export function CalendarBody({ user, onLogAppointment }) {
                 <button type="button" className="tr-agenda-date" onClick={() => setDayModal({ date: d.date, appts: d.dayAppts, googleEvents: d.dayGoogle, trainings: d.dayTrainings, blocks: d.dayBlocks })}>
                   {d.date === today ? 'Today' : fmtDisplayDate(d.date)}
                 </button>
-                {d.items.map(item => (
-                  <div key={`${item.kind}-${item.data.id}`} className={`tr-agenda-item tr-agenda-${item.kind} ${item.kind === 'appt' ? (isRecruitType(item.data) && !isSaleType(item.data) ? 'tr-agenda-recruit' : 'tr-agenda-sale') : ''}`}>
-                    <span className="tr-agenda-time">{item.kind === 'google' && item.data.allDay ? 'All day' : fmtTime(item.timeKey)}</span>
-                    <span className="tr-agenda-what">
-                      {item.kind === 'appt' && <><strong>{item.data.client}</strong>{typeLabel(item.data) ? ` · ${typeLabel(item.data)}` : ''}{ownerName(item.data.userId) && item.data.userId !== user.id ? ` · ${ownerName(item.data.userId)}` : ''}</>}
-                      {item.kind === 'training' && <><GraduationCap size={12} /> <strong>{item.data.title}</strong> · Training</>}
-                      {item.kind === 'block' && <><Ban size={12} /> {item.data.user_name || 'Someone'} unavailable{item.data.label ? ` — ${item.data.label}` : ''}</>}
-                      {item.kind === 'google' && <>{item.data.title} <span className="tr-empty">· Google</span></>}
+                {d.items.map(item => {
+                  const a = item.data;
+                  const time = (
+                    <span className="tr-agenda-time">
+                      {item.kind === 'google' && a.allDay ? 'All day' : fmtTime(item.timeKey)}
+                      {item.kind === 'appt' ? <span className="tr-time-end">to {apptEndClock(a)}</span> : null}
+                      {item.kind === 'block' && a.end_time ? <span className="tr-time-end">to {fmtTime(a.end_time.slice(0, 5))}</span> : null}
                     </span>
-                    {(item.data.zoomUrl || item.data.zoom_url) && <a className="tr-btn tr-btn-ghost tr-btn-sm" href={item.data.zoomUrl || item.data.zoom_url} target="_blank" rel="noopener noreferrer">Join Zoom</a>}
-                  </div>
-                ))}
+                  );
+                  return (
+                    <div key={`${item.kind}-${a.id}`} className={`tr-agenda-item tr-agenda-${item.kind} ${item.kind === 'appt' ? (isRecruitType(a) && !isSaleType(a) ? 'tr-agenda-recruit' : 'tr-agenda-sale') : ''}`}>
+                      {item.kind === 'appt' ? (
+                        // Tap it to open it: edit yours, see the details of anyone else's.
+                        <button type="button" className="tr-agenda-open" onClick={() => openAppt(a)}>
+                          {time}
+                          <span className="tr-agenda-what">
+                            <strong>{a.client}</strong>{typeLabel(a) ? ` · ${typeLabel(a)}` : ''}{ownerName(a.userId) && a.userId !== user.id ? ` · ${ownerName(a.userId)}` : ''}
+                          </span>
+                        </button>
+                      ) : (
+                        <>
+                          {time}
+                          <span className="tr-agenda-what">
+                            {item.kind === 'training' && <><GraduationCap size={12} /> <strong>{a.title}</strong> · Training</>}
+                            {item.kind === 'block' && <><Ban size={12} /> {a.user_name || 'Someone'} unavailable{a.label ? ` — ${a.label}` : ''}</>}
+                            {item.kind === 'google' && <>{a.title} <span className="tr-empty">· Google</span></>}
+                          </span>
+                        </>
+                      )}
+                      {(a.zoomUrl || a.zoom_url) && <a className="tr-btn tr-btn-ghost tr-btn-sm" href={a.zoomUrl || a.zoom_url} target="_blank" rel="noopener noreferrer">Join Zoom</a>}
+                    </div>
+                  );
+                })}
               </div>
             ))}
           </div>
@@ -422,7 +461,7 @@ export function CalendarBody({ user, onLogAppointment }) {
                 key={cell.date} cell={cell} appts={apptsForDay(cell.date)} googleEvents={googleForDay(cell.date)} trainings={trainingsForDay(cell.date)}
                 scheduleBlocks={scheduleBlocksForDay(cell.date)}
                 highlightTrainings={highlightTrainings}
-                ownerName={ownerName}
+                canOpen={!isPhone}
                 onOpen={(date, dayAppts, dayGoogle, dayTrainings, dayBlocks) => setDayModal({ date, appts: dayAppts, googleEvents: dayGoogle, trainings: dayTrainings, blocks: dayBlocks })} />
             ))}
           </div>
@@ -434,7 +473,7 @@ export function CalendarBody({ user, onLogAppointment }) {
         <span><i className="tr-lg tr-lg-training" /> Training</span>
         <span><i className="tr-lg tr-lg-block" /> Unavailable</span>
         {googleStatus.connected && <span><i className="tr-lg tr-lg-google" /> Google</span>}
-        <span className="tr-cal-legend-hint">Click any day to see details{onLogAppointment ? ' or book an appointment' : ''}.</span>
+        <span className="tr-cal-legend-hint">Click an appointment to open it, or a day to see everything on it{onLogAppointment ? ' or book an appointment' : ''}.</span>
       </div>
       {dayModal && (
         <Modal onClose={() => setDayModal(null)}>
@@ -472,16 +511,19 @@ export function CalendarBody({ user, onLogAppointment }) {
               </div>
             ))}
             {dayModal.appts.map(a => (
-              <div key={a.id} className="tr-note-item">
-                <div className="tr-note-meta">
-                  {fmtApptDateTime(a)}
-                  {typeLabel(a) ? ` · ${typeLabel(a)}` : ''}
-                  {a.isFollowUp ? ' · Follow-up' : ''}
-                </div>
-                <div><strong>{a.client}</strong> — {a.presenter}{a.trainee ? ` (training ${a.trainee})` : ''}</div>
+              <div key={a.id} className="tr-note-item tr-note-item-appt">
+                <button type="button" className="tr-note-open" onClick={() => openAppt(a)}>
+                  <span className="tr-note-meta">
+                    {fmtApptDateTime(a)}
+                    {typeLabel(a) ? ` · ${typeLabel(a)}` : ''}
+                    {a.isFollowUp ? ' · Follow-up' : ''}
+                  </span>
+                  <span className="tr-note-open-line"><strong>{a.client}</strong> — {a.presenter}{a.trainee ? ` (training ${a.trainee})` : ''}</span>
+                  {ownerName(a.userId) && <span className="tr-note">Logged by {ownerName(a.userId)}</span>}
+                  {a.notes && <span className="tr-note">{a.notes}</span>}
+                  <span className="tr-note-open-hint">{a.userId === user.id ? 'Edit' : 'Details'}</span>
+                </button>
                 {a.zoomUrl && <div><a href={a.zoomUrl} target="_blank" rel="noopener noreferrer" className="tr-note tr-link">Join Zoom</a></div>}
-                {ownerName(a.userId) && <div className="tr-note">Logged by {ownerName(a.userId)}</div>}
-                {a.notes && <div className="tr-note">{a.notes}</div>}
               </div>
             ))}
             {dayModal.googleEvents.map(e => (
