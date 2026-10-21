@@ -131,16 +131,18 @@ export async function clearAppointmentReminders() {
   } catch { /* nothing to clear */ }
 }
 
-// How long after an appointment starts the "How did it go?" nudge comes,
-// and when the morning catch-up for anything still unlogged arrives.
+// How long after an appointment starts the "How did it go?" nudge comes
+// (and never sooner than 15 minutes after it ends), and when the morning
+// catch-up for anything still unlogged arrives.
 export const LOG_NUDGE_MINUTES = 60;
+const AFTER_END_MINUTES = 15;
 export const CATCH_UP_HOUR = 9;
 
 // Replaces every reminder PaceLedger scheduled:
 // - one 30 minutes before each upcoming appointment (yours, or one you're
 //   presenting or training on), over the next two weeks;
 // - "How did it go with …?" about an hour after each of your own
-//   appointments that isn't logged yet;
+//   appointments that isn't logged yet starts (or once a longer one ends);
 // - at 9 AM, one catch-up for any of yours still waiting for an outcome.
 // It runs again whenever appointments change or the app comes back, so
 // logging something takes its nudges away. iOS keeps at most 64 pending;
@@ -154,6 +156,9 @@ export async function syncAppointmentReminders(appointments, userId = null) {
   const now = Date.now();
   const horizon = now + 14 * 24 * 60 * 60 * 1000;
   const startOf = a => (a.appointmentAt ? new Date(a.appointmentAt).getTime() : NaN);
+  // When to ask how it went: an hour after it starts, or once a longer
+  // one has ended.
+  const nudgeAt = a => Math.max(startOf(a) + LOG_NUDGE_MINUTES * 60 * 1000, startOf(a) + ((Number(a.durationMinutes) || 0) + AFTER_END_MINUTES) * 60 * 1000);
   const kindOf = a => {
     const types = [a.presentationType, a.presentationTypeSecondary];
     return [types.includes('recruit') ? 'Recruit' : null, types.includes('sale') ? 'Sale' : null].filter(Boolean).join(' & ');
@@ -177,7 +182,7 @@ export async function syncAppointmentReminders(appointments, userId = null) {
   if (userId) {
     const unlogged = (appointments || []).filter(a => a.userId === userId && a.appointmentAt && !a.followUpCompletedAt);
     unlogged
-      .map(a => ({ a, at: startOf(a) + LOG_NUDGE_MINUTES * 60 * 1000 }))
+      .map(a => ({ a, at: nudgeAt(a) }))
       .filter(x => x.at > now + 30 * 1000 && x.at < horizon)
       .sort((x, y) => x.at - y.at)
       .slice(0, 15)
@@ -189,14 +194,14 @@ export async function syncAppointmentReminders(appointments, userId = null) {
         extra: { source: 'paceledger-appt', kind: 'log', appointmentId: a.id },
       }));
 
-    // The next 9 AM: anything from the two days before it (at least an hour
-    // past its start) that still has no outcome.
+    // The next 9 AM: anything from the two days before it (past the time
+    // its own nudge would come) that still has no outcome.
     const nine = new Date(now);
     nine.setHours(CATCH_UP_HOUR, 0, 0, 0);
     if (nine.getTime() <= now + 30 * 1000) nine.setDate(nine.getDate() + 1);
     const nineMs = nine.getTime();
     const waiting = unlogged
-      .filter(a => startOf(a) < nineMs - LOG_NUDGE_MINUTES * 60 * 1000 && startOf(a) > nineMs - 48 * 60 * 60 * 1000)
+      .filter(a => nudgeAt(a) < nineMs && startOf(a) > nineMs - 48 * 60 * 60 * 1000)
       .sort((x, y) => startOf(y) - startOf(x));
     if (waiting.length) {
       const names = waiting.slice(0, 2).map(a => a.client);

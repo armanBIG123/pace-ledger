@@ -7,7 +7,7 @@ import { isNativeApp, onAppResume, reminderPermission, requestReminderPermission
 import { isLicensed } from '../hierarchy.js';
 import { computeAnnualGrossIncomeNeeded, computeCommissionPerTransaction, computeDailyProspects, computeExpensesSubtotal, computeMonthlyGrossIncomeNeeded, computeMonthlyProspects, computeProspectsNeededPerYear, computeTransactionsNeededPerYear, fetchBusinessPlan, rowToBusinessPlanFields } from '../businessPlan.js';
 import { DATE_SET_OPTIONS, dateSetMeta, defaultDateSetOption, WEEKLY_TOTAL_TARGET } from '../lib/pace.js';
-import { addDays, apptClock, apptLocalDate, apptStartMs, fmtApptDateTime, fmtDate, fmtDisplayDate, fmtShortDate, greetingFor, parseDate, startsInLabel, todayStr, weekStartOf } from '../lib/dates.js';
+import { addDays, apptClock, apptEndClock, apptEndMs, apptLocalDate, apptStartMs, fmtApptDateTime, fmtDate, fmtDisplayDate, fmtShortDate, greetingFor, parseDate, startsInLabel, todayStr, weekStartOf } from '../lib/dates.js';
 import { lowerFirst } from '../lib/format.js';
 import { PaycheckCard } from '../components/paycheck.jsx';
 import { computePaycheck } from '../lib/paycheck.js';
@@ -22,6 +22,7 @@ import { FollowUpModal } from '../components/followUpModal.jsx';
 import { appointmentTexts, CallButton, prospectTexts, TextButton } from '../components/contact.jsx';
 import { isValidPhone } from '../lib/phone.js';
 import { AnnouncementToday } from '../components/announcements.jsx';
+import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../components/appointmentPanel.jsx';
 
 // The checklist card. `result` comes from computeOnboarding().
 export function FirstThirtyDays({ result, day, onGo, onHide }) {
@@ -285,6 +286,11 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
     setLoading(false);
   }, [user.id]);
   useEffect(() => { load(); }, [load]);
+  // One of your appointments was changed from the window it opens in.
+  useAppointmentEdits(change => {
+    if (change.reload) load();
+    else setAppointments(prev => applyAppointmentEdit(prev, change));
+  });
   useEffect(() => {
     const again = () => { load(); };
     window.addEventListener('paceledger:onboarding-changed', again);
@@ -446,14 +452,14 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
   const firstName = (user.displayName || '').split(' ')[0];
   const booked = bookedProspectKeys(appointments);
 
-  // Today's schedule: yours plus any you're presenting/training on, from an
-  // hour ago onward (so a meeting in progress still shows its Zoom link).
+  // Today's schedule: yours plus any you're presenting/training on, until
+  // each one ends (so a meeting in progress still shows its Zoom link).
   const todaysById = new Map();
   [...appointments.filter(x => apptLocalDate(x) === today), ...involvedToday.filter(x => apptLocalDate(x) === today)]
     .forEach(x => todaysById.set(x.id, x));
   const todaysAppts = [...todaysById.values()].sort((x, y) => apptStartMs(x) - apptStartMs(y));
-  const comingUp = todaysAppts.filter(x => apptStartMs(x) >= nowMs - 60 * 60000);
-  const inProgress = x => apptStartMs(x) <= nowMs && apptStartMs(x) >= nowMs - 60 * 60000;
+  const comingUp = todaysAppts.filter(x => apptEndMs(x) > nowMs);
+  const inProgress = x => apptStartMs(x) <= nowMs && apptEndMs(x) > nowMs;
 
   // Pace for today's batch (Sat/Sun count as one weekend batch).
   const todayOpt = defaultDateSetOption();
@@ -760,13 +766,13 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
           <div key={group.date} className="tr-ov-day">
             <div className="tr-ov-day-label">{fmtDisplayDate(group.date)}</div>
             {group.items.map(x => (
-              <div className="tr-ov-row" key={x.id}>
-                <span className="tr-ov-time">{apptClock(x)}</span>
-                <div className="tr-ov-row-main">
+              <button type="button" className="tr-ov-row tr-ov-row-open" key={x.id} onClick={() => openAppointment(x)}>
+                <span className="tr-ov-time">{apptClock(x)}<span className="tr-time-end">to {apptEndClock(x)}</span></span>
+                <span className="tr-ov-row-main">
                   <strong>{x.client}</strong>
                   {typeLabel(x) ? <span className="tr-empty"> · {typeLabel(x)}</span> : null}
-                </div>
-              </div>
+                </span>
+              </button>
             ))}
           </div>
         ))}
@@ -821,14 +827,17 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
                   const mine = x.userId === user.id;
                   return (
                     <li key={x.id} className={`tr-dayagenda-row ${soon ? 'tr-dayagenda-soon' : ''}`}>
-                      <span className="tr-dayagenda-time">{apptClock(x)}</span>
-                      <div className="tr-dayagenda-main">
-                        <strong>{x.client}</strong>{typeLabel(x) ? <span className="tr-empty"> · {typeLabel(x)}</span> : null}
-                        <div className="tr-dayagenda-meta">
-                          {mine ? (x.presenter ? `with ${x.presenter}` : 'Your appointment') : x.presenterId === user.id ? "You're presenting" : "You're training on this one"}
-                          {soon ? <span className="tr-dayagenda-badge">{soon}</span> : null}
-                        </div>
-                      </div>
+                      {/* Tap it to open it: edit yours, see the details of the ones you're on. */}
+                      <button type="button" className="tr-dayagenda-open" onClick={() => openAppointment(x)}>
+                        <span className="tr-dayagenda-time">{apptClock(x)}<span className="tr-time-end">to {apptEndClock(x)}</span></span>
+                        <span className="tr-dayagenda-main">
+                          <strong>{x.client}</strong>{typeLabel(x) ? <span className="tr-empty"> · {typeLabel(x)}</span> : null}
+                          <span className="tr-dayagenda-meta">
+                            {mine ? (x.presenter ? `with ${x.presenter}` : 'Your appointment') : x.presenterId === user.id ? "You're presenting" : "You're training on this one"}
+                            {soon ? <span className="tr-dayagenda-badge">{soon}</span> : null}
+                          </span>
+                        </span>
+                      </button>
                       {x.zoomUrl || x.clientPhone ? (
                         <span className="tr-dayagenda-acts">
                           {x.clientPhone ? (
@@ -932,10 +941,10 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
                             <div key={group.date} className="tr-ov-day">
                               <div className="tr-ov-day-label">{fmtDisplayDate(group.date)}</div>
                               {group.items.map(x => (
-                                <div className="tr-ov-row" key={x.id}>
-                                  <span className="tr-ov-time">{apptClock(x)}</span>
-                                  <div className="tr-ov-row-main"><strong>{x.client}</strong>{typeLabel(x) ? <span className="tr-empty"> · {typeLabel(x)}</span> : null}</div>
-                                </div>
+                                <button type="button" className="tr-ov-row tr-ov-row-open" key={x.id} onClick={() => openAppointment(x)}>
+                                  <span className="tr-ov-time">{apptClock(x)}<span className="tr-time-end">to {apptEndClock(x)}</span></span>
+                                  <span className="tr-ov-row-main"><strong>{x.client}</strong>{typeLabel(x) ? <span className="tr-empty"> · {typeLabel(x)}</span> : null}</span>
+                                </button>
                               ))}
                             </div>
                           ))}
@@ -965,7 +974,8 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
       </div>
 
       {modalTarget && (
-        <FollowUpModal appointment={modalTarget} saving={modalSaving} onClose={() => setModalTarget(null)} onSave={handleSaveOutcome} onRescheduled={handleRescheduled} />
+        <FollowUpModal appointment={modalTarget} saving={modalSaving} onClose={() => setModalTarget(null)} onSave={handleSaveOutcome} onRescheduled={handleRescheduled}
+          onEdit={() => { const x = modalTarget; setModalTarget(null); openAppointment(x); }} />
       )}
       {presentedTarget && (
         <FollowUpModal appointment={presentedTarget} presenter setByName={presentedTarget.setByName} saving={modalSaving} onClose={() => setPresentedTarget(null)} onSave={handlePresentedSave} />

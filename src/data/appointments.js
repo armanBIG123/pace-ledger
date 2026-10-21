@@ -3,7 +3,7 @@ import { supabase } from '../supabaseClient.js';
 import { fetchHierarchyPeopleShared } from './team.js';
 import { createClientIntakeCandidate } from '../clientIntake.js';
 import { dateSetMeta, defaultDateSetOption } from '../lib/pace.js';
-import { addDays, detectTimezone, fmtDate, fmtDisplayDate, parseDate, todayStr, weekStartOf } from '../lib/dates.js';
+import { addDays, apptEndMs, detectTimezone, fmtDate, fmtDisplayDate, LEGACY_APPT_MINUTES, parseDate, todayStr, weekStartOf } from '../lib/dates.js';
 
 // ---------------------------------------------------------------------
 // data layer (Supabase Postgres, guarded by Row Level Security)
@@ -19,6 +19,8 @@ export function rowToRecord(row) {
     weekOf: row.week_of,
     appointmentDate: row.appointment_date,
     appointmentTime: (row.appointment_time || '').slice(0, 5),
+    // How long it is, in minutes (30 for rows saved before lengths were).
+    durationMinutes: Number(row.duration_minutes) > 0 ? Number(row.duration_minutes) : LEGACY_APPT_MINUTES,
     presenter: row.presenter,
     presenterId: row.presenter_id || '',
     trainee: row.trainee || '',
@@ -81,10 +83,28 @@ export function typeLabel(a) {
   return '';
 }
 
+// Over once it has ended (not when it starts), so one in progress still
+// counts as booked and isn't waiting for an outcome yet.
 export function isPastAppointment(a) {
-  if (a.appointmentAt) return new Date(a.appointmentAt).getTime() < Date.now();
-  const dt = new Date(`${a.appointmentDate}T${a.appointmentTime || '00:00'}`);
-  return dt.getTime() < Date.now();
+  return apptEndMs(a) < Date.now();
+}
+
+// How long a new appointment is unless you change its end time.
+export const DEFAULT_APPT_MINUTES = 60;
+
+// Before migration-appointment-end-times.sql has run there's no
+// duration_minutes column yet: save without the length instead of failing.
+async function saveWithLength(payload, write) {
+  const res = await write(payload);
+  if (!res.error || !('duration_minutes' in payload) || !/duration_minutes/.test(res.error.message || '')) return res;
+  const rest = { ...payload };
+  delete rest.duration_minutes;
+  return write(rest);
+}
+
+function lengthOf(form) {
+  const n = Math.round(Number(form.durationMinutes));
+  return n >= 5 && n <= 720 ? n : DEFAULT_APPT_MINUTES;
 }
 
 // A sold policy moves from "Submitted Premium" to "Issued Premium" once the
@@ -200,7 +220,7 @@ export async function saveFollowUp(id, data, followUpTimezone) {
 export async function insertFollowUpAppointment(userId, original, followUpDate, followUpTime, timezone) {
   const dateSetOption = defaultDateSetOption();
   const meta = dateSetMeta(dateSetOption);
-  const { data, error } = await supabase.from('appointments').insert({
+  const { data, error } = await saveWithLength({
     user_id: userId,
     date_set_option: dateSetOption,
     category: meta.category,
@@ -208,6 +228,8 @@ export async function insertFollowUpAppointment(userId, original, followUpDate, 
     appointment_date: followUpDate,
     appointment_time: followUpTime,
     appointment_timezone: timezone || original.appointmentTimezone || detectTimezone(),
+    // The same length as the one it follows.
+    duration_minutes: lengthOf(original),
     presenter: original.presenter,
     trainee: original.trainee || null,
     client_name: original.client,
@@ -219,7 +241,7 @@ export async function insertFollowUpAppointment(userId, original, followUpDate, 
     presentation_type_secondary: original.presentationTypeSecondary || null,
     zoom_url: original.zoomUrl || null,
     is_follow_up: true,
-  }).select().single();
+  }, p => supabase.from('appointments').insert(p).select().single());
   if (error) return { ok: false, error: error.message };
   return { ok: true, record: rowToRecord(data) };
 }
@@ -294,7 +316,7 @@ export async function fetchAppointmentsHeldInWeek(weekStart) {
 
 export async function insertAppointment(userId, form) {
   const meta = dateSetMeta(form.dateSetOption);
-  const { data, error } = await supabase.from('appointments').insert({
+  const { data, error } = await saveWithLength({
     user_id: userId,
     date_set_option: form.dateSetOption,
     category: meta.category,
@@ -302,6 +324,7 @@ export async function insertAppointment(userId, form) {
     appointment_date: form.appointmentDate,
     appointment_time: form.appointmentTime,
     appointment_timezone: form.timezone || null,
+    duration_minutes: lengthOf(form),
     presenter: form.presenter.trim(),
     presenter_id: form.presenterId || null,
     trainee: form.trainee.trim() || null,
@@ -313,7 +336,7 @@ export async function insertAppointment(userId, form) {
     notes: form.notes.trim() || null,
     presentation_type: form.presentationType || null,
     presentation_type_secondary: form.presentationTypeSecondary || null,
-  }).select().single();
+  }, p => supabase.from('appointments').insert(p).select().single());
   if (error) return { ok: false, error: error.message };
   return { ok: true, record: rowToRecord(data) };
 }
@@ -332,6 +355,7 @@ export async function updateAppointment(id, form, isReschedule) {
     appointment_date: form.appointmentDate,
     appointment_time: form.appointmentTime,
     appointment_timezone: form.timezone || null,
+    duration_minutes: lengthOf(form),
     presenter: form.presenter.trim(),
     presenter_id: form.presenterId || null,
     trainee: form.trainee.trim() || null,
@@ -357,7 +381,7 @@ export async function updateAppointment(id, form, isReschedule) {
     payload.follow_up_appointment_time = null;
     payload.follow_up_appointment_timezone = null;
   }
-  const { data, error } = await supabase.from('appointments').update(payload).eq('id', id).select().single();
+  const { data, error } = await saveWithLength(payload, p => supabase.from('appointments').update(p).eq('id', id).select().single());
   if (error) return { ok: false, error: error.message };
   return { ok: true, record: rowToRecord(data) };
 }
@@ -366,13 +390,14 @@ export async function updateAppointment(id, form, isReschedule) {
 // new date and time from the "How did it go?" window. It's the same as
 // editing it from the Reschedule list: it counts as set this week, its
 // outcome starts fresh, and everything else (client, presenter, notes,
-// Zoom link) stays as it was.
+// Zoom link, how long it is) stays as it was.
 export async function rescheduleAppointment(appt, { date, time, timezone }) {
   return updateAppointment(appt.id, {
     dateSetOption: appt.dateSetOption,
     appointmentDate: date,
     appointmentTime: time,
     timezone: timezone || appt.appointmentTimezone || detectTimezone(),
+    durationMinutes: appt.durationMinutes,
     presenter: appt.presenter || '',
     presenterId: appt.presenterId || '',
     trainee: appt.trainee || '',

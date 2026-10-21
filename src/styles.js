@@ -579,6 +579,10 @@ export const CSS = `
 .tr-cal-daynum { font-size: 12.5px; font-weight: 600; color: var(--ink); }
 .tr-cal-appts { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .tr-cal-appt { font-size: 11px; line-height: 1.35; padding: 2px 5px; border-radius: 4px; background: var(--paper); color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; min-width: 0; }
+/* An appointment in the month grid opens when clicked (computers). */
+.tr-cal-appt-btn { display: block; width: 100%; margin: 0; border: 0; font-family: inherit; text-align: left; }
+@media (hover: hover) { .tr-cal-appt-btn:hover { text-decoration: underline; text-underline-offset: 2px; } }
+.tr-cal-appt-btn:focus-visible { outline: 2px solid var(--brass); outline-offset: 1px; }
 .tr-cal-appt-recruit { border-left: 2px solid var(--type-recruit); }
 .tr-cal-appt-sale { border-left: 2px solid var(--type-sale); }
 .tr-cal-appt-both { border-left: 3px solid transparent; border-image: linear-gradient(180deg, var(--type-recruit) 50%, var(--type-sale) 50%) 1; }
@@ -2324,5 +2328,73 @@ img.tr-photo-current { box-shadow: 0 0 0 1px var(--line); }
   .tr-mega { padding: 12px 12px 16px; }
   .tr-mega-who { grid-template-columns: minmax(0, 1fr); }
   .tr-mega-acts { margin-left: 0; width: 100%; }
+}
+/* Appointments open when tapped (Calendar, Today), and show when they end */
+.tr-time-end { display: block; margin-top: 1px; font-size: 11.5px; font-weight: 400; color: var(--slate-light); white-space: nowrap; }
+.tr-agenda-open { display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0; margin: -4px 0; padding: 4px 0; background: none; border: 0; border-radius: 6px; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.tr-agenda-open .tr-agenda-what { display: block; }
+.tr-agenda-open:focus-visible .tr-agenda-what strong { text-decoration: underline; text-underline-offset: 2px; }
+.tr-agenda-open:focus-visible, .tr-dayagenda-open:focus-visible, .tr-ov-row-open:focus-visible, .tr-note-open:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; }
+.tr-dayagenda-open { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 0; margin: -6px 0; padding: 6px 0; background: none; border: 0; border-radius: 8px; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.tr-dayagenda-open:focus-visible .tr-dayagenda-main > strong { text-decoration: underline; text-underline-offset: 2px; }
+.tr-ov-row-open { width: 100%; margin: 0; background: none; border: 0; border-top: 1px solid var(--line); font-family: inherit; color: inherit; text-align: left; cursor: pointer; }
+.tr-ov-day-label + .tr-ov-row-open { border-top: none; }
+.tr-ov-row-open:focus-visible strong { text-decoration: underline; text-underline-offset: 2px; }
+.tr-note-item-appt { position: relative; padding: 0; }
+.tr-note-open { display: block; width: 100%; margin: 0; padding: 8px 64px 8px 10px; background: none; border: 0; border-radius: 8px; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.tr-note-open > span { display: block; }
+/* Hover only where there's a mouse, so a tapped row doesn't stay underlined on a phone. */
+@media (hover: hover) {
+  .tr-agenda-open:hover .tr-agenda-what strong, .tr-dayagenda-open:hover .tr-dayagenda-main > strong, .tr-ov-row-open:hover strong { text-decoration: underline; text-underline-offset: 2px; }
+  .tr-note-open:hover { background: rgba(19,33,46,0.04); }
+}
+.tr-note-open-hint { position: absolute; top: 8px; right: 10px; font-size: 12px; font-weight: 600; color: var(--brass-dark); }
+.tr-note-item-appt > div { padding: 0 10px 8px; }
+
+/* The appointment form: date, start and end on one line */
+.tr-appt-when { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+.tr-appt-len { margin-left: 6px; font-style: normal; font-weight: 500; color: var(--slate-light); }
+.tr-fsheet-body .tr-appt-when { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.tr-fsheet-body .tr-appt-when-date { grid-column: 1 / -1; }
+.tr-appt-over { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; padding: 10px 12px; border-radius: 10px; background: var(--brass-tint); border: 1px solid rgba(196,154,60,0.35); font-size: 13.5px; color: var(--ink); }
+.tr-appt-delete { margin-right: auto; color: var(--rust); }
+.tr-log-edit { margin: 0 auto 0 0; align-self: center; }
+.tr-appt-delete-link { align-self: center; margin-top: 2px; color: var(--rust); }
+
+/* The window an appointment opens in */
+.tr-modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.tr-modal-head .tr-h3 { margin: 0; }
+.tr-modal-card.tr-modal-form { max-width: 640px; display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.tr-modal-form .tr-modal-head { flex-shrink: 0; margin: 0; padding: 22px 24px 12px; }
+.tr-modal-form .tr-modal-body { flex: 1; min-height: 0; overflow-y: auto; padding: 4px 24px 18px; }
+.tr-modal-form .tr-modal-foot { flex-shrink: 0; padding: 12px 24px 16px; border-top: 1px solid var(--line); background: var(--card); }
+.tr-modal-form .tr-modal-foot .tr-error { margin: 0 0 10px; }
+.tr-modal-form .tr-modal-foot .tr-form-actions { margin-top: 0; }
+.tr-apptinfo-tags .tr-type-badge { margin-left: 0; }
+.tr-modal-card.tr-apptinfo { max-width: 480px; }
+.tr-modal-head + .tr-apptinfo-when { margin-top: -6px; }
+.tr-apptinfo-top { min-width: 0; }
+.tr-apptinfo-top .tr-h3 { margin: 0 0 6px; }
+.tr-apptinfo-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.tr-apptinfo-when { margin: 0 0 14px; font-size: 14.5px; font-weight: 600; color: var(--ink); }
+.tr-apptinfo-when span { font-weight: 400; color: var(--slate-light); }
+.tr-apptinfo-list { margin: 0; border-top: 1px solid var(--line); }
+.tr-apptinfo-list > div { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.tr-apptinfo-list dt { color: var(--slate-light); font-size: 13px; }
+.tr-apptinfo-list dd { margin: 0; color: var(--ink); overflow-wrap: anywhere; }
+.tr-apptinfo-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
+.tr-apptinfo-note { margin: 14px 0 0; font-size: 12.5px; color: var(--slate-light); }
+@media (max-width: 640px) {
+  .tr-appt-when { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+  .tr-appt-when-date { grid-column: 1 / -1; }
+  .tr-modal-card.tr-apptinfo { padding: 20px 18px; }
+  /* Phones: the name gets the whole line; call, text and Zoom go under it. */
+  .tr-dayagenda-row { flex-wrap: wrap; row-gap: 8px; }
+  .tr-dayagenda-open { flex-basis: 100%; }
+  .tr-dayagenda-acts { margin-left: 78px; }
+  .tr-agenda-item { flex-wrap: wrap; row-gap: 6px; }
+  .tr-agenda-open { flex-basis: 100%; }
+  .tr-agenda-item > .tr-agenda-what { flex-basis: calc(100% - 82px); }
+  .tr-agenda-item > a.tr-btn { margin-left: 82px; }
 }
 `;

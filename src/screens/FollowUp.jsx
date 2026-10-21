@@ -1,6 +1,6 @@
 // Follow Up: past appointments, notes, next steps, intake forms and recruit sign-up.
 import { useEffect, useState } from 'react';
-import { CheckCheck, ChevronDown, ChevronUp, Plus, Presentation, Search, Trash2, X } from 'lucide-react';
+import { CheckCheck, ChevronDown, ChevronUp, Pencil, Plus, Presentation, Search, Trash2, X } from 'lucide-react';
 import { supabase } from '../supabaseClient.js';
 import { createClientIntakeCandidate, deleteClientIntakeCandidate, fetchClientIntakeCandidates } from '../clientIntake.js';
 import { ClientIntakeSection } from '../ClientIntake.jsx';
@@ -13,6 +13,7 @@ import { PageHead, SkelBlock } from '../components/ui.jsx';
 import { appointmentTexts, ContactRow } from '../components/contact.jsx';
 import { RecruitSignupSection } from '../components/invites.jsx';
 import { FollowUpModal } from '../components/followUpModal.jsx';
+import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../components/appointmentPanel.jsx';
 
 // One-tap note starters, so logging a touch takes a second.
 export const QUICK_NOTE_TAGS = ['Called', 'Left voicemail', 'Texted', 'Emailed', 'Met in person', 'No answer'];
@@ -73,6 +74,11 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
     });
     return () => { alive = false; };
   }, [user.id]);
+  // "Edit appointment" opens it in a window; this list follows what changed.
+  useAppointmentEdits(change => {
+    if (change.reload) fetchMyAppointments(user.id).then(setAppointments);
+    else setAppointments(prev => applyAppointmentEdit(prev, change));
+  });
 
   if (loading) return <SkelBlock w="100%" h="260px" />;
 
@@ -307,6 +313,9 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
                       <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => onScheduleNext({ client: a.client, notes: '', clientEmail: a.clientEmail, clientPhone: a.clientPhone, prospectId: a.prospectId, typeRecruit: isRecruitType(a), typeSale: isSaleType(a) })}>
                         <Plus size={13} /> Schedule next appointment
                       </button>
+                      <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => openAppointment(a)}>
+                        <Pencil size={13} /> Edit appointment
+                      </button>
                     </div>
                   </div>
 
@@ -364,7 +373,8 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
         })}
         </div>
       </div>
-      {modalTarget && <FollowUpModal appointment={modalTarget} onClose={() => setModalTarget(null)} onSave={handleSaveOutcome} onRescheduled={handleRescheduled} saving={modalSaving} />}
+      {modalTarget && <FollowUpModal appointment={modalTarget} onClose={() => setModalTarget(null)} onSave={handleSaveOutcome} onRescheduled={handleRescheduled} saving={modalSaving}
+        onEdit={() => { const x = modalTarget; setModalTarget(null); openAppointment(x); }} />}
       {presentedTarget && <FollowUpModal appointment={presentedTarget} presenter setByName={presentedTarget.setByName} onClose={() => setPresentedTarget(null)} onSave={handlePresentedSave} saving={modalSaving} />}
     </div>
   );

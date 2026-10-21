@@ -6,6 +6,7 @@
 //   as editing it from the Reschedule list), or "Not now".
 // Used on Today, Pipeline (Booked, Log outcome, Follow-up), and by leaders
 // for appointments they presented (presenter: no time picking, no intake).
+// onEdit: "Edit the appointment" instead (wrong time or details).
 import { useState } from 'react';
 import { CalendarClock, CircleX, ThumbsUp, UserX } from 'lucide-react';
 import { boolToYesNo, rescheduleAppointment, typeLabel, YES_NO_OPTIONS, yesNoToBool } from '../data/appointments.js';
@@ -23,7 +24,7 @@ const MET = ['went_well', 'not_interested'];
 const MISSED = ['no_show', 'rescheduled'];
 const first = n => (n || '').trim().split(/\s+/)[0] || n;
 
-export function FollowUpModal({ appointment, onClose, onSave, saving, onRescheduled = null, presenter = false, setByName = '' }) {
+export function FollowUpModal({ appointment, onClose, onSave, saving, onRescheduled = null, presenter = false, setByName = '', onEdit = null }) {
   const [outcome, setOutcome] = useState(appointment.outcome || '');
   const [followUpScheduled, setFollowUpScheduled] = useState(boolToYesNo(appointment.followUpScheduled));
   const [followUpDate, setFollowUpDate] = useState(appointment.followUpAppointmentDate || '');
@@ -210,6 +211,7 @@ export function FollowUpModal({ appointment, onClose, onSave, saving, onReschedu
 
       {err && <div className="tr-error">{err}</div>}
       <div className="tr-form-actions">
+        {onEdit && !presenter ? <button type="button" className="tr-link-btn tr-log-edit" onClick={onEdit}>Edit the appointment</button> : null}
         <button type="button" className="tr-btn tr-btn-ghost" onClick={onClose}>Cancel</button>
         {missed && moveNow ? (
           <button type="button" className="tr-btn tr-btn-brass" onClick={move} disabled={busy}>{moving ? 'Saving…' : 'Save new time'}</button>

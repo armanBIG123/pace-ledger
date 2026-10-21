@@ -6,13 +6,13 @@ import { isNativeApp, openInBrowserSheet } from '../native.js';
 import { computeDownline, computeUpline } from '../hierarchy.js';
 import { checkAppointmentConflict } from '../schedule.js';
 import { DATE_SET_OPTIONS, dateSetMeta, defaultDateSetOption } from '../lib/pace.js';
-import { addMinutesToDateTime, detectTimezone, fmtApptDateTime, fmtDisplayDate, fmtFollowUpDateTime, parseDate, shiftWeekStr, timezoneOptionsWithDetected, todayStr, weekStartOf } from '../lib/dates.js';
+import { addMinutesToDateTime, addMinutesToTime, detectTimezone, durationLabel, fmtApptDateTime, fmtClockRange, fmtDisplayDate, fmtFollowUpDateTime, minutesBetweenTimes, parseDate, shiftWeekStr, timezoneOptionsWithDetected, todayStr, weekStartOf } from '../lib/dates.js';
 import { downloadCSV, fmtCurrency, isValidEmail } from '../lib/format.js';
-import { addPolicyNote, applyFollowUpToList, deleteAppointmentRow, fetchAppointmentsImPresenting, fetchMyAppointments, fetchPolicyNotes, fetchSoldPolicies, fetchZoomConnectedManagers, insertAppointment, inviteFailureMessage, isPastAppointment, isPolicyIssued, isRecruitType, isSaleType, ISSUED_PREMIUM_VIEW, markInviteSent, persistFollowUp, SOLD_PREMIUM_VIEW, STATUS_OPTIONS, typeLabel, updateAppointment, updatePolicyFields } from '../data/appointments.js';
+import { addPolicyNote, applyFollowUpToList, DEFAULT_APPT_MINUTES, deleteAppointmentRow, fetchAppointmentsImPresenting, fetchMyAppointments, fetchPolicyNotes, fetchSoldPolicies, fetchZoomConnectedManagers, insertAppointment, inviteFailureMessage, isPastAppointment, isPolicyIssued, isRecruitType, isSaleType, ISSUED_PREMIUM_VIEW, markInviteSent, persistFollowUp, SOLD_PREMIUM_VIEW, STATUS_OPTIONS, typeLabel, updateAppointment, updatePolicyFields } from '../data/appointments.js';
 import { ALL_CHARACTERISTICS, fetchMyProspects, insertProspect, LEANING_LABELS, normName, prospectLeaningKey, prospectNameKey, prospectTotalChecked } from '../data/prospects.js';
 import { fetchOrgDirectory } from '../data/team.js';
 import { connectZoom, createZoomMeeting, disconnectZoom, fetchZoomConnectionStatus, pushAppointmentToGoogleCalendar, sendAppointmentInviteEmail, updateAppointmentZoomUrl, zoomOAuthUrl } from '../data/integrations.js';
-import { openPicker, PageHead, RefreshButton, Sheet, SkelBlock, SkeletonCards, SkeletonRows, StatusChip, TitleInfo, TypeBadge, TypeChoice, TypeFilter, useIsPhone, WeekNav } from '../components/ui.jsx';
+import { Modal, openPicker, PageHead, RefreshButton, Sheet, SkelBlock, SkeletonCards, SkeletonRows, StatusChip, TitleInfo, TypeBadge, TypeChoice, TypeFilter, useIsPhone, WeekNav } from '../components/ui.jsx';
 import { MyCoachingNotes, PaceStrip, PaceTrend, PersonalBests } from '../components/pace.jsx';
 import { ZoomConnect } from '../components/integrations.jsx';
 import { FollowUpModal } from '../components/followUpModal.jsx';
@@ -87,10 +87,17 @@ export function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty, hi
   );
 }
 
-export function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onSubmit, saving, sheet = false }) {
+// sheet: slides up from the bottom (phones). modal: a window over the
+// screen (opened from Calendar, Today or Follow-up on a computer).
+// Otherwise it sits in the page (Pipeline). When editing from one of those
+// windows, onDelete adds Delete, onLogOutcome offers "Log how it went" once
+// it's over, and saveError shows why saving failed.
+export function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onSubmit, saving, sheet = false, modal = false, saveError = '', onDelete = null, onLogOutcome = null }) {
   const [dateSetOption, setDateSetOption] = useState(editing?.dateSetOption || defaultDateSetOption());
   const [appointmentDate, setAppointmentDate] = useState(editing?.appointmentDate || prefillData?.appointmentDate || '');
   const [appointmentTime, setAppointmentTime] = useState(editing?.appointmentTime || '');
+  // When it ends. It follows the start time, keeping the same length.
+  const [endTime, setEndTime] = useState(editing?.appointmentTime ? addMinutesToTime(editing.appointmentTime, editing.durationMinutes || DEFAULT_APPT_MINUTES) : '');
   const [timezone, setTimezone] = useState(editing?.appointmentTimezone || detectTimezone());
   const [presenterId, setPresenterId] = useState(editing?.presenterId || user.managerId || user.id);
   const [traineeId, setTraineeId] = useState(editing?.traineeId || (!editing && user.managerId ? user.id : ''));
@@ -242,12 +249,25 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
   }
 
   const meta = dateSetMeta(dateSetOption);
+  const duration = appointmentTime && endTime ? minutesBetweenTimes(appointmentTime, endTime) : 0;
+
+  function handleStartChange(value) {
+    if (value) {
+      const was = appointmentTime && endTime ? minutesBetweenTimes(appointmentTime, endTime) : 0;
+      const len = was >= 5 && was <= 720 ? was : DEFAULT_APPT_MINUTES;
+      if (endTime || !appointmentTime) setEndTime(addMinutesToTime(value, len));
+    }
+    setAppointmentTime(value);
+  }
 
   async function submit() {
     if (!appointmentDate || !appointmentTime || !presenterId || !client.trim() || (!typeRecruit && !typeSale)) {
       setErr('Fill in the client, the date and time, the presenter, and whether it\'s a recruit, a sale or both.');
       return;
     }
+    if (!endTime) { setErr('Add when it ends.'); return; }
+    // Up to 12 hours; an end before the start would mean it runs overnight.
+    if (duration < 5 || duration > 720) { setErr('The end time needs to be after the start time.'); return; }
     if (clientEmail.trim() && !isValidEmail(clientEmail)) { setShowMore(true); setErr("The client's email address doesn't look right."); return; }
     if (clientPhone.trim() && !isValidPhone(clientPhone)) { setShowMore(true); setErr("The client's phone number doesn't look right. Include the area code."); return; }
     const inviteBoxOpen = !editing || sendUpdate;
@@ -260,16 +280,22 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
     // blocked it out via My Schedule? Skipped if the date/time/presenter
     // haven't actually changed on an edit — re-checking against yourself
     // would otherwise always "conflict".
-    const unchanged = editing && editing.appointmentDate === appointmentDate && editing.appointmentTime === appointmentTime && editing.presenterId === presenterId;
+    const unchanged = editing && editing.appointmentDate === appointmentDate && editing.appointmentTime === appointmentTime && editing.presenterId === presenterId
+      && editing.durationMinutes === duration && (editing.appointmentTimezone || timezone) === timezone;
     if (!unchanged) {
       setChecking(true);
-      const result = await checkAppointmentConflict(presenterId, appointmentDate, appointmentTime, timezone, editing?.id);
+      const result = await checkAppointmentConflict(presenterId, appointmentDate, appointmentTime, timezone, editing?.id, duration);
       setChecking(false);
       if (result.conflict) {
+        const me = presenterId === user.id;
         const presenterName = presenterOptions.find(p => p.id === presenterId)?.display_name || 'This presenter';
+        // When they're busy, if you're allowed to see their calendar.
+        const busy = result.starts_at && result.ends_at ? fmtClockRange(new Date(result.starts_at), new Date(result.ends_at), false) : '';
         setErr(result.reason === 'unavailable'
-          ? `${presenterName} has blocked out this time${result.label ? ` (${result.label})` : ''} — pick another time.`
-          : `${presenterName} already has an appointment at this exact time — pick another time.`);
+          ? `${me ? 'You have' : `${presenterName} has`} blocked out ${busy || 'this time'}${result.label ? ` (${result.label})` : ''}. Pick another time.`
+          : busy
+            ? `${me ? "You're" : `${presenterName} is`} already booked ${busy}. Pick a time that doesn't overlap it.`
+            : `${me ? 'You already have' : `${presenterName} already has`} an appointment then. Pick another time.`);
         return;
       }
     }
@@ -289,7 +315,7 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
     const sameName = myProspects.filter(p => prospectNameKey(p) === normName(client));
     const linkId = prospectId || (!addToList && sameName.length === 1 ? sameName[0].id : '');
     onSubmit({
-      dateSetOption, appointmentDate, appointmentTime, timezone,
+      dateSetOption, appointmentDate, appointmentTime, timezone, durationMinutes: duration,
       presenter: presenterName, presenterId, trainee: traineeName, traineeId,
       client, clientEmail, clientPhone, notes, presentationType, presentationTypeSecondary, zoomHostId: zoomHostId || null,
       inviteEmails, prospectId: linkId, addToList: addToList && !linkId,
@@ -306,9 +332,16 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
   const traineeNote = !traineePick ? '' : traineePick.id === user.id ? "you're the trainee" : `${traineePick.display_name} sits in`;
   const title = editing ? 'Edit appointment' : 'Log an appointment';
   const saveLabel = checking ? 'Checking…' : saving ? 'Saving…' : editing ? 'Save changes' : 'Save appointment';
+  const shownErr = err || saveError;
 
   const fields = (
     <>
+      {editing && onLogOutcome && isPastAppointment(editing) && !editing.followUpCompletedAt && (
+        <div className="tr-appt-over tr-form-section">
+          <span>This one is over and nothing's logged yet.</span>
+          <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={onLogOutcome}>Log how it went</button>
+        </div>
+      )}
       {editing?.status === 'needs_reschedule' && (
         <div className="tr-badge tr-badge-weekday tr-form-section">
           This one needs to be rescheduled. Saving counts it toward this week's batch as a new entry and clears its old follow-up status.
@@ -366,14 +399,20 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
           <span>Recruit, sale or both</span>
           <TypeChoice recruit={typeRecruit} sale={typeSale} onToggleRecruit={() => setTypeRecruit(v => !v)} onToggleSale={() => setTypeSale(v => !v)} />
         </div>
-        <label className="tr-field tr-field-half">
-          <span>Date</span>
-          <input type="date" value={appointmentDate} onChange={e => setAppointmentDate(e.target.value)} onClick={openPicker} />
-        </label>
-        <label className="tr-field tr-field-half">
-          <span>Time</span>
-          <input type="time" value={appointmentTime} onChange={e => setAppointmentTime(e.target.value)} onClick={openPicker} />
-        </label>
+        <div className="tr-appt-when">
+          <label className="tr-field tr-appt-when-date">
+            <span>Date</span>
+            <input type="date" value={appointmentDate} onChange={e => setAppointmentDate(e.target.value)} onClick={openPicker} />
+          </label>
+          <label className="tr-field">
+            <span>Starts</span>
+            <input type="time" value={appointmentTime} onChange={e => handleStartChange(e.target.value)} onClick={openPicker} />
+          </label>
+          <label className="tr-field">
+            <span>Ends{duration >= 5 && duration <= 720 ? <em className="tr-appt-len">{durationLabel(duration)}</em> : null}</span>
+            <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} onClick={openPicker} />
+          </label>
+        </div>
         {!editing && zoomHostOptions.length > 0 && (
           <label className={`tr-field ${lockedToZoomHost ? 'tr-field-wide' : ''}`}>
             <span>Presenting manager</span>
@@ -485,6 +524,12 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
     </>
   );
 
+  const deleteBtn = onDelete ? (
+    <button type="button" className="tr-btn tr-btn-ghost tr-appt-delete" onClick={onDelete} disabled={saving || checking}>
+      <Trash2 size={15} aria-hidden="true" /> Delete
+    </button>
+  ) : null;
+
   // On a phone it slides up as a sheet, with Save always in reach.
   if (sheet) {
     return (
@@ -495,18 +540,40 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
         </div>
         <div className="tr-fsheet-body" onKeyDown={handleKeyDown}>{fields}</div>
         <div className="tr-fsheet-actions">
-          {err && <div className="tr-error">{err}</div>}
+          {shownErr && <div className="tr-error">{shownErr}</div>}
           <button type="button" className="tr-btn tr-btn-brass" onClick={submit} disabled={saving || checking}>{saveLabel}</button>
+          {onDelete ? <button type="button" className="tr-link-btn tr-appt-delete-link" onClick={onDelete} disabled={saving || checking}>Delete this appointment</button> : null}
         </div>
       </Sheet>
+    );
+  }
+  if (modal) {
+    return (
+      // The title and the buttons stay put; the fields scroll between them.
+      <Modal onClose={onCancel} labelledBy="tr-apptform-title" className="tr-modal-form">
+        <div className="tr-modal-head">
+          <h3 className="tr-h3" id="tr-apptform-title">{title}</h3>
+          <button type="button" className="tr-icon-btn" onClick={onCancel} aria-label="Close"><X size={18} /></button>
+        </div>
+        <div className="tr-modal-body" onKeyDown={handleKeyDown}>{fields}</div>
+        <div className="tr-modal-foot">
+          {shownErr && <div className="tr-error">{shownErr}</div>}
+          <div className="tr-form-actions">
+            {deleteBtn}
+            <button type="button" className="tr-btn tr-btn-ghost" onClick={onCancel}>Cancel</button>
+            <button type="button" className="tr-btn tr-btn-brass" onClick={submit} disabled={saving || checking}>{saveLabel}</button>
+          </div>
+        </div>
+      </Modal>
     );
   }
   return (
     <div className="tr-card tr-form" onKeyDown={handleKeyDown}>
       <h3 className="tr-h3">{title}</h3>
       {fields}
-      {err && <div className="tr-error">{err}</div>}
+      {shownErr && <div className="tr-error">{shownErr}</div>}
       <div className="tr-form-actions">
+        {deleteBtn}
         <button type="button" className="tr-btn tr-btn-ghost" onClick={onCancel}>Cancel</button>
         <button type="button" className="tr-btn tr-btn-brass" onClick={submit} disabled={saving || checking}>{saveLabel}</button>
       </div>
@@ -649,6 +716,41 @@ export function OpenRequirementsBody({ view, user, mineOnly = false, head = true
 // section "booked" (Pipeline → Booked): just the week's appointments and the
 // form; past ones by status live in Pipeline → Log outcome, and Submitted /
 // Issued Premium in Pipeline → Won.
+// "Add them to your list" on the form: the new prospect is saved first, so
+// the appointment is linked to them from the start.
+async function addToListFirst(user, input) {
+  if (!input.addToList || input.prospectId) return { form: input, listNote: '' };
+  const words = input.client.trim().split(/\s+/);
+  const blank = { firstName: words[0] || '', lastName: words.slice(1).join(' '), age: '', relationshipStrength: 5, notes: '', source: '', email: input.clientEmail, phone: input.clientPhone };
+  ALL_CHARACTERISTICS.forEach(c => { blank[c.key] = false; });
+  const pr = await insertProspect(user.id, blank);
+  if (pr.ok) return { form: { ...input, prospectId: pr.record.id }, listNote: '' };
+  return { form: input, listNote: `Couldn't add ${input.client.trim()} to your list. Add them from Pipeline → Names.` };
+}
+
+// Saves changes to one of your appointments, from Pipeline or from the
+// window that opens when you tap an appointment on Calendar, Today or
+// Follow-up. Emails the updated invite if that was ticked.
+// Returns { ok, record, notice } or { ok: false, error }.
+export async function saveAppointmentChanges(user, editing, input) {
+  const { form, listNote } = await addToListFirst(user, input);
+  const res = await updateAppointment(editing.id, form, editing.status === 'needs_reschedule');
+  if (!res.ok) return { ok: false, error: res.error || 'Could not save. Try again.' };
+  let record = res.record;
+  let notice = null;
+  if (form.inviteEmails && form.inviteEmails.length) {
+    const r = await sendAppointmentInviteEmail(record.id, form.inviteEmails, true);
+    if (r.sent) {
+      record = { ...record, inviteeEmails: r.recipients || form.inviteEmails, inviteMethod: 'email', inviteSentAt: new Date().toISOString() };
+      notice = { kind: 'ok', text: `Updated invite emailed to ${(r.recipients || form.inviteEmails).join(', ')}.` };
+    } else {
+      notice = { kind: 'warn', text: inviteFailureMessage(r.error, true) };
+    }
+  }
+  if (listNote) notice = { kind: 'warn', text: listNote };
+  return { ok: true, record, notice };
+}
+
 export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initialIntent, onIntentConsumed, cameFrom = null, onReturn, section = null }) {
   const isPhone = useIsPhone();
   const [appointments, setAppointments] = useState([]);
@@ -718,13 +820,13 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
   }, [notice]);
 
   function handleExportAppointments() {
-    const rows = [['Date set', 'Appointment date', 'Time', 'Timezone', 'Presenter', 'Trainee', 'Client', 'Client email', 'Client phone', 'Type', 'Status', 'Notes', 'Zoom link']];
+    const rows = [['Date set', 'Appointment date', 'Time', 'End time', 'Timezone', 'Presenter', 'Trainee', 'Client', 'Client email', 'Client phone', 'Type', 'Status', 'Notes', 'Zoom link']];
     appointments
       .slice()
       .sort((a, b) => (b.appointmentDate + b.appointmentTime).localeCompare(a.appointmentDate + a.appointmentTime))
       .forEach(a => {
         rows.push([
-          a.dateSetOption, a.appointmentDate, a.appointmentTime, a.appointmentTimezone,
+          a.dateSetOption, a.appointmentDate, a.appointmentTime, addMinutesToTime(a.appointmentTime, a.durationMinutes), a.appointmentTimezone,
           a.presenter, a.trainee, a.client, a.clientEmail, a.clientPhone, typeLabel(a), a.status, a.notes, a.zoomUrl,
         ]);
       });
@@ -804,39 +906,17 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
   async function handleFormSubmit(input) {
     setSaving(true);
     setError('');
-    let form = input;
-    // "Add them to your list": the new prospect first, so the appointment
-    // is linked to them from the start.
-    let listNote = '';
-    if (input.addToList && !input.prospectId) {
-      const words = input.client.trim().split(/\s+/);
-      const blank = { firstName: words[0] || '', lastName: words.slice(1).join(' '), age: '', relationshipStrength: 5, notes: '', source: '', email: input.clientEmail, phone: input.clientPhone };
-      ALL_CHARACTERISTICS.forEach(c => { blank[c.key] = false; });
-      const pr = await insertProspect(user.id, blank);
-      if (pr.ok) form = { ...input, prospectId: pr.record.id };
-      else listNote = `Couldn't add ${input.client.trim()} to your list. Add them from Pipeline → Names.`;
-    }
     if (editingAppt) {
-      const isReschedule = editingAppt.status === 'needs_reschedule';
-      const res = await updateAppointment(editingAppt.id, form, isReschedule);
-      if (!res.ok) { setSaving(false); setError(res.error || 'Could not save. Try again.'); return; }
-      let updatedRecord = res.record;
-      if (form.inviteEmails && form.inviteEmails.length) {
-        // Stays in "Saving…" until the email is out, so a second click
-        // can't send it twice.
-        const r = await sendAppointmentInviteEmail(updatedRecord.id, form.inviteEmails, true);
-        if (r.sent) {
-          updatedRecord = { ...updatedRecord, inviteeEmails: r.recipients || form.inviteEmails, inviteMethod: 'email', inviteSentAt: new Date().toISOString() };
-          setNotice({ kind: 'ok', text: `Updated invite emailed to ${(r.recipients || form.inviteEmails).join(', ')}.` });
-        } else {
-          setNotice({ kind: 'warn', text: inviteFailureMessage(r.error, true) });
-        }
-      }
+      // Stays in "Saving…" until any updated invite is out, so a second
+      // click can't send it twice.
+      const res = await saveAppointmentChanges(user, editingAppt, input);
       setSaving(false);
-      setAppointments(prev => prev.map(a => a.id === editingAppt.id ? updatedRecord : a));
-      if (listNote) setNotice({ kind: 'warn', text: listNote });
+      if (!res.ok) { setError(res.error); return; }
+      setAppointments(prev => prev.map(a => a.id === editingAppt.id ? res.record : a));
+      if (res.notice) setNotice(res.notice);
       closeForm();
     } else {
+      const { form, listNote } = await addToListFirst(user, input);
       const res = await insertAppointment(user.id, { ...form, weekOf: weekMonday });
       if (!res.ok) { setSaving(false); setError(res.error || 'Could not save. Try again.'); return; }
       let record = res.record;
@@ -846,7 +926,7 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
         const zoomRes = await createZoomMeeting({
           topic: `Meeting with ${form.client}`,
           startTime: `${form.appointmentDate}T${form.appointmentTime}:00`,
-          durationMinutes: 30,
+          durationMinutes: record.durationMinutes,
           timezone: form.timezone,
           hostUserId: form.zoomHostId,
         });
@@ -870,7 +950,7 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
         location: record.zoomUrl || undefined,
         attendees: inviteEmails,
         startDateTime: `${form.appointmentDate}T${form.appointmentTime}:00`,
-        endDateTime: addMinutesToDateTime(form.appointmentDate, form.appointmentTime, 30),
+        endDateTime: addMinutesToDateTime(form.appointmentDate, form.appointmentTime, record.durationMinutes),
         timezone: form.timezone,
         managerHostId: form.zoomHostId,
       });
