@@ -15,6 +15,7 @@ import { bodyScale, CelestialBody, CelestialDefs, makeStars, PaceRing, ringRadiu
 import { PageHead, RefreshButton, SkelBlock } from '../../components/ui.jsx';
 import { buildDailyChecklist, DailyChecklist } from './DailyChecklist.jsx';
 import { EmailButton } from '../../components/email.jsx';
+import { AnnouncementTeam } from '../../components/announcements.jsx';
 
 const DAY = 864e5;
 const daysSince = iso => (iso ? Math.floor((Date.now() - new Date(iso).getTime()) / DAY) : null);
@@ -252,6 +253,7 @@ export function TeamOverviewBody({ user, onNavigate }) {
     <div className="tr-tov">
       <CelestialDefs />
       {head}
+      <AnnouncementTeam user={user} />
       <div className="tr-tov-tiles">
         {state.tiles.map(t => {
           const Tag = t.go ? 'button' : 'div';

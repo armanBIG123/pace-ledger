@@ -21,6 +21,7 @@ import { RemindersPrompt } from '../components/reminders.jsx';
 import { FollowUpModal } from '../components/followUpModal.jsx';
 import { appointmentTexts, CallButton, prospectTexts, TextButton } from '../components/contact.jsx';
 import { isValidPhone } from '../lib/phone.js';
+import { AnnouncementToday } from '../components/announcements.jsx';
 
 // The checklist card. `result` comes from computeOnboarding().
 export function FirstThirtyDays({ result, day, onGo, onHide }) {
@@ -781,6 +782,7 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
           <p className="tr-empty" style={{ margin: '2px 0 0' }}>{now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
         </div>
       </div>
+      <AnnouncementToday user={user} />
 
       {flash && <div className="tr-flash" role="status">{flash}</div>}
       <RemindersPrompt />

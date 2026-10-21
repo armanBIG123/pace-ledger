@@ -3,17 +3,21 @@
 // to the chat rules once (Apple requires it). Any message can be reported
 // or its sender blocked; super admins review reports here too.
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowLeft, Briefcase, Flag, Hash, LifeBuoy, Send, ShieldCheck, X } from 'lucide-react';
+import { ArrowDown, ArrowLeft, Briefcase, Flag, Hash, LifeBuoy, Megaphone, Send, ShieldCheck, X } from 'lucide-react';
 import {
   acceptChatRules, blockChatUser, CHAT_CHANNELS, CHAT_MAX_LENGTH, deleteChatMessage, fetchChatBlocks, fetchChatMessages,
   fetchChatRulesAccepted, fetchChatUnread, fetchOpenChatReports, markChatRead, notifyUrgent, postChatMessage,
   reportChatMessage, resolveChatReport, unblockChatUser,
 } from '../data/chat.js';
 import { fetchHierarchyPeopleShared } from '../data/team.js';
+import { useAnnouncements, waitingFor } from '../data/announcements.js';
 import { Modal, MoreMenu, SkelBlock, useIsPhone } from '../components/ui.jsx';
 import { Avatar, useAvatars } from '../components/avatar.jsx';
+import { MEGAPHONE_ABOUT, MegaPhoneRoom } from './MegaPhone.jsx';
 
-const ICONS = { general: Hash, work: Briefcase, urgent: LifeBuoy, reports: Flag };
+const ICONS = { megaphone: Megaphone, general: Hash, work: Briefcase, urgent: LifeBuoy, reports: Flag };
+// Rooms that aren't conversations (no messages to load or mark read).
+const NOT_MESSAGES = new Set(['reports', 'megaphone']);
 const REASONS = ['Harassment or bullying', 'Hate or discrimination', 'Sexual or graphic content', "A client's private information", 'Spam', 'Something else'];
 const GROUP_MS = 5 * 60 * 1000;
 const POLL_MS = 20000;
@@ -222,7 +226,7 @@ function Reports({ people, onChanged }) {
 export function ChatBody({ user, initialChannel, onIntentConsumed }) {
   const isPhone = useIsPhone();
   const isAdmin = user.role === 'super_admin';
-  const startChannel = ['general', 'work', 'urgent'].includes(initialChannel) || (initialChannel === 'reports' && isAdmin) ? initialChannel : 'general';
+  const startChannel = ['megaphone', 'general', 'work', 'urgent'].includes(initialChannel) || (initialChannel === 'reports' && isAdmin) ? initialChannel : 'general';
   const [accepted, setAccepted] = useState(null); // null = checking
   const [agreeBusy, setAgreeBusy] = useState(false);
   const [agreeError, setAgreeError] = useState('');
@@ -231,6 +235,7 @@ export function ChatBody({ user, initialChannel, onIntentConsumed }) {
   const [byChannel, setByChannel] = useState({}); // channel -> { messages, more, loading }
   const [people, setPeople] = useState(new Map());
   const avatars = useAvatars();
+  const announcements = useAnnouncements(user);
   const [blocked, setBlocked] = useState([]);
   const [unread, setUnread] = useState(null);
   const [drafts, setDrafts] = useState({});
@@ -268,7 +273,7 @@ export function ChatBody({ user, initialChannel, onIntentConsumed }) {
   useEffect(() => { refreshUnread(); }, [refreshUnread, channel]);
 
   const load = useCallback(async (ch, { earlier = false } = {}) => {
-    if (ch === 'reports') return;
+    if (NOT_MESSAGES.has(ch)) return;
     const current = byChannel[ch];
     if (earlier) {
       const oldest = current && current.messages[0];
@@ -300,7 +305,7 @@ export function ChatBody({ user, initialChannel, onIntentConsumed }) {
   // Open a chat: load it, then keep it fresh (live updates come through the
   // top bar's connection; this is the backup if that connection drops).
   useEffect(() => {
-    if (!accepted || channel === 'reports') return undefined;
+    if (!accepted || NOT_MESSAGES.has(channel)) return undefined;
     atBottom.current = true;
     setNewBelow(false);
     loadRef.current(channel);
@@ -342,7 +347,7 @@ export function ChatBody({ user, initialChannel, onIntentConsumed }) {
 
   // Reading the newest message marks the chat read.
   useEffect(() => {
-    if (!accepted || channel === 'reports' || !lastId || !atBottom.current) return undefined;
+    if (!accepted || NOT_MESSAGES.has(channel) || !lastId || !atBottom.current) return undefined;
     const t = setTimeout(() => { markChatRead(channel).then(refreshUnread); }, 800);
     return () => clearTimeout(t);
   }, [accepted, channel, lastId, refreshUnread]);
@@ -446,9 +451,10 @@ export function ChatBody({ user, initialChannel, onIntentConsumed }) {
   if (accepted === null) return <div className="tr-chat-loading"><SkelBlock w="100%" h="420px" /></div>;
   if (!accepted) return <div className="tr-chat-gate"><RulesCard onAgree={agree} busy={agreeBusy} error={agreeError} /></div>;
 
-  const channels = [...CHAT_CHANNELS, ...(isAdmin ? [{ key: 'reports', label: 'Reports', about: 'Messages people reported. Remove them or keep them.' }] : [])];
-  const info = channels.find(c => c.key === channel) || channels[0];
-  const count = k => (unread ? unread[k] || 0 : 0);
+  const channels = [{ key: 'megaphone', label: 'MegaPhone', about: MEGAPHONE_ABOUT }, ...CHAT_CHANNELS, ...(isAdmin ? [{ key: 'reports', label: 'Reports', about: 'Messages people reported. Remove them or keep them.' }] : [])];
+  const info = channels.find(c => c.key === channel) || channels[1];
+  // MegaPhone counts the announcements you haven't confirmed yet.
+  const count = k => (k === 'megaphone' ? waitingFor(announcements, user).length : unread ? unread[k] || 0 : 0);
   const name = id => (people.get(id) || {}).display_name || 'Someone';
   const roleTag = id => { const r = (people.get(id) || {}).role; return r === 'super_admin' ? 'Admin' : r === 'manager' ? 'Manager' : null; };
 
@@ -507,7 +513,9 @@ export function ChatBody({ user, initialChannel, onIntentConsumed }) {
     );
   });
 
-  const conversation = channel === 'reports' ? (
+  const conversation = channel === 'megaphone' ? (
+    <MegaPhoneRoom user={user} isPhone={isPhone} onBack={() => setPhoneList(true)} />
+  ) : channel === 'reports' ? (
     <section className="tr-chat-main" aria-label="Reports">
       <header className="tr-chat-head">
         {isPhone ? <button type="button" className="tr-icon-btn" onClick={() => setPhoneList(true)} aria-label="All chats"><ArrowLeft size={18} /></button> : null}
