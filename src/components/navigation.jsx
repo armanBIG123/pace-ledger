@@ -99,6 +99,8 @@ export function useAndroidBackButton(tab, goHome) {
   const homeRef = useRef(goHome);
   homeRef.current = goHome;
   useEffect(() => onAndroidBack(() => {
+    // An announcement that has to be confirmed stays until it is.
+    if (document.querySelector('.tr-ann-gate')) return;
     const searchCancel = document.querySelector('.tr-search-cancel');
     if (searchCancel) { searchCancel.click(); return; }
     const overlays = document.querySelectorAll('.tr-modal-backdrop, .tr-sheet-backdrop, .tr-new-backdrop');

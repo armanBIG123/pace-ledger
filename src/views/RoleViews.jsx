@@ -6,6 +6,7 @@ import { ADMIN_TEAM_TABS, MY_WORK_TABS, TabNav, TEAM_TABS, useAndroidBackButton 
 import { GlobalSearch, useNewMenu } from '../components/quickActions.jsx';
 import { useAppointmentReminders } from '../components/reminders.jsx';
 import { ChatButton, useChatUnread } from '../components/chatButton.jsx';
+import { AnnouncementGate } from '../components/announcements.jsx';
 import { lazyScreen, prefetchScreens, ScreenBoundary, ScreenLoading } from '../components/lazyScreen.jsx';
 import { TodayBody } from '../screens/Today.jsx';
 
@@ -181,6 +182,7 @@ export function AdvisorView({ user }) {
         </Screens>
       </main>
       {newEl}
+      <AnnouncementGate user={user} />
     </Shell>
   );
 }
@@ -206,6 +208,7 @@ export function ManagerView({ user }) {
         </Screens>
       </main>
       {newEl}
+      <AnnouncementGate user={user} />
     </Shell>
   );
 }
@@ -234,6 +237,7 @@ export function AdminView({ user }) {
         </Screens>
       </main>
       {newEl}
+      <AnnouncementGate user={user} />
     </Shell>
   );
 }
