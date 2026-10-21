@@ -713,7 +713,7 @@ export function OpenRequirementsBody({ view, user, mineOnly = false, head = true
   );
 }
 
-// section "booked" (Pipeline → Booked): just the week's appointments and the
+// section "booked" (Pipeline → Appointments): just the week's appointments and the
 // form; past ones by status live in Pipeline → Log outcome, and Submitted /
 // Issued Premium in Pipeline → Won.
 // "Add them to your list" on the form: the new prospect is saved first, so
@@ -725,7 +725,7 @@ async function addToListFirst(user, input) {
   ALL_CHARACTERISTICS.forEach(c => { blank[c.key] = false; });
   const pr = await insertProspect(user.id, blank);
   if (pr.ok) return { form: { ...input, prospectId: pr.record.id }, listNote: '' };
-  return { form: input, listNote: `Couldn't add ${input.client.trim()} to your list. Add them from Pipeline → Names.` };
+  return { form: input, listNote: `Couldn't add ${input.client.trim()} to your list. Add them from Pipeline → Prospects.` };
 }
 
 // Saves changes to one of your appointments, from Pipeline or from the
