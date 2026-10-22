@@ -288,8 +288,11 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
   useEffect(() => { load(); }, [load]);
   // One of your appointments was changed from the window it opens in.
   useAppointmentEdits(change => {
-    if (change.reload) load();
-    else setAppointments(prev => applyAppointmentEdit(prev, change));
+    if (change.reload) { load(); return; }
+    setAppointments(prev => applyAppointmentEdit(prev, change));
+    // A leader can change ones they're presenting or training on too.
+    setInvolvedToday(prev => applyAppointmentEdit(prev, change));
+    setPresenting(prev => applyAppointmentEdit(prev, change));
   });
   useEffect(() => {
     const again = () => { load(); };

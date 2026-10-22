@@ -8,7 +8,7 @@ import { fetchAppointmentsHeldInWeek, isPolicyIssued } from '../../data/appointm
 import { fetchTeamMembers } from '../../data/team.js';
 import { RefreshButton, SkeletonTable, TitleInfo, WeekNav } from '../../components/ui.jsx';
 import { PendingIssueView } from './PendingIssue.jsx';
-import { openAppointment } from '../../components/appointmentPanel.jsx';
+import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../../components/appointmentPanel.jsx';
 
 const byTime = list => list.slice().sort((a, b) => apptStartMs(a) - apptStartMs(b));
 const withWhom = a => (a.presenter && a.presenterId !== a.userId ? ` · with ${a.presenter}` : '');
@@ -69,6 +69,11 @@ export function TrackProductionBody({ user }) {
   }, [weekMonday, user.id, user.role]);
 
   useEffect(() => { refresh(); }, [refresh]);
+  // An appointment opened from here was changed.
+  useAppointmentEdits(change => {
+    if (change.reload) refresh();
+    else setWeekAppts(prev => applyAppointmentEdit(prev, change));
+  });
 
   function tally(m) {
     const list = weekAppts.filter(a => a.userId === m.id);

@@ -347,9 +347,10 @@ export async function insertAppointment(userId, form) {
 // new scheduling work, so it counts toward whichever batch it lands in now,
 // and its stale follow-up state (status, outcome, etc.) is cleared since
 // none of that applies to the newly-set time.
-export async function updateAppointment(id, form, isReschedule) {
+// The columns an edit saves, from the appointment form.
+function appointmentFields(form) {
   const meta = dateSetMeta(form.dateSetOption);
-  const payload = {
+  return {
     date_set_option: form.dateSetOption,
     category: meta.category,
     appointment_date: form.appointmentDate,
@@ -368,6 +369,10 @@ export async function updateAppointment(id, form, isReschedule) {
     presentation_type: form.presentationType || null,
     presentation_type_secondary: form.presentationTypeSecondary || null,
   };
+}
+
+export async function updateAppointment(id, form, isReschedule) {
+  const payload = appointmentFields(form);
   if (isReschedule) {
     payload.week_of = weekStartOf(todayStr());
     payload.status = null;
@@ -383,6 +388,22 @@ export async function updateAppointment(id, form, isReschedule) {
   }
   const { data, error } = await saveWithLength(payload, p => supabase.from('appointments').update(p).eq('id', id).select().single());
   if (error) return { ok: false, error: error.message };
+  return { ok: true, record: rowToRecord(data) };
+}
+
+// A leader changing someone else's appointment: the person they report to,
+// or a super admin. Only the time and the details change (never how it
+// went, or whose it is), through the database's checked function
+// (migration-team-edits-lengths.sql).
+export async function updateTeamAppointment(id, form, isReschedule) {
+  const fields = appointmentFields(form);
+  delete fields.prospect_id;
+  if (isReschedule) fields.week_of = weekStartOf(todayStr());
+  const { data, error } = await supabase.rpc('leader_update_appointment', { p_appointment: id, p_fields: fields, p_reschedule: !!isReschedule });
+  if (error || !data) {
+    const msg = (error && error.message) || '';
+    return { ok: false, error: /not_allowed/.test(msg) ? 'Only the person they report to, or a super admin, can change this appointment.' : "Couldn't save. Check your connection and try again." };
+  }
   return { ok: true, record: rowToRecord(data) };
 }
 

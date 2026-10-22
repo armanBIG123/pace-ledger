@@ -9,7 +9,7 @@ import { loadPromotionReadiness } from '../../data/team.js';
 import { fetchUpcomingAppointments, setAppointmentTrainee } from '../../data/recruits.js';
 import { EmailButton } from '../../components/email.jsx';
 import { MoreMenu, RefreshButton, SkeletonTable, TitleInfo, TypeBadge } from '../../components/ui.jsx';
-import { openAppointment } from '../../components/appointmentPanel.jsx';
+import { useAppointmentEdits, openAppointment } from '../../components/appointmentPanel.jsx';
 
 const SEATS_SHOWN = 8;
 const first = name => (name || '').trim().split(/\s+/)[0] || 'there';
@@ -41,6 +41,8 @@ export function FieldTrainingSubView({ user, members, loadingMembers, emptyMessa
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [members]);
   useEffect(() => { refresh(); }, [refresh]);
+  // An appointment opened from here was changed: its seat or time may differ.
+  useAppointmentEdits(() => { refresh(); });
 
   async function assign(appt, traineeId) {
     const trainee = data.byId.get(traineeId);

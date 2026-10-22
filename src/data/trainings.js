@@ -15,16 +15,27 @@ export async function fetchTrainingsInRange(startDate, endDate) {
   return data;
 }
 
-export async function createTraining({ title, date, time, timezone, zoomUrl, notes, userId, userName, recurring, repeatUntil }) {
+// Before migration-team-edits-lengths.sql has run there's no
+// duration_minutes column yet: save without the length instead of failing.
+async function insertTrainings(rows) {
+  let res = await supabase.from('trainings').insert(rows).select();
+  if (res.error && /duration_minutes/.test(res.error.message || '')) {
+    res = await supabase.from('trainings').insert(rows.map(r => { const rest = { ...r }; delete rest.duration_minutes; return rest; })).select();
+  }
+  return res;
+}
+
+export async function createTraining({ title, date, time, durationMinutes, timezone, zoomUrl, notes, userId, userName, recurring, repeatUntil }) {
   const base = {
     title, training_time: time, timezone,
+    duration_minutes: durationMinutes || 60,
     zoom_url: zoomUrl || null, notes: notes || null,
     created_by: userId, created_by_name: userName,
   };
   if (!recurring || !repeatUntil) {
-    const { data, error } = await supabase.from('trainings').insert({ ...base, training_date: date }).select().single();
+    const { data, error } = await insertTrainings([{ ...base, training_date: date }]);
     if (error) return { ok: false, error: error.message };
-    return { ok: true, records: [data] };
+    return { ok: true, records: data };
   }
   // One row per week from the start date through repeatUntil (inclusive) —
   // simpler and more robust than computing recurrence at read time, and
@@ -36,7 +47,7 @@ export async function createTraining({ title, date, time, timezone, zoomUrl, not
     rows.push({ ...base, training_date: cursor, recurring_group_id: groupId });
     cursor = fmtDate(addDays(parseDate(cursor), 7));
   }
-  const { data, error } = await supabase.from('trainings').insert(rows).select();
+  const { data, error } = await insertTrainings(rows);
   if (error) return { ok: false, error: error.message };
   return { ok: true, records: data };
 }

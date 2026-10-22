@@ -8,7 +8,7 @@ import { checkAppointmentConflict } from '../schedule.js';
 import { DATE_SET_OPTIONS, dateSetMeta, defaultDateSetOption } from '../lib/pace.js';
 import { addMinutesToDateTime, addMinutesToTime, detectTimezone, durationLabel, fmtApptDateTime, fmtClockRange, fmtDisplayDate, fmtFollowUpDateTime, minutesBetweenTimes, parseDate, shiftWeekStr, timezoneOptionsWithDetected, todayStr, weekStartOf } from '../lib/dates.js';
 import { downloadCSV, fmtCurrency, isValidEmail } from '../lib/format.js';
-import { addPolicyNote, applyFollowUpToList, DEFAULT_APPT_MINUTES, deleteAppointmentRow, fetchAppointmentsImPresenting, fetchMyAppointments, fetchPolicyNotes, fetchSoldPolicies, fetchZoomConnectedManagers, insertAppointment, inviteFailureMessage, isPastAppointment, isPolicyIssued, isRecruitType, isSaleType, ISSUED_PREMIUM_VIEW, markInviteSent, persistFollowUp, SOLD_PREMIUM_VIEW, STATUS_OPTIONS, typeLabel, updateAppointment, updatePolicyFields } from '../data/appointments.js';
+import { addPolicyNote, applyFollowUpToList, DEFAULT_APPT_MINUTES, deleteAppointmentRow, fetchAppointmentsImPresenting, fetchMyAppointments, fetchPolicyNotes, fetchSoldPolicies, fetchZoomConnectedManagers, insertAppointment, inviteFailureMessage, isPastAppointment, isPolicyIssued, isRecruitType, isSaleType, ISSUED_PREMIUM_VIEW, markInviteSent, persistFollowUp, SOLD_PREMIUM_VIEW, STATUS_OPTIONS, typeLabel, updateAppointment, updatePolicyFields, updateTeamAppointment } from '../data/appointments.js';
 import { ALL_CHARACTERISTICS, fetchMyProspects, insertProspect, LEANING_LABELS, normName, prospectLeaningKey, prospectNameKey, prospectTotalChecked } from '../data/prospects.js';
 import { fetchOrgDirectory } from '../data/team.js';
 import { connectZoom, createZoomMeeting, disconnectZoom, fetchZoomConnectionStatus, pushAppointmentToGoogleCalendar, sendAppointmentInviteEmail, updateAppointmentZoomUrl, zoomOAuthUrl } from '../data/integrations.js';
@@ -93,7 +93,12 @@ export function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty, hi
 // Otherwise it sits in the page (Pipeline). When editing from one of those
 // windows, onDelete adds Delete, onLogOutcome offers "Log how it went" once
 // it's over, and saveError shows why saving failed.
-export function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onSubmit, saving, sheet = false, modal = false, saveError = '', onDelete = null, onLogOutcome = null }) {
+// bookedBy: editing someone else's appointment (you're who they report to,
+// or a super admin): their name. No suggestions from your own list and no
+// invites, and the presenters come from their upline, not yours.
+export function AppointmentForm({ user, weekMonday, editing, prefillData, onCancel, onSubmit, saving, sheet = false, modal = false, saveError = '', onDelete = null, onLogOutcome = null, bookedBy = '' }) {
+  const forOther = !!editing && editing.userId !== user.id;
+  const ownerId = forOther ? editing.userId : user.id;
   const [dateSetOption, setDateSetOption] = useState(editing?.dateSetOption || defaultDateSetOption());
   const [appointmentDate, setAppointmentDate] = useState(editing?.appointmentDate || prefillData?.appointmentDate || '');
   const [appointmentTime, setAppointmentTime] = useState(editing?.appointmentTime || '');
@@ -136,8 +141,8 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
     fetchZoomConnectedManagers().then(setZoomManagers);
     fetchOrgDirectory().then(setOrgDirectory);
     // Suggest names from your prospect list as you type the client name.
-    fetchMyProspects(user.id).then(setMyProspects);
-  }, [user.id]);
+    if (!forOther) fetchMyProspects(user.id).then(setMyProspects);
+  }, [user.id, forOther]);
 
   // Fills in recruit/sale from how they scored (unless you've already
   // chosen a type yourself), and their notes, email and phone if empty.
@@ -153,6 +158,7 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
   }
   function handleClientChange(value) {
     setClient(value);
+    if (forOther) return; // their list isn't yours to link or add to
     if (prospectId) setProspectId('');
     setMenuOpen(true);
     setActiveIdx(-1);
@@ -173,7 +179,7 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
     .slice(0, 5);
   const typedIsOnList = myProspects.some(p => prospectNameKey(p) === typed);
   const comboOptions = [...nameMatches.map(p => ({ key: p.id, p })), ...(typed.length >= 2 && !typedIsOnList ? [{ key: 'add' }] : [])];
-  const showCombo = menuOpen && !prospectId && !addToList && comboOptions.length > 0;
+  const showCombo = !forOther && menuOpen && !prospectId && !addToList && comboOptions.length > 0;
   const linked = prospectId ? myProspects.find(p => p.id === prospectId) : null;
   function pickOption(o) {
     if (!o) return;
@@ -225,7 +231,7 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
   //   free to pick, but only from you or your own downline — presenting
   //   solo, or logging on behalf of someone under you who presented
   //   without a manager hosting.
-  const uplineOptions = computeUpline(user.id, orgDirectory);
+  const uplineOptions = computeUpline(ownerId, orgDirectory);
   const downlineOptions = computeDownline(user.id, orgDirectory);
   const uplineNonSelf = uplineOptions.filter(p => p.id !== user.id);
   const uplineIds = new Set(uplineNonSelf.map(p => p.id));
@@ -236,7 +242,12 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
   const otherZoomManagers = orgDirectory.filter(p => p.id !== user.id && !uplineIds.has(p.id) && zoomManagers.some(z => z.id === p.id));
   const zoomHostOptions = [...uplineNonSelf, ...otherZoomManagers];
   const lockedToZoomHost = !editing && !!zoomHostId;
-  const presenterOptions = editing ? uplineOptions : (lockedToZoomHost ? zoomHostOptions.filter(p => p.id === zoomHostId) : downlineOptions);
+  // Editing keeps whoever presents it now in the list, even when they're
+  // not in the upline (a Zoom-connected manager from another team).
+  const editPresenters = editing && editing.presenterId && !uplineOptions.some(p => p.id === editing.presenterId)
+    ? [...uplineOptions, { id: editing.presenterId, display_name: editing.presenter || 'Current presenter' }]
+    : uplineOptions;
+  const presenterOptions = editing ? editPresenters : (lockedToZoomHost ? zoomHostOptions.filter(p => p.id === zoomHostId) : downlineOptions);
   const traineeOptions = presenterId ? computeDownline(presenterId, orgDirectory).filter(p => p.id !== presenterId) : [];
 
   function handleZoomHostChange(id) {
@@ -335,8 +346,14 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
   const saveLabel = checking ? 'Checking…' : saving ? 'Saving…' : editing ? 'Save changes' : 'Save appointment';
   const shownErr = err || saveError;
 
+  const firstOf = n => String(n || '').trim().split(/\s+/)[0] || 'They';
   const fields = (
     <>
+      {forOther && (
+        <div className="tr-appt-other tr-form-section">
+          You're changing <strong>{bookedBy || 'their'}</strong>{bookedBy ? '’s' : ''} appointment: the time and the details. {firstOf(bookedBy)} sees the change right away; how it went stays theirs to log.
+        </div>
+      )}
       {editing && onLogOutcome && isPastAppointment(editing) && !editing.followUpCompletedAt && (
         <div className="tr-appt-over tr-form-section">
           <span>This one is over and nothing's logged yet.</span>
@@ -491,13 +508,13 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
                 <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Anything worth noting" />
               </label>
             </div>
-            {editing && (
+            {editing && !forOther && (
               <label className="tr-checkbox-field" style={{ marginTop: 12 }}>
                 <input type="checkbox" checked={sendUpdate} onChange={e => setSendUpdate(e.target.checked)} />
                 <span>Email an updated invite (new time or Zoom link){editing.inviteSentAt ? `. Last sent ${new Date(editing.inviteSentAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}</span>
               </label>
             )}
-            {(!editing || sendUpdate) && (
+            {(!editing || (sendUpdate && !forOther)) && (
               <div className="tr-invite-box">
                 <div className="tr-invite-title">{editing ? 'Send the updated invite to' : 'Email the meeting invite to'}</div>
                 <p className="tr-empty" style={{ margin: '0 0 4px', fontSize: 12.5 }}>
@@ -734,6 +751,12 @@ async function addToListFirst(user, input) {
 // Follow-up. Emails the updated invite if that was ticked.
 // Returns { ok, record, notice } or { ok: false, error }.
 export async function saveAppointmentChanges(user, editing, input) {
+  // Someone else's (you're who they report to, or a super admin): just the
+  // time and details, no list or invites of yours.
+  if (editing.userId !== user.id) {
+    const res = await updateTeamAppointment(editing.id, input, editing.status === 'needs_reschedule');
+    return res.ok ? { ok: true, record: res.record, notice: null } : { ok: false, error: res.error };
+  }
   const { form, listNote } = await addToListFirst(user, input);
   const res = await updateAppointment(editing.id, form, editing.status === 'needs_reschedule');
   if (!res.ok) return { ok: false, error: res.error || 'Could not save. Try again.' };

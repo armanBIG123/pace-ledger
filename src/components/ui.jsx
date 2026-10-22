@@ -297,15 +297,30 @@ export function openPicker(e) {
 // Escape closes it) and gives it back to whatever had it when it closes.
 export function Modal({ onClose, children, className = '', labelledBy }) {
   const card = useRef(null);
+  const back = useRef(null);
+  const closeRef = useRef(onClose);
+  closeRef.current = onClose;
   useEffect(() => {
     const before = document.activeElement;
     const el = card.current;
     if (el && !el.contains(document.activeElement)) el.focus({ preventScroll: true });
-    return () => { if (before && before.isConnected && typeof before.focus === 'function') before.focus({ preventScroll: true }); };
+    // Escape closes the top window wherever the focus is (even after a
+    // button that had it went disabled while saving).
+    const onKey = e => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return;
+      const all = document.querySelectorAll('.tr-modal-backdrop');
+      if (all[all.length - 1] !== back.current) return;
+      e.preventDefault();
+      closeRef.current();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      if (before && before.isConnected && typeof before.focus === 'function') before.focus({ preventScroll: true });
+    };
   }, []);
-  function handleKeyDown(e) { if (e.key === 'Escape') onClose(); }
   return (
-    <div className="tr-modal-backdrop" onClick={onClose} onKeyDown={handleKeyDown} tabIndex={-1}>
+    <div ref={back} className="tr-modal-backdrop" onClick={onClose} tabIndex={-1}>
       <div ref={card} className={`tr-modal-card ${className}`} onClick={e => e.stopPropagation()}
         role="dialog" aria-modal="true" aria-labelledby={labelledBy} tabIndex={-1}>{children}</div>
     </div>

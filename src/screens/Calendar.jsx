@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Ban, CalendarDays, ChevronLeft, ChevronRight, GraduationCap, Plus, Trash2, Video, X } from 'lucide-react';
 import { isNativeApp, openInBrowserSheet, PUBLIC_SITE_URL } from '../native.js';
 import { createScheduleBlock, deleteScheduleBlock, deleteScheduleBlockSeries, fetchScheduleBlocksInRange } from '../schedule.js';
-import { addDays, apptEndClock, apptLocalDate, apptLocalTimeKey, buildMonthGrid, detectTimezone, fmtApptDateTime, fmtDate, fmtDisplayDate, fmtTime, monthStartOf, parseDate, shiftMonth, timezoneOptionsWithDetected, todayStr, trainingLocalDate, trainingLocalTimeKey } from '../lib/dates.js';
+import { addDays, addMinutesToTime, apptEndClock, apptLocalDate, apptLocalTimeKey, buildMonthGrid, detectTimezone, durationLabel, fmtApptDateTime, fmtDate, fmtDisplayDate, fmtTime, minutesBetweenTimes, monthStartOf, parseDate, shiftMonth, timezoneOptionsWithDetected, todayStr, trainingEndClock, trainingLocalDate, trainingLocalTimeKey } from '../lib/dates.js';
 import { fetchAppointmentsInRange, isRecruitType, isSaleType, typeLabel } from '../data/appointments.js';
 import { createTraining, deleteTraining, deleteTrainingSeries, fetchTrainingsInRange } from '../data/trainings.js';
 import { fetchTeamMembers, seesTeam } from '../data/team.js';
@@ -21,6 +21,7 @@ export function TrainingPostCard({ user, onPosted }) {
   const [title, setTitle] = useState('');
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
+  const [endTime, setEndTime] = useState('');
   const [timezone, setTimezone] = useState(detectTimezone());
   const [zoomUrl, setZoomUrl] = useState('');
   const [notes, setNotes] = useState('');
@@ -30,17 +31,27 @@ export function TrainingPostCard({ user, onPosted }) {
   const [err, setErr] = useState('');
   const timezoneOptions = timezoneOptionsWithDetected();
 
+  const length = time && endTime ? minutesBetweenTimes(time, endTime) : 0;
+  // The end follows the start, keeping the same length (an hour to begin with).
+  function changeStart(value) {
+    if (value) {
+      const was = time && endTime ? minutesBetweenTimes(time, endTime) : 0;
+      if (endTime || !time) setEndTime(addMinutesToTime(value, was >= 5 && was <= 720 ? was : 60));
+    }
+    setTime(value);
+  }
   async function submit() {
     if (!title.trim() || !date || !time) { setErr('Fill in the title, date, and time.'); return; }
+    if (!endTime || length < 5 || length > 720) { setErr('The end time needs to be after the start time.'); return; }
     if (recurring && (!repeatUntil || repeatUntil < date)) { setErr('Pick a "repeat until" date on or after the first training date.'); return; }
     setSaving(true); setErr('');
     const res = await createTraining({
-      title: title.trim(), date, time, timezone, zoomUrl: zoomUrl.trim(), notes: notes.trim(),
+      title: title.trim(), date, time, durationMinutes: length, timezone, zoomUrl: zoomUrl.trim(), notes: notes.trim(),
       userId: user.id, userName: user.displayName, recurring, repeatUntil: recurring ? repeatUntil : null,
     });
     setSaving(false);
     if (!res.ok) { setErr(res.error || 'Could not post. Try again.'); return; }
-    setTitle(''); setDate(''); setTime(''); setZoomUrl(''); setNotes(''); setRecurring(false); setRepeatUntil('');
+    setTitle(''); setDate(''); setTime(''); setEndTime(''); setZoomUrl(''); setNotes(''); setRecurring(false); setRepeatUntil('');
     setShowForm(false);
     res.records.forEach(onPosted);
   }
@@ -58,14 +69,20 @@ export function TrainingPostCard({ user, onPosted }) {
               <span>Title</span>
               <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. New Product Training" />
             </label>
-            <label className="tr-field">
-              <span>Date</span>
-              <input type="date" value={date} onChange={e => setDate(e.target.value)} onClick={openPicker} />
-            </label>
-            <label className="tr-field">
-              <span>Time</span>
-              <input type="time" value={time} onChange={e => setTime(e.target.value)} onClick={openPicker} />
-            </label>
+            <div className="tr-appt-when">
+              <label className="tr-field tr-appt-when-date">
+                <span>Date</span>
+                <input type="date" value={date} onChange={e => setDate(e.target.value)} onClick={openPicker} />
+              </label>
+              <label className="tr-field">
+                <span>Starts</span>
+                <input type="time" value={time} onChange={e => changeStart(e.target.value)} onClick={openPicker} />
+              </label>
+              <label className="tr-field">
+                <span>Ends{length >= 5 && length <= 720 ? <em className="tr-appt-len">{durationLabel(length)}</em> : null}</span>
+                <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} onClick={openPicker} />
+              </label>
+            </div>
             <label className="tr-field">
               <span>Time zone</span>
               <select value={timezone} onChange={e => setTimezone(e.target.value)}>
@@ -247,7 +264,7 @@ function CalendarItemInfo({ item, user, onClose, onDelete }) {
   const training = item.kind === 'training';
   const canDelete = training ? user.role === 'super_admin' : (user.id === t.user_id || user.role === 'super_admin');
   const when = training
-    ? `${fmtDisplayDate(trainingLocalDate(t))} · ${fmtTime(trainingLocalTimeKey(t))}`
+    ? `${fmtDisplayDate(trainingLocalDate(t))} · ${fmtTime(trainingLocalTimeKey(t))} – ${trainingEndClock(t)}`
     : `${fmtDisplayDate(t.block_date)} · ${fmtTime(t.start_time.slice(0, 5))} – ${fmtTime(t.end_time.slice(0, 5))}`;
   return (
     <Modal onClose={onClose} labelledBy="tr-calinfo-title" className="tr-apptinfo">
@@ -472,6 +489,7 @@ export function CalendarBody({ user, onLogAppointment }) {
                       {item.kind === 'google' && a.allDay ? 'All day' : fmtTime(item.timeKey)}
                       {item.kind === 'appt' ? <span className="tr-time-end">to {apptEndClock(a)}</span> : null}
                       {item.kind === 'block' && a.end_time ? <span className="tr-time-end">to {fmtTime(a.end_time.slice(0, 5))}</span> : null}
+                      {item.kind === 'training' ? <span className="tr-time-end">to {trainingEndClock(a)}</span> : null}
                     </span>
                   );
                   return (
@@ -553,7 +571,7 @@ export function CalendarBody({ user, onLogAppointment }) {
           <div className="tr-notes-list" style={{ maxHeight: '60vh', marginTop: 12 }}>
             {day.trainings.map(t => (
               <div key={t.id} className="tr-note-item tr-note-item-training">
-                <div className="tr-note-meta"><GraduationCap size={12} /> {fmtTime(trainingLocalTimeKey(t))} · Training{t.recurring_group_id ? ' · Weekly' : ''}</div>
+                <div className="tr-note-meta"><GraduationCap size={12} /> {fmtTime(trainingLocalTimeKey(t))} – {trainingEndClock(t)} · Training{t.recurring_group_id ? ' · Weekly' : ''}</div>
                 <div><strong>{t.title}</strong></div>
                 {t.zoom_url && <div><a href={t.zoom_url} target="_blank" rel="noopener noreferrer" className="tr-note tr-link">Join Zoom</a></div>}
                 {t.notes && <div className="tr-note">{t.notes}</div>}
