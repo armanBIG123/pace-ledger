@@ -9,6 +9,7 @@ import { loadPromotionReadiness } from '../../data/team.js';
 import { fetchUpcomingAppointments, setAppointmentTrainee } from '../../data/recruits.js';
 import { EmailButton } from '../../components/email.jsx';
 import { MoreMenu, RefreshButton, SkeletonTable, TitleInfo, TypeBadge } from '../../components/ui.jsx';
+import { openAppointment } from '../../components/appointmentPanel.jsx';
 
 const SEATS_SHOWN = 8;
 const first = name => (name || '').trim().split(/\s+/)[0] || 'there';
@@ -117,7 +118,7 @@ export function FieldTrainingSubView({ user, members, loadingMembers, emptyMessa
               return (
                 <li key={appt.id} className="tr-ft-row">
                   <div className="tr-ft-main">
-                    <strong>{fmtApptDateTime(appt)}</strong> <TypeBadge appt={appt} />{appt.isFollowUp ? <span className="tr-presenting-chip">Follow-up</span> : null}
+                    <button type="button" className="tr-appt-client-btn" onClick={() => openAppointment(appt)}><strong>{fmtApptDateTime(appt)}</strong></button> <TypeBadge appt={appt} />{appt.isFollowUp ? <span className="tr-presenting-chip">Follow-up</span> : null}
                     <div className="tr-rec-sub">{appt.presenter || nameOf(appt.presenterId)} presenting · {appt.client}{appt.userId !== appt.presenterId ? ` · set by ${nameOf(appt.userId)}` : ''}</div>
                   </div>
                   <div className="tr-ft-assign">
@@ -150,7 +151,7 @@ export function FieldTrainingSubView({ user, members, loadingMembers, emptyMessa
                 <li key={a.id} className="tr-ft-row">
                   <div className="tr-ft-main">
                     <strong>{t.display_name}</strong> sits in with {presenter}
-                    <div className="tr-rec-sub">{fmtApptDateTime(a)} · {a.client}</div>
+                    <div className="tr-rec-sub"><button type="button" className="tr-appt-client-btn tr-appt-sub-btn" onClick={() => openAppointment(a)}>{fmtApptDateTime(a)} · {a.client}</button></div>
                   </div>
                   <div className="tr-ft-assign">
                     {t.email ? <EmailButton to={t.email} name={t.display_name} subject={`Field training ${fmtApptDateTime(a)}`}
