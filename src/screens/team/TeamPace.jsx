@@ -11,6 +11,7 @@ import { addCoachingNote, approvePromotion, fetchCoachingNotes, fetchDirectManag
 import { AGENCY_EMAIL, approvePromotionRequest, fetchPromotionRequests, resendPromotionEmail, sendBackPromotion, submitErrorText, submitPromotion } from '../../data/promotions.js';
 import { MemberSubline, MiniBar, RefreshButton, SkelBlock, SkeletonTable, StatusBadge, StatusChip, TitleInfo, TypeBadge, TypeFilter, WeekNav } from '../../components/ui.jsx';
 import { RequirementRow } from '../Milestones.jsx';
+import { openAppointment } from '../../components/appointmentPanel.jsx';
 import { RecruitsSubView } from './Recruits.jsx';
 import { FieldTrainingSubView } from './FieldTraining.jsx';
 
@@ -159,7 +160,7 @@ export function TeamWeekDetail({ groups, counts, filter, personId, nameOf }) {
                   <li key={a.id} className="tr-weekdetail-row">
                     <span className="tr-weekdetail-when">{fmtApptDateTime(a)}</span>
                     <span className="tr-weekdetail-client">
-                      <strong>{a.client}</strong> <TypeBadge appt={a} />
+                      <button type="button" className="tr-appt-client-btn" onClick={() => openAppointment(a)}><strong>{a.client}</strong></button> <TypeBadge appt={a} />
                       <span className="tr-weekdetail-meta">
                         {isPresentingFor(a, personId)
                           ? <><span className="tr-presenting-chip">Presenting</span> set by {(nameOf && nameOf(a.userId)) || 'someone on the team'}</>

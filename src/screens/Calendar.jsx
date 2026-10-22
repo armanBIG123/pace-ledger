@@ -1,6 +1,6 @@
 // Calendar: month and list views, trainings and manager availability.
 import { useCallback, useEffect, useState } from 'react';
-import { Ban, CalendarDays, ChevronLeft, ChevronRight, GraduationCap, Plus, Trash2 } from 'lucide-react';
+import { Ban, CalendarDays, ChevronLeft, ChevronRight, GraduationCap, Plus, Trash2, Video, X } from 'lucide-react';
 import { isNativeApp, openInBrowserSheet, PUBLIC_SITE_URL } from '../native.js';
 import { createScheduleBlock, deleteScheduleBlock, deleteScheduleBlockSeries, fetchScheduleBlocksInRange } from '../schedule.js';
 import { addDays, apptEndClock, apptLocalDate, apptLocalTimeKey, buildMonthGrid, detectTimezone, fmtApptDateTime, fmtDate, fmtDisplayDate, fmtTime, monthStartOf, parseDate, shiftMonth, timezoneOptionsWithDetected, todayStr, trainingLocalDate, trainingLocalTimeKey } from '../lib/dates.js';
@@ -196,9 +196,10 @@ export function calendarItems(appts, googleEvents, trainings, scheduleBlocks) {
   ].sort((a, b) => a.timeKey.localeCompare(b.timeKey));
 }
 
-// canOpen: an appointment opens straight from the grid (on a computer; on
-// a phone they're dots, and a tap opens the day).
-export function CalendarDay({ cell, appts, googleEvents, trainings, scheduleBlocks, highlightTrainings, onOpen, canOpen = false }) {
+// canOpen: an appointment, training or blocked-out time opens straight
+// from the grid, and a Google event opens in Google Calendar (on a
+// computer; on a phone they're dots, and a tap opens the day).
+export function CalendarDay({ cell, appts, googleEvents, trainings, scheduleBlocks, highlightTrainings, onOpen, onOpenItem, canOpen = false }) {
   const isToday = cell.date === todayStr();
   const items = calendarItems(appts, googleEvents, trainings, scheduleBlocks);
   const visible = items.slice(0, 3);
@@ -220,22 +221,65 @@ export function CalendarDay({ cell, appts, googleEvents, trainings, scheduleBloc
           ) : (
             <div key={item.data.id} className={cls}>{fmtTime(item.timeKey)} {item.data.client}</div>
           );
-        })() : item.kind === 'training' ? (
-          <div key={item.data.id} className="tr-cal-appt tr-cal-appt-training">
-            <GraduationCap size={9} /> {fmtTime(item.timeKey)} {item.data.title}
-          </div>
-        ) : item.kind === 'block' ? (
-          <div key={item.data.id} className="tr-cal-appt tr-cal-appt-unavailable">
-            <Ban size={9} /> {fmtTime(item.timeKey)} {item.data.user_name || 'Unavailable'}
-          </div>
-        ) : (
-          <div key={item.data.id} className="tr-cal-appt tr-cal-appt-google">
-            {item.data.allDay ? item.data.title : `${fmtTime(item.timeKey)} ${item.data.title}`}
-          </div>
-        ))}
+        })() : item.kind === 'training' || item.kind === 'block' ? (() => {
+          const cls = `tr-cal-appt ${item.kind === 'training' ? 'tr-cal-appt-training' : 'tr-cal-appt-unavailable'}`;
+          const inner = item.kind === 'training'
+            ? <><GraduationCap size={9} /> {fmtTime(item.timeKey)} {item.data.title}</>
+            : <><Ban size={9} /> {fmtTime(item.timeKey)} {item.data.user_name || 'Unavailable'}</>;
+          return canOpen && onOpenItem
+            ? <button key={item.data.id} type="button" className={`${cls} tr-cal-appt-btn`} onClick={e => { e.stopPropagation(); onOpenItem(item); }}>{inner}</button>
+            : <div key={item.data.id} className={cls}>{inner}</div>;
+        })() : (() => {
+          const label = item.data.allDay ? item.data.title : `${fmtTime(item.timeKey)} ${item.data.title}`;
+          return canOpen && item.data.htmlLink
+            ? <a key={item.data.id} className="tr-cal-appt tr-cal-appt-google tr-cal-appt-btn" href={item.data.htmlLink} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} title="Open in Google Calendar">{label}</a>
+            : <div key={item.data.id} className="tr-cal-appt tr-cal-appt-google">{label}</div>;
+        })())}
         {extra > 0 && <div className="tr-cal-more">+{extra} more</div>}
       </div>
     </div>
+  );
+}
+
+// A training or a blocked-out time, opened from the list or the month grid.
+function CalendarItemInfo({ item, user, onClose, onDelete }) {
+  const t = item.data;
+  const training = item.kind === 'training';
+  const canDelete = training ? user.role === 'super_admin' : (user.id === t.user_id || user.role === 'super_admin');
+  const when = training
+    ? `${fmtDisplayDate(trainingLocalDate(t))} · ${fmtTime(trainingLocalTimeKey(t))}`
+    : `${fmtDisplayDate(t.block_date)} · ${fmtTime(t.start_time.slice(0, 5))} – ${fmtTime(t.end_time.slice(0, 5))}`;
+  return (
+    <Modal onClose={onClose} labelledBy="tr-calinfo-title" className="tr-apptinfo">
+      <div className="tr-modal-head">
+        <div className="tr-apptinfo-top">
+          <h3 className="tr-h3" id="tr-calinfo-title">{training ? t.title : `${t.user_name || 'Someone'} unavailable`}</h3>
+          <div className="tr-apptinfo-tags">
+            <span className={`tr-calinfo-tag ${training ? 'tr-calinfo-training' : 'tr-calinfo-block'}`}>
+              {training ? <GraduationCap size={12} aria-hidden="true" /> : <Ban size={12} aria-hidden="true" />} {training ? 'Training' : 'Blocked out'}
+            </span>
+            {t.recurring_group_id ? <span className="tr-presenting-chip">Weekly</span> : null}
+          </div>
+        </div>
+        <button type="button" className="tr-icon-btn" onClick={onClose} aria-label="Close"><X size={18} /></button>
+      </div>
+      <p className="tr-apptinfo-when">{when}</p>
+      <dl className="tr-apptinfo-list">
+        {training ? <div><dt>Posted by</dt><dd>{t.created_by_name || '—'}</dd></div> : null}
+        {training && t.notes ? <div><dt>Notes</dt><dd>{t.notes}</dd></div> : null}
+        {/* Blocks of the people above you come without the reason at all. */}
+        {!training ? <div><dt>Reason</dt><dd>{'label' in t ? (t.label || 'None given') : 'Only they and the people above them see why.'}</dd></div> : null}
+      </dl>
+      {training && t.zoom_url ? (
+        <div className="tr-apptinfo-acts">
+          <a className="tr-btn tr-btn-brass tr-btn-sm" href={t.zoom_url} target="_blank" rel="noopener noreferrer"><Video size={14} aria-hidden="true" /> Join Zoom</a>
+        </div>
+      ) : null}
+      <div className="tr-form-actions">
+        {canDelete ? <button type="button" className="tr-btn tr-btn-ghost tr-appt-delete" onClick={onDelete}><Trash2 size={15} aria-hidden="true" /> {training ? 'Remove training' : 'Remove'}</button> : null}
+        <button type="button" className="tr-btn tr-btn-ghost" onClick={onClose}>Close</button>
+      </div>
+    </Modal>
   );
 }
 
@@ -247,7 +291,11 @@ export function CalendarBody({ user, onLogAppointment }) {
   const [appts, setAppts] = useState([]);
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
+  // The day window: { date }. What's in it comes from the lists below, so a
+  // delete or an edit shows right away.
   const [dayModal, setDayModal] = useState(null);
+  // A training or blocked-out time opened on its own: { kind, data }.
+  const [infoItem, setInfoItem] = useState(null);
   const [googleStatus, setGoogleStatus] = useState({ connected: false });
   const [googleEvents, setGoogleEvents] = useState([]);
   const [googleConnecting, setGoogleConnecting] = useState(false);
@@ -321,12 +369,13 @@ export function CalendarBody({ user, onLogAppointment }) {
       if (deleteAll) {
         const ok = await deleteTrainingSeries(training.recurring_group_id, training.training_date);
         if (ok) setTrainings(prev => prev.filter(t => !(t.recurring_group_id === training.recurring_group_id && t.training_date >= training.training_date)));
-        return;
+        return ok;
       }
     }
-    if (!window.confirm('Remove this training for everyone? This can\'t be undone.')) return;
+    if (!window.confirm('Remove this training for everyone? This can\'t be undone.')) return false;
     const ok = await deleteTraining(training.id);
     if (ok) setTrainings(prev => prev.filter(t => t.id !== training.id));
+    return ok;
   }
   async function handleDeleteScheduleBlock(block) {
     if (block.recurring_group_id) {
@@ -336,12 +385,13 @@ export function CalendarBody({ user, onLogAppointment }) {
       if (deleteAll) {
         const ok = await deleteScheduleBlockSeries(block.recurring_group_id, block.block_date);
         if (ok) setScheduleBlocks(prev => prev.filter(b => !(b.recurring_group_id === block.recurring_group_id && b.block_date >= block.block_date)));
-        return;
+        return ok;
       }
     }
-    if (!window.confirm('Remove this blocked time?')) return;
+    if (!window.confirm('Remove this blocked time?')) return false;
     const ok = await deleteScheduleBlock(block.id);
     if (ok) setScheduleBlocks(prev => prev.filter(b => b.id !== block.id));
+    return ok;
   }
 
   function apptsForDay(dateStr) {
@@ -412,7 +462,7 @@ export function CalendarBody({ user, onLogAppointment }) {
           <div className="tr-card tr-agenda">
             {days.length === 0 ? <p className="tr-empty" style={{ margin: 0 }}>Nothing on the calendar {fromDate === today ? 'for the rest of this month' : 'this month'}.</p> : days.map(d => (
               <div key={d.date} className={`tr-agenda-day ${d.date === today ? 'tr-agenda-today' : ''}`}>
-                <button type="button" className="tr-agenda-date" onClick={() => setDayModal({ date: d.date, appts: d.dayAppts, googleEvents: d.dayGoogle, trainings: d.dayTrainings, blocks: d.dayBlocks })}>
+                <button type="button" className="tr-agenda-date" onClick={() => setDayModal({ date: d.date })}>
                   {d.date === today ? 'Today' : fmtDisplayDate(d.date)}
                 </button>
                 {d.items.map(item => {
@@ -434,15 +484,25 @@ export function CalendarBody({ user, onLogAppointment }) {
                             <strong>{a.client}</strong>{typeLabel(a) ? ` · ${typeLabel(a)}` : ''}{ownerName(a.userId) && a.userId !== user.id ? ` · ${ownerName(a.userId)}` : ''}
                           </span>
                         </button>
+                      ) : item.kind === 'google' ? (
+                        // Google events open in Google Calendar.
+                        a.htmlLink ? (
+                          <a className="tr-agenda-open" href={a.htmlLink} target="_blank" rel="noopener noreferrer" title="Open in Google Calendar">
+                            {time}
+                            <span className="tr-agenda-what">{a.title} <span className="tr-empty">· Google</span></span>
+                          </a>
+                        ) : (
+                          <>{time}<span className="tr-agenda-what">{a.title} <span className="tr-empty">· Google</span></span></>
+                        )
                       ) : (
-                        <>
+                        // Trainings and blocked-out times open their details.
+                        <button type="button" className="tr-agenda-open" onClick={() => setInfoItem({ kind: item.kind, data: a })}>
                           {time}
                           <span className="tr-agenda-what">
                             {item.kind === 'training' && <><GraduationCap size={12} /> <strong>{a.title}</strong> · Training</>}
                             {item.kind === 'block' && <><Ban size={12} /> {a.user_name || 'Someone'} unavailable{a.label ? ` — ${a.label}` : ''}</>}
-                            {item.kind === 'google' && <>{a.title} <span className="tr-empty">· Google</span></>}
                           </span>
-                        </>
+                        </button>
                       )}
                       {(a.zoomUrl || a.zoom_url) && <a className="tr-btn tr-btn-ghost tr-btn-sm" href={a.zoomUrl || a.zoom_url} target="_blank" rel="noopener noreferrer">Join Zoom</a>}
                     </div>
@@ -462,7 +522,7 @@ export function CalendarBody({ user, onLogAppointment }) {
                 scheduleBlocks={scheduleBlocksForDay(cell.date)}
                 highlightTrainings={highlightTrainings}
                 canOpen={!isPhone}
-                onOpen={(date, dayAppts, dayGoogle, dayTrainings, dayBlocks) => setDayModal({ date, appts: dayAppts, googleEvents: dayGoogle, trainings: dayTrainings, blocks: dayBlocks })} />
+                onOpen={date => setDayModal({ date })} onOpenItem={setInfoItem} />
             ))}
           </div>
         </div>
@@ -475,7 +535,9 @@ export function CalendarBody({ user, onLogAppointment }) {
         {googleStatus.connected && <span><i className="tr-lg tr-lg-google" /> Google</span>}
         <span className="tr-cal-legend-hint">Click an appointment to open it, or a day to see everything on it{onLogAppointment ? ' or book an appointment' : ''}.</span>
       </div>
-      {dayModal && (
+      {dayModal && (() => {
+        const day = { appts: apptsForDay(dayModal.date), googleEvents: googleForDay(dayModal.date), trainings: trainingsForDay(dayModal.date), blocks: scheduleBlocksForDay(dayModal.date) };
+        return (
         <Modal onClose={() => setDayModal(null)}>
           <div className="tr-row-head">
             <h3 className="tr-h3" style={{ margin: 0 }}>{fmtDisplayDate(dayModal.date)}</h3>
@@ -485,11 +547,11 @@ export function CalendarBody({ user, onLogAppointment }) {
               </button>
             )}
           </div>
-          {dayModal.appts.length + dayModal.trainings.length + dayModal.blocks.length + dayModal.googleEvents.length === 0 && (
+          {day.appts.length + day.trainings.length + day.blocks.length + day.googleEvents.length === 0 && (
             <p className="tr-empty">Nothing scheduled.</p>
           )}
           <div className="tr-notes-list" style={{ maxHeight: '60vh', marginTop: 12 }}>
-            {dayModal.trainings.map(t => (
+            {day.trainings.map(t => (
               <div key={t.id} className="tr-note-item tr-note-item-training">
                 <div className="tr-note-meta"><GraduationCap size={12} /> {fmtTime(trainingLocalTimeKey(t))} · Training{t.recurring_group_id ? ' · Weekly' : ''}</div>
                 <div><strong>{t.title}</strong></div>
@@ -501,7 +563,7 @@ export function CalendarBody({ user, onLogAppointment }) {
                 )}
               </div>
             ))}
-            {dayModal.blocks.map(b => (
+            {day.blocks.map(b => (
               <div key={b.id} className="tr-note-item tr-note-item-unavailable">
                 <div className="tr-note-meta"><Ban size={12} /> {fmtTime(b.start_time.slice(0, 5))}–{fmtTime(b.end_time.slice(0, 5))} · Unavailable{b.recurring_group_id ? ' · Weekly' : ''}</div>
                 <div><strong>{b.user_name || 'Someone'}</strong>{b.label ? ` — ${b.label}` : ''}</div>
@@ -510,7 +572,7 @@ export function CalendarBody({ user, onLogAppointment }) {
                 )}
               </div>
             ))}
-            {dayModal.appts.map(a => (
+            {day.appts.map(a => (
               <div key={a.id} className="tr-note-item tr-note-item-appt">
                 <button type="button" className="tr-note-open" onClick={() => openAppt(a)}>
                   <span className="tr-note-meta">
@@ -526,14 +588,23 @@ export function CalendarBody({ user, onLogAppointment }) {
                 {a.zoomUrl && <div><a href={a.zoomUrl} target="_blank" rel="noopener noreferrer" className="tr-note tr-link">Join Zoom</a></div>}
               </div>
             ))}
-            {dayModal.googleEvents.map(e => (
+            {day.googleEvents.map(e => (
               <div key={e.id} className="tr-note-item tr-note-item-google">
                 <div className="tr-note-meta">{e.allDay ? 'All day' : fmtTime(googleEventTimeKey(e))} · Google Calendar</div>
                 <div><strong>{e.title}</strong></div>
+                {e.htmlLink ? <div><a href={e.htmlLink} target="_blank" rel="noopener noreferrer" className="tr-note tr-link">Open in Google Calendar</a></div> : null}
               </div>
             ))}
           </div>
         </Modal>
+        );
+      })()}
+      {infoItem && (
+        <CalendarItemInfo item={infoItem} user={user} onClose={() => setInfoItem(null)}
+          onDelete={async () => {
+            const ok = infoItem.kind === 'training' ? await handleDeleteTraining(infoItem.data) : await handleDeleteScheduleBlock(infoItem.data);
+            if (ok) setInfoItem(null);
+          }} />
       )}
     </>
   );

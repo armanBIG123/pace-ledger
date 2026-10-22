@@ -621,13 +621,15 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
   appointments.filter(x => x.status === 'needs_reschedule').forEach(x => later.push({
     key: `rs-${x.id}`, Icon: CalendarDays, tone: 'violet',
     title: <>Reschedule <strong>{x.client}</strong></>, meta: `Was ${fmtApptDateTime(x)}`,
-    action: { label: 'Open', run: () => onNavigate('followup', 'reschedule') },
+    // Opens it ready to pick the new time.
+    action: { label: 'Reschedule', run: () => openAppointment(x) },
   }));
   appointments.filter(x => x.status === 'needs_follow_up' && isPastAppointment(x)).forEach(x => later.push({
     key: `fu-${x.id}`, Icon: ClipboardCheck, tone: 'amber',
     title: <>Follow up with <strong>{x.client}</strong></>,
     meta: x.followUpAppointmentDate ? `Next meeting ${fmtDisplayDate(x.followUpAppointmentDate)}` : `Met ${fmtDisplayDate(x.appointmentDate)}`,
-    action: { label: 'Open', run: () => onNavigate('followup', 'needs') },
+    // Opens its card on Follow-up (notes, next meeting, intake).
+    action: { label: 'Open', run: () => onNavigate('followup', { view: 'needs', open: x.id }) },
   }));
   const staleCount = prospects.filter(x => isStaleProspect(x, booked)).length;
   if (staleCount) later.push({

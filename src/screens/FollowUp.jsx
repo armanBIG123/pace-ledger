@@ -1,5 +1,5 @@
 // Follow Up: past appointments, notes, next steps, intake forms and recruit sign-up.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CheckCheck, ChevronDown, ChevronUp, Pencil, Plus, Presentation, Search, Trash2, X } from 'lucide-react';
 import { supabase } from '../supabaseClient.js';
 import { createClientIntakeCandidate, deleteClientIntakeCandidate, fetchClientIntakeCandidates } from '../clientIntake.js';
@@ -30,7 +30,10 @@ const ALL_VIEWS = ['all', 'nolog', 'presented', 'needs', 'reschedule', 'complete
 // the last 30 days. You can log how they went; the advisor's own log stands.
 export const PRESENTED_DAYS = 30;
 
-const intentView = i => (i === 'intake' ? 'nointake' : i);
+// A request can name a list ('needs'), or a list and one card to open:
+// { view: 'needs', open: appointmentId } (Today's "Follow up with …").
+const intentView = i => (i && typeof i === 'object' ? intentView(i.view) : i === 'intake' ? 'nointake' : i);
+const intentOpen = i => (i && typeof i === 'object' ? i.open || null : null);
 
 // views: which of the lists above this screen offers (Pipeline shows "Log
 // outcome" and "Follow-up" as two stages, each with its own lists); the
@@ -44,7 +47,7 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
   const [searchQuery, setSearchQuery] = useState('');
   const [flash, setFlash] = useState('');
   useEffect(() => { if (!flash) return undefined; const t = setTimeout(() => setFlash(''), 6000); return () => clearTimeout(t); }, [flash]);
-  const [expandedId, setExpandedId] = useState(null);
+  const [expandedId, setExpandedId] = useState(() => intentOpen(initialIntent));
   const [noteDrafts, setNoteDrafts] = useState({});
   const [modalTarget, setModalTarget] = useState(null);
   const [modalSaving, setModalSaving] = useState(false);
@@ -56,8 +59,20 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
   useEffect(() => { if (initialIntent) onIntentConsumed?.(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Requests that arrive while this tab is already open (+ New → Log how it went).
   useEffect(() => {
-    if (initialIntent && views.includes(intentView(initialIntent))) { setView(intentView(initialIntent)); onIntentConsumed?.(); }
+    if (initialIntent && views.includes(intentView(initialIntent))) {
+      setView(intentView(initialIntent));
+      if (intentOpen(initialIntent)) setExpandedId(intentOpen(initialIntent));
+      onIntentConsumed?.();
+    }
   }, [initialIntent]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The card asked for is open: bring it into view once the list is there.
+  const scrolledTo = useRef(null);
+  useEffect(() => {
+    if (loading || !expandedId || scrolledTo.current === expandedId) return;
+    scrolledTo.current = expandedId;
+    const el = document.querySelector(`[data-fu-card="${expandedId}"]`);
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start', behavior: 'smooth' });
+  }, [loading, expandedId]);
   useEffect(() => {
     let alive = true;
     Promise.all([
@@ -272,7 +287,7 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
           const istate = intakeState(a);
           const apptNotes = notesByAppt[a.id] || [];
           return (
-            <div className="tr-card tr-fu-card" key={a.id}>
+            <div className="tr-card tr-fu-card" key={a.id} data-fu-card={a.id}>
               <div
                 role="button" tabIndex={0} className="tr-fu-head" aria-expanded={open}
                 onClick={() => setExpandedId(open ? null : a.id)}

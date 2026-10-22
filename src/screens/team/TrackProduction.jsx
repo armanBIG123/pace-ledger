@@ -8,6 +8,7 @@ import { fetchAppointmentsHeldInWeek, isPolicyIssued } from '../../data/appointm
 import { fetchTeamMembers } from '../../data/team.js';
 import { RefreshButton, SkeletonTable, TitleInfo, WeekNav } from '../../components/ui.jsx';
 import { PendingIssueView } from './PendingIssue.jsx';
+import { openAppointment } from '../../components/appointmentPanel.jsx';
 
 const byTime = list => list.slice().sort((a, b) => apptStartMs(a) - apptStartMs(b));
 const withWhom = a => (a.presenter && a.presenterId !== a.userId ? ` · with ${a.presenter}` : '');
@@ -23,7 +24,7 @@ function ProductionDetail({ sold, recruited, premium }) {
           <ul className="tr-prod-list">
             {byTime(sold).map(a => (
               <li key={a.id}>
-                <div className="tr-prod-line"><strong>{a.client}</strong><span className="tr-mono">{Number(a.targetPremium) > 0 ? fmtCurrency(Number(a.targetPremium)) : 'No premium entered'}</span></div>
+                <div className="tr-prod-line"><button type="button" className="tr-appt-client-btn" onClick={() => openAppointment(a)}><strong>{a.client}</strong></button><span className="tr-mono">{Number(a.targetPremium) > 0 ? fmtCurrency(Number(a.targetPremium)) : 'No premium entered'}</span></div>
                 <div className="tr-prod-sub">{fmtApptDateTime(a)}{withWhom(a)} · {isPolicyIssued(a) ? 'issued' : 'not issued yet'}</div>
               </li>
             ))}
@@ -36,7 +37,7 @@ function ProductionDetail({ sold, recruited, premium }) {
           <ul className="tr-prod-list">
             {byTime(recruited).map(a => (
               <li key={a.id}>
-                <div className="tr-prod-line"><strong>{a.client}</strong></div>
+                <div className="tr-prod-line"><button type="button" className="tr-appt-client-btn" onClick={() => openAppointment(a)}><strong>{a.client}</strong></button></div>
                 <div className="tr-prod-sub">{fmtApptDateTime(a)}{withWhom(a)}</div>
               </li>
             ))}

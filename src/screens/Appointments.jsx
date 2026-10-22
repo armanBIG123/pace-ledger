@@ -17,6 +17,7 @@ import { MyCoachingNotes, PaceStrip, PaceTrend, PersonalBests } from '../compone
 import { ZoomConnect } from '../components/integrations.jsx';
 import { FollowUpModal } from '../components/followUpModal.jsx';
 import { appointmentTexts, CallButton, TextButton } from '../components/contact.jsx';
+import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../components/appointmentPanel.jsx';
 import { isValidPhone } from '../lib/phone.js';
 
 export function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty, hideSet, me = '' }) {
@@ -39,7 +40,7 @@ export function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty, hi
                     {!hideSet && <td className={`td-set ${typeClass}`}>{a.dateSetLabel}</td>}
                     <td className={`td-when ${hideSet ? typeClass : ''}`}>{fmtApptDateTime(a)}</td>
                     <td className="td-client">
-                      <strong className="tr-appt-client">{a.client}</strong>
+                      <button type="button" className="tr-appt-client-btn" onClick={() => openAppointment(a)}><strong className="tr-appt-client">{a.client}</strong></button>
                       <TypeBadge appt={a} />
                       {a.status ? <span style={{ marginLeft: 6 }}><StatusChip status={a.status} /></span> : null}
                       {a.zoomUrl || a.clientPhone ? (
@@ -126,9 +127,9 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
   const [checking, setChecking] = useState(false);
   const [zoomManagers, setZoomManagers] = useState([]);
   const [myProspects, setMyProspects] = useState([]);  // everyone on your list
-  // Client email, date set, time zone, trainee, notes and invites fold away
-  // (open when editing, since that's often why you're here).
-  const [showMore, setShowMore] = useState(!!editing);
+  // Client email, date set, time zone, trainee, notes and invites fold away,
+  // so the form stays short (they open by themselves if one needs fixing).
+  const [showMore, setShowMore] = useState(false);
   const timezoneOptions = timezoneOptionsWithDetected();
 
   useEffect(() => {
@@ -758,7 +759,6 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
   const [loading, setLoading] = useState(true);
   const [weekMonday, setWeekMonday] = useState(weekStartOf(todayStr()));
   const [showForm, setShowForm] = useState(false);
-  const [editingAppt, setEditingAppt] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [followUpTarget, setFollowUpTarget] = useState(null);
@@ -783,7 +783,6 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
     if (prefillData) {
       fromElsewhere.current = !!cameFrom;
       setStatusView(null);
-      setEditingAppt(null);
       setPendingPrefillData(prefillData);
       setShowForm(true);
       onPrefillConsumed();
@@ -797,7 +796,6 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
     if (typeof initialIntent === 'object' && initialIntent.search) {
       setStatusView(null);
       setShowForm(false);
-      setEditingAppt(null);
       setSearchQuery(initialIntent.search);
     }
     if (onIntentConsumed) onIntentConsumed();
@@ -897,104 +895,99 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
     .filter(a => (a.status || '') === statusView)
     .sort((a, b) => (b.appointmentDate + b.appointmentTime).localeCompare(a.appointmentDate + a.appointmentTime));
 
-  function closeForm() { setShowForm(false); setEditingAppt(null); setPendingPrefillData(null); fromElsewhere.current = false; }
+  function closeForm() { setShowForm(false); setPendingPrefillData(null); fromElsewhere.current = false; }
   // Cancel on a form you opened from another screen takes you back there.
   function cancelForm() { const back = fromElsewhere.current; closeForm(); if (back && onReturn) onReturn(); }
-  function openEdit(appt) { fromElsewhere.current = false; setEditingAppt(appt); setShowForm(true); }
+  // Editing opens the same window as on Calendar and Today, right where you
+  // are (the form at the top of the page could be far off-screen).
+  function openEdit(appt) { openAppointment(appt); }
   function openNewForm() { fromElsewhere.current = false; setShowForm(true); }
+  useAppointmentEdits(change => {
+    if (change.reload) refresh();
+    else setAppointments(prev => applyAppointmentEdit(prev, change));
+  });
 
   async function handleFormSubmit(input) {
     setSaving(true);
     setError('');
-    if (editingAppt) {
-      // Stays in "Saving…" until any updated invite is out, so a second
-      // click can't send it twice.
-      const res = await saveAppointmentChanges(user, editingAppt, input);
-      setSaving(false);
-      if (!res.ok) { setError(res.error); return; }
-      setAppointments(prev => prev.map(a => a.id === editingAppt.id ? res.record : a));
-      if (res.notice) setNotice(res.notice);
-      closeForm();
-    } else {
-      const { form, listNote } = await addToListFirst(user, input);
-      const res = await insertAppointment(user.id, { ...form, weekOf: weekMonday });
-      if (!res.ok) { setSaving(false); setError(res.error || 'Could not save. Try again.'); return; }
-      let record = res.record;
-      // Create a real meeting if either the current user has Zoom connected,
-      // or they picked a specific presenting manager's Zoom to use instead.
-      if (zoomStatus.connected || form.zoomHostId) {
-        const zoomRes = await createZoomMeeting({
-          topic: `Meeting with ${form.client}`,
-          startTime: `${form.appointmentDate}T${form.appointmentTime}:00`,
-          durationMinutes: record.durationMinutes,
-          timezone: form.timezone,
-          hostUserId: form.zoomHostId,
-        });
-        if (zoomRes.connected && zoomRes.joinUrl) {
-          const ok = await updateAppointmentZoomUrl(record.id, zoomRes.joinUrl);
-          if (ok) record = { ...record, zoomUrl: zoomRes.joinUrl };
-        } else if (zoomRes.error === 'reconnect_required' && !form.zoomHostId) {
-          // Only clear my own connection status — a failure on a presenting
-          // manager's account isn't something I need to reconnect.
-          setZoomStatus({ connected: false });
-        }
-      }
-      // Best-effort push to Google Calendar — the advisor's own, and the
-      // presenting manager's too if their Zoom was used. Never blocks the
-      // appointment from being saved even if this fails entirely (e.g.
-      // neither side has reconnected to grant the newer write scope yet).
-      const inviteEmails = form.inviteEmails || [];
-      const google = await pushAppointmentToGoogleCalendar({
-        title: `Meeting with ${form.client}`,
-        description: record.zoomUrl ? `Join Zoom: ${record.zoomUrl}` : undefined,
-        location: record.zoomUrl || undefined,
-        attendees: inviteEmails,
-        startDateTime: `${form.appointmentDate}T${form.appointmentTime}:00`,
-        endDateTime: addMinutesToDateTime(form.appointmentDate, form.appointmentTime, record.durationMinutes),
+    const { form, listNote } = await addToListFirst(user, input);
+    const res = await insertAppointment(user.id, { ...form, weekOf: weekMonday });
+    if (!res.ok) { setSaving(false); setError(res.error || 'Could not save. Try again.'); return; }
+    let record = res.record;
+    // Create a real meeting if either the current user has Zoom connected,
+    // or they picked a specific presenting manager's Zoom to use instead.
+    if (zoomStatus.connected || form.zoomHostId) {
+      const zoomRes = await createZoomMeeting({
+        topic: `Meeting with ${form.client}`,
+        startTime: `${form.appointmentDate}T${form.appointmentTime}:00`,
+        durationMinutes: record.durationMinutes,
         timezone: form.timezone,
-        managerHostId: form.zoomHostId,
+        hostUserId: form.zoomHostId,
       });
-      // Invites: Google Calendar emails everyone it can when it's connected.
-      // Google never emails the calendar's owner (usually the advisor's own
-      // "Me" address), so PaceLedger emails whoever Google didn't — or
-      // everyone, when Google Calendar isn't connected.
-      if (inviteEmails.length) {
-        const norm = e => String(e).trim().toLowerCase();
-        const byGoogle = google.ownPushed && Array.isArray(google.invited) ? google.invited.map(norm) : [];
-        const byEmail = inviteEmails.filter(e => !byGoogle.includes(norm(e)));
-        let emailed = [];
-        let emailError = null;
-        // Email first: send-appointment-invite refuses a second send within
-        // a minute of invite_sent_at, which markInviteSent sets.
-        if (byEmail.length) {
-          const r = await sendAppointmentInviteEmail(record.id, byEmail);
-          if (r.sent) emailed = r.recipients || byEmail;
-          else emailError = r.error;
-        }
-        const reached = [...byGoogle, ...emailed];
-        if (reached.length) {
-          const method = byGoogle.length ? 'google' : 'email';
-          if (byGoogle.length) await markInviteSent(record.id, reached, method);
-          record = { ...record, inviteeEmails: reached, inviteMethod: method, inviteSentAt: new Date().toISOString() };
-        }
-        const zoomBit = record.zoomUrl ? ' with the Zoom link' : '';
-        const parts = [];
-        if (byGoogle.length) parts.push(`Google Calendar invite sent to ${byGoogle.join(', ')}`);
-        if (emailed.length) parts.push(`invite emailed to ${emailed.join(', ')}`);
-        if (emailError) {
-          const missed = byEmail.filter(e => !emailed.map(norm).includes(norm(e)));
-          const failText = inviteFailureMessage(emailError);
-          setNotice({ kind: 'warn', text: parts.length ? `${parts.join('; ')}${zoomBit}. Not sent to ${missed.join(', ')}: ${failText}` : failText });
-        } else if (parts.length) {
-          const text = parts.join('; ');
-          setNotice({ kind: 'ok', text: `${text.charAt(0).toUpperCase()}${text.slice(1)}${zoomBit}.` });
-        }
+      if (zoomRes.connected && zoomRes.joinUrl) {
+        const ok = await updateAppointmentZoomUrl(record.id, zoomRes.joinUrl);
+        if (ok) record = { ...record, zoomUrl: zoomRes.joinUrl };
+      } else if (zoomRes.error === 'reconnect_required' && !form.zoomHostId) {
+        // Only clear my own connection status — a failure on a presenting
+        // manager's account isn't something I need to reconnect.
+        setZoomStatus({ connected: false });
       }
-      setSaving(false);
-      setAppointments(prev => [...prev, record]);
-      if (listNote) setNotice({ kind: 'warn', text: listNote });
-      closeForm();
     }
+    // Best-effort push to Google Calendar — the advisor's own, and the
+    // presenting manager's too if their Zoom was used. Never blocks the
+    // appointment from being saved even if this fails entirely (e.g.
+    // neither side has reconnected to grant the newer write scope yet).
+    const inviteEmails = form.inviteEmails || [];
+    const google = await pushAppointmentToGoogleCalendar({
+      title: `Meeting with ${form.client}`,
+      description: record.zoomUrl ? `Join Zoom: ${record.zoomUrl}` : undefined,
+      location: record.zoomUrl || undefined,
+      attendees: inviteEmails,
+      startDateTime: `${form.appointmentDate}T${form.appointmentTime}:00`,
+      endDateTime: addMinutesToDateTime(form.appointmentDate, form.appointmentTime, record.durationMinutes),
+      timezone: form.timezone,
+      managerHostId: form.zoomHostId,
+    });
+    // Invites: Google Calendar emails everyone it can when it's connected.
+    // Google never emails the calendar's owner (usually the advisor's own
+    // "Me" address), so PaceLedger emails whoever Google didn't — or
+    // everyone, when Google Calendar isn't connected.
+    if (inviteEmails.length) {
+      const norm = e => String(e).trim().toLowerCase();
+      const byGoogle = google.ownPushed && Array.isArray(google.invited) ? google.invited.map(norm) : [];
+      const byEmail = inviteEmails.filter(e => !byGoogle.includes(norm(e)));
+      let emailed = [];
+      let emailError = null;
+      // Email first: send-appointment-invite refuses a second send within
+      // a minute of invite_sent_at, which markInviteSent sets.
+      if (byEmail.length) {
+        const r = await sendAppointmentInviteEmail(record.id, byEmail);
+        if (r.sent) emailed = r.recipients || byEmail;
+        else emailError = r.error;
+      }
+      const reached = [...byGoogle, ...emailed];
+      if (reached.length) {
+        const method = byGoogle.length ? 'google' : 'email';
+        if (byGoogle.length) await markInviteSent(record.id, reached, method);
+        record = { ...record, inviteeEmails: reached, inviteMethod: method, inviteSentAt: new Date().toISOString() };
+      }
+      const zoomBit = record.zoomUrl ? ' with the Zoom link' : '';
+      const parts = [];
+      if (byGoogle.length) parts.push(`Google Calendar invite sent to ${byGoogle.join(', ')}`);
+      if (emailed.length) parts.push(`invite emailed to ${emailed.join(', ')}`);
+      if (emailError) {
+        const missed = byEmail.filter(e => !emailed.map(norm).includes(norm(e)));
+        const failText = inviteFailureMessage(emailError);
+        setNotice({ kind: 'warn', text: parts.length ? `${parts.join('; ')}${zoomBit}. Not sent to ${missed.join(', ')}: ${failText}` : failText });
+      } else if (parts.length) {
+        const text = parts.join('; ');
+        setNotice({ kind: 'ok', text: `${text.charAt(0).toUpperCase()}${text.slice(1)}${zoomBit}.` });
+      }
+    }
+    setSaving(false);
+    setAppointments(prev => [...prev, record]);
+    if (listNote) setNotice({ kind: 'warn', text: listNote });
+    closeForm();
   }
   async function handleDelete(id) {
     const target = appointments.find(a => a.id === id);
@@ -1063,7 +1056,7 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
         {error && <div className="tr-error">{error}</div>}
         {notice && <div className={notice.kind === 'ok' ? 'tr-flash' : 'tr-error'}>{notice.text}</div>}
         {showForm && (
-          <AppointmentForm user={user} weekMonday={weekMonday} editing={editingAppt} prefillData={!editingAppt ? pendingPrefillData : null} onCancel={cancelForm} onSubmit={handleFormSubmit} saving={saving} sheet={isPhone} />
+          <AppointmentForm user={user} weekMonday={weekMonday} prefillData={pendingPrefillData} onCancel={cancelForm} onSubmit={handleFormSubmit} saving={saving} sheet={isPhone} />
         )}
         <div className="tr-toolbar">
           <div className="tr-search-row">
@@ -1162,6 +1155,7 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
             onClose={() => setFollowUpTarget(null)}
             onSave={handleSaveFollowUp}
             onRescheduled={handleRescheduled}
+            onEdit={() => { const a = followUpTarget; setFollowUpTarget(null); openAppointment(a); }}
             saving={followUpSaving} />
         )}
       </div>

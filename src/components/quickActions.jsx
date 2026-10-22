@@ -9,6 +9,7 @@ import { fetchMyProspects, LEANING_LABELS, prospectLeaningKey, prospectTotalChec
 import { fmtPhone } from '../lib/phone.js';
 import { fetchHierarchyPeople } from '../data/team.js';
 import { InviteSomeone } from './Header.jsx';
+import { openAppointment } from './appointmentPanel.jsx';
 
 // ---------------------------------------------------------------------
 // + New
@@ -207,7 +208,11 @@ export function GlobalSearch({ user, go, withPeople }) {
     setOpen(false); setOverlay(false); setQ('');
     if (inputRef.current) inputRef.current.blur();
     if (item.kind === 'person') go('org', { person: item.id });
-    else if (item.kind === 'appointment') go('mine', { search: item.search });
+    else if (item.kind === 'appointment') {
+      // Opens that appointment right where you are.
+      const appt = ((data && data.appts) || []).find(a => a.id === item.id);
+      if (appt) openAppointment(appt); else go('mine', { search: item.search });
+    }
     else if (item.kind === 'prospect') go('systems', { search: item.search });
   }
   function onKeyDown(e) {

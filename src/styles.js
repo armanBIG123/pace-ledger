@@ -2359,6 +2359,15 @@ img.tr-photo-current { box-shadow: 0 0 0 1px var(--line); }
 .tr-appt-over { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; padding: 10px 12px; border-radius: 10px; background: var(--brass-tint); border: 1px solid rgba(196,154,60,0.35); font-size: 13.5px; color: var(--ink); }
 .tr-appt-delete { margin-right: auto; color: var(--rust); }
 .tr-log-edit { margin: 0 auto 0 0; align-self: center; }
+/* An appointment's name in a list opens it */
+.tr-appt-client-btn { display: inline; margin: 0; padding: 0; background: none; border: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.tr-appt-client-btn:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; border-radius: 3px; }
+.tr-appt-client-btn strong, .tr-appt-sub-btn { text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; }
+@media (hover: hover) { .tr-appt-client-btn:hover strong, .tr-appt-sub-btn:hover { text-decoration-color: currentColor; } }
+a.tr-agenda-open, a.tr-cal-appt { text-decoration: none; }
+.tr-calinfo-tag { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
+.tr-calinfo-training { color: var(--brass-dark); background: rgba(201,162,75,0.14); }
+.tr-calinfo-block { color: var(--rust); background: rgba(184,80,61,0.12); }
 .tr-appt-delete-link { align-self: center; margin-top: 2px; color: var(--rust); }
 
 /* The window an appointment opens in */
