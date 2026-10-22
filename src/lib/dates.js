@@ -182,6 +182,14 @@ export function trainingLocalDate(t) {
   return t.training_at ? fmtDate(new Date(t.training_at)) : t.training_date;
 }
 
+// When a training ends, as a clock ("8:00 PM"), for whoever is looking.
+// Trainings posted before lengths were saved count as an hour.
+export function trainingEndClock(t) {
+  const start = t.training_at ? new Date(t.training_at).getTime() : new Date(`${t.training_date}T${(t.training_time || '00:00').slice(0, 5)}`).getTime();
+  const mins = Number(t.duration_minutes) > 0 ? Number(t.duration_minutes) : 60;
+  return new Date(start + mins * 60000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
 export function trainingLocalTimeKey(t) {
   if (!t.training_at) return (t.training_time || '00:00').slice(0, 5);
   const d = new Date(t.training_at);

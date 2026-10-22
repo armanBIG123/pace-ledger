@@ -11,7 +11,7 @@ import { addCoachingNote, approvePromotion, fetchCoachingNotes, fetchDirectManag
 import { AGENCY_EMAIL, approvePromotionRequest, fetchPromotionRequests, resendPromotionEmail, sendBackPromotion, submitErrorText, submitPromotion } from '../../data/promotions.js';
 import { MemberSubline, MiniBar, RefreshButton, SkelBlock, SkeletonTable, StatusBadge, StatusChip, TitleInfo, TypeBadge, TypeFilter, WeekNav } from '../../components/ui.jsx';
 import { RequirementRow } from '../Milestones.jsx';
-import { openAppointment } from '../../components/appointmentPanel.jsx';
+import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../../components/appointmentPanel.jsx';
 import { RecruitsSubView } from './Recruits.jsx';
 import { FieldTrainingSubView } from './FieldTraining.jsx';
 
@@ -205,6 +205,11 @@ export function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, 
   }, [weekMonday]);
 
   useEffect(() => { refreshAppts(); }, [refreshAppts]);
+  // An appointment opened from here was changed.
+  useAppointmentEdits(change => {
+    if (change.reload) refreshAppts();
+    else setWeekAppts(prev => applyAppointmentEdit(prev, change));
+  });
 
   const loading = loadingMembers || loadingAppts;
 

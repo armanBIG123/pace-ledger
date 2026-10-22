@@ -3,10 +3,11 @@
 // - Yours: the same edit form as Pipeline, with Delete, and "Log how it
 //   went" once it's over.
 // - Someone else's (you're presenting, training, or they're on your team):
-//   what it is, when, who's on it and the Zoom link. Only whoever booked it
-//   can change it.
+//   what it is, when, who's on it and the Zoom link. If the person who
+//   booked it reports to you, or you're a super admin: Edit too (the time
+//   and the details; how it went stays theirs).
 import { useEffect, useState } from 'react';
-import { Video, X } from 'lucide-react';
+import { Pencil, Video, X } from 'lucide-react';
 import { deleteAppointmentRow, loggedSummary, persistFollowUp } from '../data/appointments.js';
 import { fetchHierarchyPeopleShared } from '../data/team.js';
 import { durationLabel, fmtApptDateTime, todayStr, weekStartOf } from '../lib/dates.js';
@@ -22,10 +23,24 @@ const firstName = n => String(n || '').trim().split(/\s+/)[0] || '';
 // onToast(message): say something without closing.
 export function AppointmentEditorBody({ user, appointment, onClose, onDone, onToast }) {
   const isPhone = useIsPhone();
+  const mine = appointment.userId === user.id;
   const [logging, setLogging] = useState(false);
+  const [editing, setEditing] = useState(mine);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
-  if (appointment.userId !== user.id) return <AppointmentDetails user={user} appt={appointment} onClose={onClose} />;
+  // Everyone's names and who reports to whom (shared, usually already loaded).
+  const [people, setPeople] = useState(null);
+  useEffect(() => {
+    if (mine) return undefined;
+    let alive = true;
+    fetchHierarchyPeopleShared().then(list => { if (alive) setPeople(list || []); }).catch(() => { if (alive) setPeople([]); });
+    return () => { alive = false; };
+  }, [mine]);
+  const booker = !mine && people ? people.find(p => p.id === appointment.userId) : null;
+  const canChange = !mine && (user.role === 'super_admin' || (!!booker && booker.manager_id === user.id));
+  if (!mine && !editing) {
+    return <AppointmentDetails user={user} appt={appointment} people={people} onClose={onClose} onEdit={canChange ? () => setEditing(true) : null} />;
+  }
 
   async function save(input) {
     setSaving(true);
@@ -70,20 +85,14 @@ export function AppointmentEditorBody({ user, appointment, onClose, onDone, onTo
     <AppointmentForm
       user={user} weekMonday={appointment.weekOf || weekStartOf(todayStr())} editing={appointment}
       onCancel={onClose} onSubmit={save} saving={saving} sheet={isPhone} modal={!isPhone}
-      saveError={saveError} onDelete={remove} onLogOutcome={() => setLogging(true)} />
+      saveError={saveError} onDelete={mine ? remove : null} onLogOutcome={mine ? () => setLogging(true) : null}
+      bookedBy={mine ? '' : (booker && booker.display_name) || appointment.setByName || ''} />
   );
 }
 
-function AppointmentDetails({ user, appt, onClose }) {
-  const [names, setNames] = useState(null);
-  useEffect(() => {
-    let alive = true;
-    fetchHierarchyPeopleShared()
-      .then(list => { if (alive) setNames(new Map((list || []).map(p => [p.id, p.display_name]))); })
-      .catch(() => { if (alive) setNames(new Map()); });
-    return () => { alive = false; };
-  }, []);
-  const nameOf = id => (names && id ? names.get(id) || '' : '');
+function AppointmentDetails({ user, appt, people, onClose, onEdit }) {
+  const nameOf = id => (people && id ? (people.find(p => p.id === id) || {}).display_name || '' : '');
+  const names = people;
   const bookedBy = appt.setByName || nameOf(appt.userId);
   const presenter = appt.presenterId === user.id ? 'You' : appt.presenter || nameOf(appt.presenterId) || '—';
   const trainee = appt.traineeId && appt.traineeId === user.id ? 'You' : appt.trainee || '';
@@ -120,9 +129,14 @@ function AppointmentDetails({ user, appt, onClose }) {
           ) : null}
         </div>
       ) : null}
-      <p className="tr-apptinfo-note">{bookedBy ? `${firstName(bookedBy)} booked it, so only they can change it.` : 'Only whoever booked it can change it.'}</p>
+      <p className="tr-apptinfo-note">
+        {onEdit
+          ? `${firstName(bookedBy) || 'They'} booked it. As ${user.role === 'super_admin' ? 'a super admin' : 'who they report to'}, you can change the time and the details; how it went stays theirs to log.`
+          : bookedBy ? `${firstName(bookedBy)} booked it, so only they (and who they report to) can change it.` : 'Only whoever booked it can change it.'}
+      </p>
       <div className="tr-form-actions">
         <button type="button" className="tr-btn tr-btn-ghost" onClick={onClose}>Close</button>
+        {onEdit ? <button type="button" className="tr-btn tr-btn-brass" onClick={onEdit}><Pencil size={14} aria-hidden="true" /> Edit</button> : null}
       </div>
     </Modal>
   );

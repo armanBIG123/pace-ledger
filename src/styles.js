@@ -2358,6 +2358,7 @@ img.tr-photo-current { box-shadow: 0 0 0 1px var(--line); }
 .tr-fsheet-body .tr-appt-when-date { grid-column: 1 / -1; }
 .tr-appt-over { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 12px; padding: 10px 12px; border-radius: 10px; background: var(--brass-tint); border: 1px solid rgba(196,154,60,0.35); font-size: 13.5px; color: var(--ink); }
 .tr-appt-delete { margin-right: auto; color: var(--rust); }
+.tr-appt-other { padding: 10px 12px; border-radius: 10px; background: rgba(45,104,168,0.07); border: 1px solid rgba(45,104,168,0.25); font-size: 13.5px; line-height: 1.45; color: var(--ink); }
 .tr-log-edit { margin: 0 auto 0 0; align-self: center; }
 /* An appointment's name in a list opens it */
 .tr-appt-client-btn { display: inline; margin: 0; padding: 0; background: none; border: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
