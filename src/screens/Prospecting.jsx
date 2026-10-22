@@ -9,7 +9,9 @@ import { PageHead, SkeletonCards } from '../components/ui.jsx';
 import { CallButton, ContactRow, prospectTexts, TextButton } from '../components/contact.jsx';
 import { isValidPhone } from '../lib/phone.js';
 
-export function ProspectForm({ editing, onCancel, onSubmit, saving, onOpenJogger }) {
+// prefillNotes: notes to start a new prospect with (e.g. the Memory Jogger
+// prompt that brought them to mind).
+export function ProspectForm({ editing, onCancel, onSubmit, saving, onOpenJogger, prefillNotes = '' }) {
   const [firstName, setFirstName] = useState(editing?.firstName || '');
   const [lastName, setLastName] = useState(editing?.lastName || '');
   const [age, setAge] = useState(editing?.age != null ? String(editing.age) : '');
@@ -19,7 +21,7 @@ export function ProspectForm({ editing, onCancel, onSubmit, saving, onOpenJogger
     ALL_CHARACTERISTICS.forEach(c => { initial[c.key] = editing ? !!editing[c.key] : false; });
     return initial;
   });
-  const [notes, setNotes] = useState(editing?.notes || '');
+  const [notes, setNotes] = useState(editing?.notes || prefillNotes || '');
   const [source, setSource] = useState(editing?.source || '');
   const [email, setEmail] = useState(editing?.email || '');
   const [phone, setPhone] = useState(editing?.phone || '');
@@ -285,7 +287,8 @@ export function ProspectCard({ prospect, rank, onDelete, onToggleOutcome, onLogA
   );
 }
 
-export function MemoryJoggerPanel() {
+// onPick(prompt): someone came to mind; add them (opens New prospect).
+export function MemoryJoggerPanel({ onPick }) {
   const [openCats, setOpenCats] = useState(() => new Set([0]));
   function toggle(i) {
     setOpenCats(prev => {
@@ -297,7 +300,7 @@ export function MemoryJoggerPanel() {
   return (
     <div className="tr-card">
       <h3 className="tr-h3">Memory Jogger</h3>
-      <p className="tr-empty" style={{ marginTop: -6 }}>Stuck on who to add next? Work down these — someone on the list almost always jogs a name loose.</p>
+      <p className="tr-empty" style={{ marginTop: -6 }}>Stuck on who to add next? Work down these — someone on the list almost always jogs a name loose.{onPick ? ' Tap one to add the person it brings to mind.' : ''}</p>
       {MEMORY_JOGGER_CATEGORIES.map((cat, i) => {
         const open = openCats.has(i);
         return (
@@ -308,7 +311,9 @@ export function MemoryJoggerPanel() {
             </button>
             {open && (
               <div className="tr-pillrow" style={{ marginTop: 10 }}>
-                {cat.items.map(item => <span className="tr-pill-btn" key={item}>{item}</span>)}
+                {cat.items.map(item => (onPick
+                  ? <button type="button" className="tr-pill-btn" key={item} onClick={() => onPick(item)}>{item}</button>
+                  : <span className="tr-pill-btn tr-pill-static" key={item}>{item}</span>))}
               </div>
             )}
           </div>
@@ -331,6 +336,8 @@ export function SystemsBody({ user, onLogAppointment, initialIntent, onIntentCon
   const [searchQuery, setSearchQuery] = useState(initialIntent && typeof initialIntent === 'object' && initialIntent.search ? initialIntent.search : '');
   const [editingProspect, setEditingProspect] = useState(null);
   const [formKey, setFormKey] = useState(0);
+  // The Memory Jogger prompt a new prospect came from, if any.
+  const [joggerPick, setJoggerPick] = useState(null);
   const [quickFirst, setQuickFirst] = useState('');
   const [quickLast, setQuickLast] = useState('');
   const [quickPhone, setQuickPhone] = useState('');
@@ -403,6 +410,7 @@ export function SystemsBody({ user, onLogAppointment, initialIntent, onIntentCon
     if (!res.ok) { setError(res.error || 'Could not save. Try again.'); return; }
     setProspects(prev => [res.record, ...prev]);
     setFlash(`Saved ${res.record.firstName} ${res.record.lastName}.`);
+    setJoggerPick(null);
     if (another) { setFormKey(k => k + 1); window.scrollTo(0, 0); } else setSystemsView('list');
   }
   async function handleQuickAdd(e) {
@@ -494,15 +502,16 @@ export function SystemsBody({ user, onLogAppointment, initialIntent, onIntentCon
         {flash && <div className="tr-flash">{flash}</div>}
         {systemsView === 'prospect' ? (
           <ProspectForm
-            key={`${editingProspect ? editingProspect.id : 'new'}-${formKey}`}
+            key={`${editingProspect ? editingProspect.id : 'new'}-${formKey}-${joggerPick || ''}`}
+            prefillNotes={!editingProspect && joggerPick ? `Memory Jogger: ${joggerPick}` : ''}
             editing={editingProspect}
-            onCancel={() => { setEditingProspect(null); setSystemsView('list'); }}
+            onCancel={() => { setEditingProspect(null); setJoggerPick(null); setSystemsView('list'); }}
             onSubmit={handleSubmit} saving={saving}
             onOpenJogger={() => setSystemsView('jogger')} />
         ) : systemsView === 'jogger' ? (
           <>
-            <MemoryJoggerPanel />
-            <button type="button" className="tr-btn tr-btn-brass" style={{ alignSelf: 'flex-start' }} onClick={() => { setEditingProspect(null); setSystemsView('prospect'); }}>
+            <MemoryJoggerPanel onPick={item => { setEditingProspect(null); setJoggerPick(item); setSystemsView('prospect'); window.scrollTo(0, 0); }} />
+            <button type="button" className="tr-btn tr-btn-brass" style={{ alignSelf: 'flex-start' }} onClick={() => { setEditingProspect(null); setJoggerPick(null); setSystemsView('prospect'); }}>
               <Plus size={16} /> Thought of someone? Add them
             </button>
           </>
@@ -525,7 +534,7 @@ export function SystemsBody({ user, onLogAppointment, initialIntent, onIntentCon
               <div className="tr-search-row">
                 <Search size={15} className="tr-search-icon" />
                 <input
-                  className="tr-search-input" type="text" placeholder="Search by name or phone…"
+                  className="tr-search-input" type="text" placeholder="Search by name or phone…" aria-label="Search prospects by name or phone"
                   value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
                 {searchQuery && (
                   <button type="button" className="tr-icon-btn" onClick={() => setSearchQuery('')} title="Clear search"><X size={15} /></button>

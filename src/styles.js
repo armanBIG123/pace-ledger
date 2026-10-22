@@ -15,7 +15,7 @@ export const CSS = `
   --paper-dim: #EBEEF2;    /* tracks, hovers */
   --card: #FFFFFF;
   --brass: #C49A3C;        /* fills */
-  --brass-dark: #8E6B1F;   /* brass text on white (AA) */
+  --brass-dark: #86651D;   /* brass text on white and on the grey page (AA) */
   --brass-tint: rgba(196,154,60,0.13);
   --green: #2E7D5B;
   --amber: #C27C1E;
@@ -91,14 +91,44 @@ export const CSS = `
 .tr-header-name, .tr-header-firstname { font-weight: 500; color: rgba(255,255,255,0.92); }
 .tr-header-firstname { display: none; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tr-header-role { text-transform: capitalize; font-size: 12px; font-weight: 500; padding: 2px 9px; border-radius: 999px; color: var(--brass); border: 1px solid rgba(196,154,60,0.45); }
+/* Between phone and desktop widths (an upright iPad, a half-width window)
+   the header gives up the full name and role pill before anything gets
+   pushed off the screen; the search box shrinks to fit. */
+.tr-header-account { min-width: 0; }
+.tr-header-account > span { min-width: 0; }
+.tr-header-row > .tr-brand { flex-shrink: 0; }
+/* Header.jsx sets this only when the row doesn't fit (very large phone
+   text): the wordmark gives way so the buttons stay on screen. */
+.tr-header-tight > .tr-brand > span { display: none; }
+@media (min-width: 641px) and (max-width: 1100px) {
+  .tr-header-name { display: none; }
+  .tr-header-firstname { display: inline; }
+}
+@media (min-width: 641px) and (max-width: 900px) {
+  .tr-header-role { display: none; }
+  .tr-header-row { gap: 12px; }
+  .tr-header-user { gap: 8px; }
+}
 
 .tr-navtabs { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; margin-bottom: -1px; }
 .tr-navtabs::-webkit-scrollbar { display: none; }
-.tr-navtab { position: relative; white-space: nowrap; padding: 12px 12px 13px; border: none; background: transparent; font-family: inherit; font-size: 14px; font-weight: 500; color: rgba(255,255,255,0.62); cursor: pointer; transition: color .15s; }
+.tr-navtab, .tr-navtabs-measure > span { position: relative; white-space: nowrap; padding: 12px 12px 13px; border: none; background: transparent; font-family: inherit; font-size: 14px; font-weight: 500; color: rgba(255,255,255,0.62); cursor: pointer; transition: color .15s; }
 .tr-navtab:hover { color: #fff; }
 .tr-navtab-on { color: #fff; }
 .tr-navtab-on::after { content: ''; position: absolute; left: 12px; right: 12px; bottom: 0; height: 3px; border-radius: 3px 3px 0 0; background: var(--brass); }
 .tr-header .tr-navtab:focus-visible { outline-offset: -4px; }
+/* The strip takes the rest of the row; tabs that don't fit go under More
+   (navigation.jsx measures them in the hidden copy below). */
+.tr-navtabs { flex: 1 1 auto; min-width: 0; }
+.tr-navtabs-measure { position: absolute; left: 0; top: 0; width: 0; height: 0; overflow: hidden; visibility: hidden; display: flex; gap: 2px; pointer-events: none; }
+.tr-navtabs-measure > span { flex-shrink: 0; }
+.tr-navtab-more, .tr-navtabs-measure > span:last-child { display: inline-flex; align-items: center; gap: 4px; }
+.tr-navmore-menu { position: fixed; z-index: 96; width: 220px; padding: 6px; display: flex; flex-direction: column; gap: 2px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 14px 36px rgba(19,33,46,0.24); }
+.tr-navmore-menu button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 8px 10px; border: none; border-radius: 8px; background: transparent; font-family: inherit; font-size: 14px; font-weight: 500; color: var(--ink); text-align: left; cursor: pointer; }
+.tr-navmore-menu button svg { color: var(--slate-light); }
+.tr-navmore-menu button:hover { background: var(--paper); }
+.tr-navmore-menu .tr-navmore-on { color: var(--brass-dark); font-weight: 600; }
+.tr-navmore-menu .tr-navmore-on svg { color: var(--brass-dark); }
 .tr-groupswitch { display: inline-flex; flex-shrink: 0; align-self: center; margin-bottom: 6px; padding: 3px; border-radius: 9px; background: rgba(255,255,255,0.08); }
 .tr-groupswitch button { font-family: inherit; font-size: 13px; font-weight: 500; padding: 5px 12px; border-radius: 6px; border: none; background: transparent; color: rgba(255,255,255,0.7); cursor: pointer; white-space: nowrap; }
 .tr-groupswitch button:hover { color: #fff; }
@@ -199,7 +229,7 @@ export const CSS = `
 .tr-note-item { background: var(--paper); border-radius: 8px; padding: 8px 10px; font-size: 13.5px; }
 .tr-note-meta { font-size: 11px; color: var(--slate-light); margin-bottom: 3px; }
 .tr-note-add { display: flex; gap: 8px; }
-.tr-note-add input { flex: 1; font-family: inherit; font-size: 14px; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
+.tr-note-add input { flex: 1; min-width: 0; font-family: inherit; font-size: 14px; padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
 .tr-note-add input:focus { border-color: var(--brass); }
 
 /* card */
@@ -222,7 +252,18 @@ export const CSS = `
 
 /* week nav */
 .tr-weeknav { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.tr-weeknav-label { display: flex; align-items: center; gap: 8px; font-weight: 500; color: var(--ink); margin-right: auto; font-size: 15px; }
+.tr-weeknav-label { display: flex; align-items: center; gap: 8px; font-weight: 500; color: var(--ink); font-size: 15px; }
+/* ‹ and › sit right beside the week or month they move. */
+.tr-weeknav > .tr-icon-btn:nth-of-type(2) { margin-right: auto; }
+.tr-monthnav { display: inline-flex; align-items: center; gap: 4px; }
+.tr-monthnav .tr-weeknav-label { padding: 0 2px; white-space: nowrap; }
+.tr-cal-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-left: auto; }
+@media (max-width: 640px) {
+  .tr-cal-toolbar { row-gap: 10px; }
+  .tr-cal-toolbar .tr-monthnav { flex: 1 1 auto; justify-content: space-between; }
+  .tr-cal-tools { margin-left: 0; width: 100%; }
+  .tr-cal-tools .tr-cal-personfilter { flex: 1 1 140px; min-width: 0; }
+}
 .tr-cal-personfilter { font-family: inherit; font-size: 13px; height: 34px; padding: 0 28px 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background-color: var(--card); color: var(--ink); cursor: pointer; }
 .tr-cal-personfilter:focus { border-color: var(--brass); box-shadow: var(--ring); outline: none; }
 
@@ -295,8 +336,9 @@ export const CSS = `
 
 /* forms */
 .tr-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
-.tr-field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; color: var(--ink); }
+.tr-field { display: flex; flex-direction: column; min-width: 0; gap: 6px; font-size: 13px; font-weight: 600; color: var(--ink); }
 .tr-field-wide { grid-column: 1 / -1; }
+.tr-root input:not([type="checkbox"]):not([type="radio"]), .tr-root select, .tr-root textarea { max-width: 100%; }
 .tr-field input, .tr-field select, .tr-field textarea { font-family: inherit; font-size: 14px; font-weight: 400; min-height: 40px; padding: 9px 12px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background-color: var(--card); color: var(--ink); transition: border-color .15s, box-shadow .15s; }
 .tr-field input::placeholder, .tr-field textarea::placeholder { color: #7A8591; }
 .tr-field select { padding-right: 28px; }
@@ -346,6 +388,7 @@ export const CSS = `
 .tr-check-inline input { width: 18px; height: 18px; accent-color: var(--ink); }
 .tr-pillrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
 .tr-pill-btn { font-family: inherit; font-size: 13px; font-weight: 500; padding: 6px 13px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--card); color: var(--slate); cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
+.tr-pill-static { cursor: default; }
 .tr-pill-btn:hover { border-color: var(--ink); color: var(--ink); }
 .tr-pill-btn-active, .tr-pill-btn-active:hover { background: var(--ink); border-color: var(--ink); color: #fff; }
 
@@ -362,6 +405,8 @@ export const CSS = `
    table wider than the screen. This caps it and truncates with an
    ellipsis; the full text is still shown when the dropdown is opened. */
 .tr-table td select { max-width: 190px; padding: 6px 26px 6px 9px; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background-color: var(--card); color: var(--ink); }
+/* Manage Team: room for "UA — Unlicensed Associate" and long names. */
+.tr-manage-table td select { max-width: 230px; }
 .tr-note { color: var(--slate-light); }
 .tr-empty { font-size: 13.5px; color: var(--slate-light); margin: 4px 0 0; }
 .tr-subtitle { font-size: 14px; color: var(--slate-light); margin: -6px 0 16px; }
@@ -410,7 +455,7 @@ export const CSS = `
 .tr-health-line { font-size: 13.5px; color: var(--slate); margin-bottom: 10px; }
 .tr-health-good { color: #2E6E51; }
 .tr-health-bad { color: var(--rust); font-weight: 600; }
-.tr-health-warn { color: var(--amber); font-weight: 600; }
+.tr-health-warn { color: #94600F; font-weight: 600; }
 .tr-audit-list { margin-top: 12px; display: flex; flex-direction: column; gap: 2px; }
 .tr-audit-row { display: flex; gap: 10px; font-size: 13px; padding: 7px 0; border-bottom: 1px solid var(--line); }
 .tr-audit-row:last-child { border-bottom: none; }
@@ -547,12 +592,13 @@ export const CSS = `
 .tr-type-sale { box-shadow: inset 3px 0 0 0 var(--type-sale); }
 .tr-type-both { border-left: 4px solid transparent; border-image: linear-gradient(180deg, var(--type-recruit) 50%, var(--type-sale) 50%) 1; }
 .tr-pill-recruit.tr-pill-btn-active-recruit { background: var(--type-recruit); border-color: var(--type-recruit-dark); color: #fff; }
-.tr-pill-sale.tr-pill-btn-active-sale { background: var(--type-sale); border-color: var(--type-sale-dark); color: #fff; }
+.tr-pill-sale.tr-pill-btn-active-sale { background: #B95A24; border-color: var(--type-sale-dark); color: #fff; }
 .tr-typefilter-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
-.tr-search-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; min-height: 42px; background: var(--card); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); padding: 6px 12px; transition: border-color .15s, box-shadow .15s; }
+.tr-search-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; min-height: 42px; background: var(--card); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); padding: 0 12px; transition: border-color .15s, box-shadow .15s; }
+.tr-search-row > .tr-search-input { align-self: stretch; }
 .tr-search-row:focus-within { border-color: var(--brass); box-shadow: var(--ring); }
 .tr-search-icon { color: var(--slate-light); flex-shrink: 0; }
-.tr-search-input { flex: 1; border: none; background: none; font-family: inherit; font-size: 14px; color: var(--ink); outline: none; }
+.tr-search-input { flex: 1; min-width: 0; width: 100%; border: none; background: none; font-family: inherit; font-size: 14px; color: var(--ink); outline: none; }
 .tr-search-input::placeholder { color: var(--slate-light); }
 .tr-dash-strip { display: flex; gap: 12px; margin-bottom: 14px; }
 .tr-dash-stat { flex: 1; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; cursor: pointer; transition: border-color .15s, background .15s; font-family: inherit; text-align: left; }
@@ -565,7 +611,7 @@ export const CSS = `
 .tr-typefilter-note { font-size: 12px; color: var(--slate-light); }
 
 /* tenure */
-.tr-tenure { font-size: 11px; color: var(--slate-light); margin-top: 2px;  white-space: nowrap; }
+.tr-tenure { font-size: 12px; color: var(--slate-light); margin-top: 2px; }
 
 /* calendar */
 .tr-cal-card { padding: 0; overflow: hidden; }
@@ -586,7 +632,7 @@ export const CSS = `
 .tr-cal-appt-recruit { border-left: 2px solid var(--type-recruit); }
 .tr-cal-appt-sale { border-left: 2px solid var(--type-sale); }
 .tr-cal-appt-both { border-left: 3px solid transparent; border-image: linear-gradient(180deg, var(--type-recruit) 50%, var(--type-sale) 50%) 1; }
-.tr-cal-more { font-size: 10px; color: var(--slate-light); padding-left: 4px; }
+.tr-cal-more { font-size: 11px; color: var(--slate-light); padding-left: 4px; }
 
 /* google calendar */
 .tr-google-card { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
@@ -748,7 +794,7 @@ export const CSS = `
 .tr-agenda-training { border-left-color: var(--brass); }
 .tr-agenda-block { border-left-color: var(--rust); color: var(--rust); }
 .tr-agenda-google { border-left-color: var(--slate-light); }
-.tr-agenda-time { width: 70px; flex-shrink: 0; font-size: 13px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.tr-agenda-time { width: 5.4em; flex-shrink: 0; font-size: 13px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tr-agenda-what { flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 
 /* app-style bottom navigation + "More" sheet (phones only) */
@@ -852,7 +898,7 @@ export const CSS = `
 .tr-dayagenda-row { display: flex; align-items: center; gap: 14px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 14px; }
 .tr-dayagenda-row:first-child { border-top: none; }
 .tr-dayagenda-soon { margin: 0 -22px; padding: 10px 22px; background: rgba(196,154,60,0.07); box-shadow: inset 3px 0 0 var(--brass); }
-.tr-dayagenda-time { width: 72px; flex-shrink: 0; font-size: 13.5px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; }
+.tr-dayagenda-time { width: 5.4em; flex-shrink: 0; font-size: 13.5px; font-weight: 600; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .tr-dayagenda-main { flex: 1; min-width: 0; color: var(--ink); }
 .tr-dayagenda-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 12.5px; color: var(--slate-light); }
 .tr-dayagenda-badge { font-size: 11.5px; font-weight: 600; color: var(--brass-dark); background: var(--brass-tint); padding: 1px 8px; border-radius: 999px; }
@@ -868,7 +914,7 @@ export const CSS = `
 .tr-task-blue .tr-task-node { background: rgba(45,104,168,0.12); color: #24548A; }
 .tr-task-done .tr-task-node { background: var(--green); color: #fff; }
 .tr-task-body { flex: 1; min-width: 0; }
-.tr-task-title { font-size: 14.5px; line-height: 1.4; color: var(--ink); }
+.tr-task-title { font-size: 14.5px; line-height: 1.4; color: var(--ink); overflow-wrap: anywhere; }
 .tr-task-title strong { font-weight: 600; }
 .tr-task-meta { margin-top: 2px; font-size: 12.5px; color: var(--slate-light); }
 .tr-task-done .tr-task-title { color: var(--slate-light); }
@@ -978,7 +1024,7 @@ export const CSS = `
 .tr-newadv-step { color: var(--slate); }
 .tr-newadv-seen { flex-basis: 100%; font-size: 12px; color: var(--rust); }
 @media (max-width: 960px) {
-  .tr-today-grid { grid-template-columns: 1fr; }
+  .tr-today-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 760px) {
   .tr-f30-weeks { grid-template-columns: 1fr; }
@@ -1009,6 +1055,10 @@ export const CSS = `
 .tr-intake-steps-list { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
 .tr-intake-step-num { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 999px; background: var(--paper-dim); color: var(--slate); font-size: 11px; font-weight: 600; margin-right: 8px; flex-shrink: 0; }
 .tr-intake-link-row { display: flex; align-items: center; gap: 8px; }
+/* The follow-up note field looks like a field (it had no border), with a
+   visible focus ring. */
+.tr-intake-link-row > .tr-search-input { min-height: 40px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--card); transition: border-color .15s, box-shadow .15s; }
+.tr-intake-link-row > .tr-search-input:focus { border-color: var(--brass); box-shadow: var(--ring); }
 /* org chart */
 .tr-org-stats { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
 .tr-org-stats > span, .tr-org-stat-ready { font-size: 13px; color: var(--slate); background: var(--card); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; }
@@ -1246,7 +1296,7 @@ export const CSS = `
   .tr-pace-grid { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 640px) {
-  .tr-form-grid { grid-template-columns: 1fr; }
+  .tr-form-grid { grid-template-columns: minmax(0, 1fr); }
   .tr-prospect-chars { grid-template-columns: 1fr; }
   .tr-pace-grid { grid-template-columns: 1fr; }
   /* Phones navigate from the bottom bar, so the header scrolls away
@@ -1263,8 +1313,8 @@ export const CSS = `
   .tr-appts-sidebar { flex-direction: row; flex-wrap: wrap; min-width: 0; width: 100%; gap: 6px; }
   .tr-sidebar-divider { flex-basis: 100%; padding: 8px 4px 0; }
   .tr-cal-day { min-height: 60px; padding: 3px; }
-  .tr-cal-headcell { font-size: 9px; padding: 6px 1px; }
-  .tr-cal-daynum { font-size: 11px; }
+  .tr-cal-headcell { font-size: 10.5px; padding: 6px 1px; }
+  .tr-cal-daynum { font-size: 12px; }
   .tr-cal-appt { font-size: 8.5px; padding: 0 2px; }
   .tr-dash-strip { gap: 8px; }
   .tr-dash-stat { padding: 10px 10px; }
@@ -1324,10 +1374,12 @@ export const CSS = `
   }
   .tr-bottomnav button {
     flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
-    min-height: 54px; border: none; background: transparent; font-family: inherit; font-size: 10.5px; font-weight: 500;
+    min-height: 54px; padding: 0 1px; border: none; background: transparent; font-family: inherit; font-size: 11px; font-weight: 500;
     color: var(--slate-light); cursor: pointer; border-radius: 10px;
   }
-  .tr-bottomnav button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Labels use the whole width of their slot (no button padding), so
+     "Production" and "Resources" aren't cut short. */
+  .tr-bottomnav button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; letter-spacing: -0.1px; }
   .tr-bottomnav .tr-bottomnav-on { color: var(--ink); font-weight: 600; }
   .tr-bottomnav .tr-bottomnav-on svg { color: var(--brass-dark); }
   .tr-main { padding: 14px 14px calc(88px + env(safe-area-inset-bottom, 0px)); gap: 16px; }
@@ -1356,7 +1408,7 @@ export const CSS = `
   .tr-ov-flow button { flex: 0 0 auto; white-space: nowrap; }
 
   /* Weekly pace: two batches per row, smaller dots */
-  .tr-pace-grid { grid-template-columns: 1fr 1fr !important; gap: 14px 16px; }
+  .tr-pace-grid { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 14px 16px; }
   .tr-pace .tr-pill { width: 18px; height: 18px; }
   .tr-hide-mobile { display: none; }
 
@@ -1379,7 +1431,8 @@ export const CSS = `
   .tr-cal-appt-training { background: var(--brass); }
   .tr-cal-appt-unavailable { background: var(--rust); }
   .tr-cal-appt-google { background: var(--slate-light); }
-  .tr-cal-more { font-size: 9px; padding: 0; line-height: 7px; }
+  .tr-cal-more { font-size: 10.5px; font-weight: 600; padding: 0; line-height: 1.2; white-space: nowrap; }
+  .tr-cal-more-word { display: none; }
   .tr-fu-head { padding: 13px 14px; }
   .tr-fu-body { padding: 4px 14px 14px; }
   .tr-card.tr-prospect-card-compact { padding: 12px 14px; }
@@ -1426,6 +1479,35 @@ export const CSS = `
   .tr-expand-inner { position: sticky; left: 0; width: calc(100vw - 60px); }
   .tr-weekdetail { grid-template-columns: 1fr; }
   .tr-appt-group .tr-table td:first-child { position: static; box-shadow: none; min-width: 0; max-width: none; background: transparent; }
+  /* Team tables marked tr-table-stack: one card per person on a phone, with
+     each number labelled, instead of a table you swipe sideways. */
+  .tr-table-wrap:has(> .tr-table-stack) { overflow: visible; margin: 0; padding: 0; }
+  .tr-table.tr-table-stack thead { display: none; }
+  .tr-table.tr-table-stack, .tr-table.tr-table-stack tbody { display: block; width: 100%; }
+  .tr-table.tr-table-stack tbody tr { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 6em), 1fr)); align-items: end; gap: 10px 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .tr-table.tr-table-stack tbody tr:last-child { border-bottom: none; }
+  .tr-table-wrap .tr-table.tr-table-stack td, .tr-table-wrap .tr-table.tr-table-stack td:first-child { display: block; position: static; min-width: 0; max-width: none; padding: 0; border: none; box-shadow: none; background: transparent; }
+  .tr-table-wrap .tr-table.tr-table-stack td:first-child { grid-column: 1 / -1; font-size: 14.5px; }
+  .tr-table.tr-table-stack td[data-label]::before { content: attr(data-label); display: block; margin-bottom: 2px; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 12px; font-weight: 500; color: var(--slate-light); }
+  .tr-table.tr-table-stack tbody tr.tr-expand-row { display: block; padding: 0; background: var(--paper); }
+  .tr-table-wrap .tr-table.tr-table-stack .tr-expand-row td { padding: 14px 16px; }
+  .tr-table-stack .tr-expand-inner { position: static; width: auto; }
+  .tr-table-wrap .tr-table.tr-table-stack .tr-row-open td:first-child { background: transparent; }
+  .tr-table.tr-table-stack .tr-row-open { background: #faf7ef; }
+  /* Manage Team: name and delete on top, then email, then each picker on
+     its own line (so "Super Admin" and long names fit). */
+  .tr-table.tr-manage-table tbody tr { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; grid-template-areas: "name name del" "email email email" "role role role" "mgr mgr mgr" "tier tier tier"; }
+  .tr-table-wrap .tr-table.tr-manage-table td.tr-mt-name { grid-area: name; }
+  .tr-manage-table td.tr-mt-email { grid-area: email; color: var(--slate); overflow-wrap: anywhere; }
+  .tr-manage-table td.tr-mt-role { grid-area: role; }
+  .tr-manage-table td.tr-mt-mgr { grid-area: mgr; }
+  .tr-manage-table td.tr-mt-tier { grid-area: tier; }
+  .tr-manage-table td.tr-mt-del { grid-area: del; align-self: start; margin: -10px 0 0 0; }
+  .tr-table-wrap .tr-table.tr-manage-table td select { width: 100%; max-width: none; min-height: 40px; }
+  .tr-table.tr-manage-table tbody tr { padding-left: 0; padding-right: 0; } /* (the card's own padding is enough; more room for the pickers) */
+  /* Tables that still scroll sideways fade at the edge, so you can tell
+     there's more to see. */
+  .tr-summary-card .tr-table-wrap:not(:has(> .tr-table-stack)) { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 26px), transparent); }
 
   /* iOS Safari zooms the whole page when you tap a field smaller than
      16px — keep every field at 16px on phones so it never does. */
@@ -1446,12 +1528,12 @@ export const CSS = `
   .tr-f30-foot { padding: 10px 16px 14px; }
   .tr-f30-week { padding: 14px 16px 10px; }
   .tr-f30-complete .tr-f30-head { flex-wrap: wrap; }
-  .tr-dayagenda-time { width: 64px; }
+  .tr-dayagenda-time { width: 4.9em; }  /* (in em, so it grows with bigger phone text) */
 }
 
 /* ---- + New and search (header) ------------------------------------ */
 .tr-header-new { min-height: 34px; padding: 6px 13px; }
-.tr-gsearch { position: relative; flex: 1; max-width: 440px; margin: 0 auto 0 28px; }
+.tr-gsearch { position: relative; flex: 1; min-width: 0; max-width: 440px; margin: 0 auto 0 28px; }
 .tr-gsearch-box { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 10px 0 12px; border-radius: 9px; background: rgba(255,255,255,0.08); border: 1px solid rgba(255,255,255,0.14); color: rgba(255,255,255,0.65); }
 .tr-gsearch-box:focus-within { background: #fff; color: var(--slate-light); border-color: #fff; box-shadow: 0 0 0 3px rgba(196,154,60,0.35); }
 .tr-gsearch-box input { flex: 1; min-width: 0; border: none; background: transparent; font-family: inherit; font-size: 13.5px; color: #fff; outline: none; -webkit-appearance: none; appearance: none; }
@@ -1473,13 +1555,13 @@ export const CSS = `
 .tr-gsearch-text strong { color: var(--ink); font-size: 14px; font-weight: 600; }
 .tr-gsearch-text span { font-size: 12px; color: var(--slate-light); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tr-gsearch-tag { flex-shrink: 0; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: rgba(46,125,91,0.12); color: #23654A; }
-.tr-gsearch-tag-today { background: rgba(194,124,30,0.14); color: #8A5A10; }
+.tr-gsearch-tag-today { background: rgba(194,124,30,0.14); color: #7E520E; }
 .tr-gsearch-empty { margin: 0; padding: 12px 10px; font-size: 13px; color: var(--slate-light); }
 .tr-gsearch-phone { display: none; }
 .tr-search-overlay { position: fixed; inset: 0; z-index: 95; background: var(--card); display: flex; flex-direction: column; }
 .tr-search-overlay-top { display: flex; align-items: center; gap: 10px; padding: calc(12px + env(safe-area-inset-top, 0px)) 14px 12px; background: var(--ink); }
 .tr-gsearch-box-phone { flex: 1; height: 42px; background: #fff; border-color: #fff; color: var(--slate-light); }
-.tr-gsearch-box-phone input { color: var(--ink); font-size: 16px; }
+.tr-gsearch-box-phone input { align-self: stretch; color: var(--ink); font-size: 16px; }
 .tr-gsearch-box-phone input::placeholder { color: var(--slate-light); }
 .tr-search-cancel { border: none; background: none; font-family: inherit; font-size: 15px; font-weight: 600; color: var(--brass); padding: 8px 2px; cursor: pointer; }
 .tr-search-overlay-body { flex: 1; overflow-y: auto; padding: 8px 10px calc(24px + env(safe-area-inset-bottom, 0px)); }
@@ -1560,6 +1642,10 @@ export const CSS = `
   .tr-new-grip { display: block; }
   .tr-new-item { padding: 10px 8px; }
   .tr-bottomnav .tr-bottomnav-new { flex: 0 0 58px; }
+  @media (max-width: 360px) {
+    .tr-bottomnav .tr-bottomnav-new { flex-basis: 52px; }
+    .tr-bottomnav button { font-size: 10.5px; }
+  }
   .tr-bottomnav-plus { margin-top: -18px; width: 50px; height: 50px; }
   .tr-needs-row { flex-wrap: wrap; }
   .tr-needs-actions { width: 100%; padding-left: 48px; }
@@ -1622,7 +1708,7 @@ export const CSS = `
 .tr-promo-note { font-size: 12px; color: var(--slate-light); }
 .tr-promo-status .tr-promo-resend { margin-top: 0; font-size: 12px; }
 .tr-forms-toolbar { margin-bottom: 14px; }
-.tr-forms-toolbar .tr-search-row { flex: 1 1 220px; margin: 0; }
+.tr-forms-toolbar .tr-search-row { flex: 1 1 260px; margin: 0; }
 .tr-forms-sub { font-size: 12px; color: var(--slate-light); margin-top: 2px; }
 .tr-forms-action { text-align: right; font-size: 12.5px; font-weight: 600; color: var(--brass-dark); white-space: nowrap; }
 .tr-forms-table .tr-expand-row td { background: var(--paper); }
@@ -1635,6 +1721,7 @@ export const CSS = `
 .tr-rec-stage-on { border-color: var(--brass); box-shadow: var(--ring); color: var(--ink); }
 .tr-rec-stage-flag { background: rgba(176,67,47,0.06); border-color: rgba(176,67,47,0.35); }
 .tr-rec-stage-flag strong { color: var(--rust); }
+.tr-rec-stage-flag > span { color: var(--slate); }
 .tr-rec-arrow { flex: 0 0 auto; align-self: center; color: var(--line-strong); }
 .tr-rec-list { list-style: none; margin: 0; padding: 0; }
 .tr-rec-row { display: flex; align-items: center; gap: 12px; padding: 13px 16px; border-top: 1px solid var(--line); }
@@ -1675,7 +1762,7 @@ export const CSS = `
 .tr-stage-top { display: flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 600; color: var(--slate); white-space: nowrap; }
 .tr-stage-on .tr-stage-top { color: var(--brass-dark); }
 .tr-stage-n { font-family: 'Newsreader', serif; font-size: 30px; font-weight: 600; line-height: 1.15; font-variant-numeric: tabular-nums; }
-.tr-stage-sub { max-width: 100%; font-size: 12.5px; color: var(--slate-light); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tr-stage-sub { max-width: 100%; font-size: 12.5px; line-height: 1.35; color: var(--slate-light); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 
 /* Screens shown inside Pipeline or Growth: their side list becomes a row
    of chips above the content, so the page reads top to bottom. */
@@ -1768,7 +1855,7 @@ export const CSS = `
 .tr-win-licensed .tr-win-icon { background: rgba(46,125,91,0.12); color: var(--green); }
 .tr-win-main { flex: 1; min-width: 0; }
 .tr-win-text { font-size: 14px; color: var(--ink); line-height: 1.4; }
-.tr-win-meta { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 5px; font-size: 12px; color: var(--slate-light); }
+.tr-win-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 5px; font-size: 12px; color: var(--slate-light); }
 .tr-win-hf { display: inline-flex; gap: 6px; }
 .tr-hf { display: inline-flex; align-items: center; gap: 4px; min-width: 38px; height: 28px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--card); font-family: inherit; font-size: 14px; line-height: 1; cursor: pointer; transition: border-color .15s, background .15s, transform .1s; }
 .tr-hf:hover { border-color: var(--brass); }
@@ -1790,7 +1877,7 @@ export const CSS = `
 .tr-top3-name .tr-org-you { margin-left: 6px; }
 .tr-top3-n { font-weight: 700; font-variant-numeric: tabular-nums; }
 .tr-top3-empty { font-size: 12.5px; color: var(--slate-light); margin: 0; }
-@media (max-width: 860px) { .tr-wins-wrap { grid-template-columns: 1fr; } }
+@media (max-width: 860px) { .tr-wins-wrap { grid-template-columns: minmax(0, 1fr); } }
 /* Today → the four tiles */
 .tr-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-top: 16px; }
 .tr-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px 14px; border-radius: var(--radius); border: 1px solid var(--line); background: var(--card); font-family: inherit; text-align: left; cursor: pointer; transition: border-color .15s, box-shadow .15s; min-width: 0; }
@@ -1825,20 +1912,22 @@ export const CSS = `
 .tr-fold-body { padding: 0 12px 10px; }
 .tr-fold-week { margin-top: 8px; }
 /* Today → wins in the side column */
-.tr-wins-compact { grid-template-columns: 1fr; margin-top: 0; gap: 16px; }
+.tr-wins-compact { grid-template-columns: minmax(0, 1fr); margin-top: 0; gap: 16px; }
 .tr-wins-compact .tr-wins-sub { margin-bottom: 6px; }
 @media (max-width: 760px) {
   .tr-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .tr-tile { padding: 10px 12px; }
   .tr-tile-value { font-size: 24px; }
-  .tr-tile-label { font-size: 11px; }
-  .tr-tile-sub { font-size: 11px; }
+  .tr-tile-label { font-size: 12px; }
+  /* Up to two lines on a phone instead of "10 to catc…". */
+  .tr-tile-sub { font-size: 12px; white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
   .tr-task-actions { flex-direction: column; align-items: flex-end; gap: 4px; }
 }
 @media (max-width: 640px) {
   .tr-ft-row { flex-wrap: wrap; }
   .tr-ft-main { flex: 1 1 calc(100% - 40px); }
-  .tr-ft-assign { max-width: none; justify-content: flex-start; }
+  .tr-ft-assign { max-width: none; justify-content: flex-start; flex: 1 1 100%; min-width: 0; }
+  .tr-ft-assign .tr-toolbar-select { flex: 0 1 auto; min-width: 0; }
   .tr-rec-row { flex-wrap: wrap; padding: 12px 14px; column-gap: 10px; }
   .tr-rec-main { flex: 1 1 calc(100% - 60px); }
   .tr-rec-actions { margin-left: 18px; }
@@ -1850,7 +1939,7 @@ export const CSS = `
 .tr-header-chat { position: relative; width: 36px; height: 36px; }
 .tr-header .tr-header-chat-on { background: rgba(255,255,255,0.14); color: #fff; }
 .tr-header-chat-badge { position: absolute; top: -3px; right: -5px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--brass); color: var(--ink); font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; box-shadow: 0 0 0 2px var(--ink); }
-.tr-header-chat-badge-hot { background: #D9583F; color: #fff; }
+.tr-header-chat-badge-hot { background: #C94A32; color: #fff; }
 .tr-main:has(.tr-chat) { padding-bottom: 16px; }
 .tr-chat { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 360px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
 .tr-chat-loading, .tr-chat-gate { display: flex; justify-content: center; }
@@ -1865,7 +1954,7 @@ export const CSS = `
 .tr-chat-chan-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .tr-chat-chan-about { font-size: 12.5px; font-weight: 400; color: var(--slate-light); white-space: normal; }
 .tr-chat-count { min-width: 22px; padding: 1px 7px; border-radius: 999px; background: var(--brass); color: var(--ink); font-size: 12px; font-weight: 700; text-align: center; }
-.tr-chat-count-hot { background: #D9583F; color: #fff; }
+.tr-chat-count-hot { background: #C94A32; color: #fff; }
 .tr-chat-side-foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px; padding: 16px 10px 2px; }
 .tr-chat-side-foot .tr-link-btn { margin: 0; color: var(--slate); }
 .tr-chat-main { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
@@ -2054,7 +2143,7 @@ img.tr-photo-current { box-shadow: 0 0 0 1px var(--line); }
 .tr-pf-chip-red { color: #9B3A26; }
 .tr-pf-chip-amber { color: #8A5410; }
 .tr-pf-chip-on { background: var(--ink); border-color: var(--ink); color: #fff; }
-.tr-pf-chip-on i { background: rgba(255,255,255,0.18); }
+.tr-pf-chip-on i { background: rgba(255,255,255,0.12); }
 .tr-pf-chip-amber.tr-pf-chip-on { background: #8A5410; border-color: #8A5410; }
 .tr-pf-chip-red.tr-pf-chip-on { background: #9B3A26; border-color: #9B3A26; }
 .tr-pf-list { overflow: hidden; padding: 0; }
@@ -2073,7 +2162,7 @@ img.tr-photo-current { box-shadow: 0 0 0 1px var(--line); }
 .tr-pf-row-person > span:last-child { display: flex; flex-direction: column; min-width: 0; }
 .tr-pf-row-sub { display: block; margin-top: 1px; font-size: 12px; color: var(--slate-light); }
 .tr-pf-row-reason { display: flex; align-items: center; gap: 4px; margin-top: 3px; font-size: 11.5px; font-weight: 600; color: #9B3A26; }
-.tr-pf-row-prog { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.tr-pf-row-prog { display: flex; flex-wrap: wrap; align-items: center; gap: 3px 8px; min-width: 0; }
 .tr-pf-row-count { font-size: 11.5px; color: var(--slate-light); white-space: nowrap; }
 .tr-pf-row-now { font-size: 13px; line-height: 1.35; min-width: 0; }
 .tr-pf-phase-name { font-weight: 600; color: var(--brass-dark); }
@@ -2401,10 +2490,31 @@ a.tr-agenda-open, a.tr-cal-appt { text-decoration: none; }
   /* Phones: the name gets the whole line; call, text and Zoom go under it. */
   .tr-dayagenda-row { flex-wrap: wrap; row-gap: 8px; }
   .tr-dayagenda-open { flex-basis: 100%; }
-  .tr-dayagenda-acts { margin-left: 78px; }
+  .tr-dayagenda-acts { margin-left: 5.73em; } /* (the time column plus its gap, in em so it grows with the text) */
   .tr-agenda-item { flex-wrap: wrap; row-gap: 6px; }
   .tr-agenda-open { flex-basis: 100%; }
   .tr-agenda-item > .tr-agenda-what { flex-basis: calc(100% - 82px); }
   .tr-agenda-item > a.tr-btn { margin-left: 82px; }
+}
+/* Phones and tablets: toggles, chips and the small text links get a
+   finger-sized target too. (Last in the sheet, so these win over each
+   control's own size above.) */
+@media (hover: none) and (pointer: coarse) {
+  .tr-seg button { min-height: 38px; padding-left: 14px; padding-right: 14px; }
+  .tr-groupswitch button { min-height: 36px; }
+  .tr-pf-chip, .tr-pill-btn, .tr-chip-toggle { min-height: 40px; }
+  .tr-hf { height: 36px; }
+  .tr-header-account { min-height: 44px; }
+  .tr-info-btn, .tr-org-toggle { width: 36px; height: 36px; }
+  .tr-check-box { width: 30px; height: 30px; }
+  .tr-link-btn:not(.tr-pf-inline-link), .tr-task-link, .tr-ov-link, .tr-more-toggle, .tr-link-danger, .tr-f30-toggle { min-height: 36px; }
+  .tr-task-actions .tr-task-hide { margin-top: -6px; }
+  .tr-pf-check, .tr-pf-item-date, .tr-pf-doc-chip, .tr-pf-doc-name { min-height: 34px; }
+  .tr-jogger-cat-head { min-height: 40px; }
+  .tr-org-stat-ready, .tr-solar-trail button, .tr-pf-back { min-height: 36px; }
+  .tr-org-ready { position: relative; }
+  .tr-org-ready::after { content: ''; position: absolute; inset: -9px -4px; }
+  /* Names and links inside text: a taller tap area without moving the text. */
+  .tr-appt-client-btn, .tr-appt-links a, .tr-rowname-btn, .tr-solar-name-btn, .tr-account-links a, .tr-pf-dl dd a, .tr-note-item a.tr-link { padding-top: 8px; padding-bottom: 8px; margin-top: -8px; margin-bottom: -8px; }
 }
 `;

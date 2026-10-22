@@ -45,7 +45,7 @@ export function TeamProspectingBody({ user }) {
           <ProspectFunnel prospects={prospects} title="Team conversion funnel" />
           <div className="tr-card tr-summary-card">
           <div className="tr-table-wrap">
-            <table className="tr-table tr-table-summary">
+            <table className="tr-table tr-table-summary tr-table-stack">
               <thead>
                 <tr>
                   <th>Team member</th>
@@ -74,11 +74,11 @@ export function TeamProspectingBody({ user }) {
                           {m.role === 'manager' ? <span className="tr-note"> — manager</span> : null}
                           <MemberSubline member={m} />
                         </td>
-                        <td className="tr-mono">{active.length}</td>
-                        <td className="tr-mono">{sale}</td>
-                        <td className="tr-mono">{recruit}</td>
-                        <td className="tr-mono">{recruited}</td>
-                        <td className="tr-mono">{sold}</td>
+                        <td className="tr-mono" data-label="Active">{active.length}</td>
+                        <td className="tr-mono" data-label="Sale potential">{sale}</td>
+                        <td className="tr-mono" data-label="Recruit potential">{recruit}</td>
+                        <td className="tr-mono" data-label="Recruited">{recruited}</td>
+                        <td className="tr-mono" data-label="Sold">{sold}</td>
                       </tr>
                       {isOpen && (
                         <tr className="tr-expand-row"><td colSpan={6}>

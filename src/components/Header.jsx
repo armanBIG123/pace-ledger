@@ -1,5 +1,5 @@
 // The top bar and the Your account sheet.
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { LogOut, Plus, ShieldCheck, UserPlus, X } from 'lucide-react';
 import { createInvite } from '../invites.js';
 import { fetchMyOnboarding, onboardingDay, setOnboardingVisibility, shouldShowOnboarding } from '../onboarding.js';
@@ -10,6 +10,33 @@ import { avatarUrl, removeAllMyAvatarFiles } from '../data/avatars.js';
 import { InviteShare } from './invites.jsx';
 import { ProfilePhoto } from './profilePhoto.jsx';
 
+// True when the top bar's row is wider than the screen (only with very
+// large phone text): then the PaceLedger wordmark steps aside (the shield
+// stays) so the buttons stay on screen. Checks again when the bar or
+// anything in it changes size.
+function useHeaderFits(ref) {
+  const [tight, setTight] = useState(false);
+  const overflowing = () => {
+    const el = ref.current;
+    if (!el) return false;
+    const right = el.getBoundingClientRect().right;
+    return el.scrollWidth > el.clientWidth + 1 || [...el.querySelectorAll('button')].some(b => b.getBoundingClientRect().right > right + 1);
+  };
+  useLayoutEffect(() => { if (!tight && overflowing()) setTight(true); });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { if (overflowing()) setTight(true); }).catch(() => {});
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    let w = el.clientWidth;
+    const ro = new ResizeObserver(() => { if (el.clientWidth > w + 24) setTight(false); else if (overflowing()) setTight(true); w = el.clientWidth; });
+    // The row, and what's in it (the name or text size can change too).
+    [el, ...el.children].forEach(c => ro.observe(c));
+    return () => ro.disconnect();
+  }, [ref]); // eslint-disable-line react-hooks/exhaustive-deps
+  return tight;
+}
+
 // The navy band at the top: brand, search, + New and account on one row,
 // and (when a view passes `nav`) the section tabs on a second row, so
 // navigation reads as part of the frame rather than floating over the page.
@@ -18,6 +45,8 @@ import { ProfilePhoto } from './profilePhoto.jsx';
 export function Header({ user, nav, search, onNew, chat }) {
   const [accountOpen, setAccountOpen] = useState(false);
   const [focusName, setFocusName] = useState(false);
+  const rowRef = useRef(null);
+  const tight = useHeaderFits(rowRef);
   // Other screens can open Your account (e.g. Today's "Add your last name").
   useEffect(() => {
     const open = e => { setFocusName(!!(e.detail && e.detail.focus === 'name')); setAccountOpen(true); };
@@ -27,7 +56,7 @@ export function Header({ user, nav, search, onNew, chat }) {
   return (
     <>
     <header className={`tr-header ${nav ? 'tr-header-with-nav' : ''}`}>
-      <div className="tr-header-row">
+      <div className={`tr-header-row ${tight ? 'tr-header-tight' : ''}`} ref={rowRef}>
         <div className="tr-brand"><ShieldCheck size={20} /> <span>Pace<em>Ledger</em></span></div>
         {search || null}
         <div className="tr-header-user">

@@ -264,7 +264,7 @@ export function DailyChecklist({ user, items, onAct }) {
         </button>
       ) : null}
       <form className="tr-check-add" onSubmit={add}>
-        <input value={draft} onChange={e => setDraft(e.target.value)} maxLength={200} placeholder="Add your own task for today…" aria-label="Add your own task for today" />
+        <input value={draft} onChange={e => setDraft(e.target.value)} maxLength={200} placeholder="Add your own task…" aria-label="Add your own task for today" />
         <button type="submit" className="tr-btn tr-btn-ghost tr-btn-sm" disabled={busy || !draft.trim()}><Plus size={14} /> Add</button>
       </form>
       {err ? <div className="tr-error">{err}</div> : null}
