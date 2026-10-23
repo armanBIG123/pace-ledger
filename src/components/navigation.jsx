@@ -1,6 +1,6 @@
 // Tab lists, the tab bar / phone bottom bar, and the Android back button.
-import { useEffect, useRef, useState } from 'react';
-import { BookUser, Calendar, ChevronRight, ClipboardCheck, DollarSign, FolderOpen, Kanban, LayoutDashboard, Menu, Network, Plus, Sun, TrendingUp, UserCog, Users } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { BookUser, Calendar, ChevronDown, ChevronRight, ClipboardCheck, DollarSign, FolderOpen, Kanban, LayoutDashboard, Menu, Network, Plus, Sun, TrendingUp, UserCog, Users } from 'lucide-react';
 import { minimizeAndroidApp, onAndroidBack } from '../native.js';
 
 // ---------------------------------------------------------------------
@@ -30,6 +30,99 @@ export const TEAM_TABS = [
 
 export const ADMIN_TEAM_TABS = [...TEAM_TABS, { id: 'profiles', label: 'Profiles', short: 'Profiles', Icon: BookUser }, { id: 'clientforms', label: 'Client Forms', short: 'Forms', Icon: ClipboardCheck }, { id: 'users', label: 'Manage Team', short: 'Manage', Icon: UserCog }];
 
+// Which tabs fit in the top strip: the first ones in order, always
+// including the one you're on, leaving room for "More" if any don't fit.
+// widths: each tab's width; avail: the strip's width.
+export function fitTabs(widths, activeIndex, avail, moreWidth, gap = 2) {
+  const n = widths.length;
+  const sum = list => list.reduce((s, i) => s + widths[i], 0) + Math.max(0, list.length - 1) * gap;
+  const all = [...Array(n).keys()];
+  if (sum(all) <= avail) return all;
+  let best = activeIndex >= 0 ? [activeIndex] : [];
+  for (let k = 1; k <= n; k++) {
+    const pick = all.slice(0, k);
+    if (activeIndex >= 0 && !pick.includes(activeIndex)) pick[pick.length - 1] = activeIndex;
+    if (sum(pick) + gap + moreWidth > avail) break;
+    best = pick;
+  }
+  return best;
+}
+
+// The top tab strip (tablet and desktop): every tab when there's room;
+// otherwise the ones that fit and a "More" menu with the rest, so no tab is
+// ever hidden off the edge.
+function TabStrip({ tabs, tab, onSelect }) {
+  const stripRef = useRef(null);
+  const measureRef = useRef(null);
+  const moreRef = useRef(null);
+  const [shown, setShown] = useState(null); // indexes of tabs in the strip; null = all
+  const [menu, setMenu] = useState(null); // { top, left } while the More menu is open
+  const activeIndex = tabs.findIndex(t => t.id === tab);
+  const ids = tabs.map(t => t.id).join(',');
+  useLayoutEffect(() => {
+    const strip = stripRef.current, measure = measureRef.current;
+    if (!strip || !measure) return undefined;
+    const calc = () => {
+      const avail = strip.clientWidth;
+      if (!avail) return; // hidden: phones use the bottom bar
+      const items = [...measure.children].map(el => el.getBoundingClientRect().width);
+      const moreWidth = items.pop();
+      const pick = fitTabs(items, activeIndex, avail, moreWidth);
+      const next = pick.length === tabs.length ? null : pick;
+      // (only re-render when the set of tabs that fit actually changes)
+      setShown(prev => (String(prev) === String(next) ? prev : next));
+    };
+    calc();
+    let ro = null;
+    if (typeof ResizeObserver !== 'undefined') { ro = new ResizeObserver(calc); ro.observe(strip); }
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(calc).catch(() => {});
+    return () => { if (ro) ro.disconnect(); };
+  }, [ids, activeIndex]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!menu) return undefined;
+    const close = e => { if (e.type === 'keydown' && e.key !== 'Escape') return; if (e.type === 'mousedown' && e.target.closest && e.target.closest('.tr-navmore-menu, .tr-navtab-more')) return; setMenu(null); };
+    window.addEventListener('mousedown', close);
+    window.addEventListener('keydown', close);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true);
+    return () => { window.removeEventListener('mousedown', close); window.removeEventListener('keydown', close); window.removeEventListener('resize', close); window.removeEventListener('scroll', close, true); };
+  }, [menu]);
+  const go = id => { setMenu(null); onSelect(id); window.scrollTo(0, 0); };
+  const visible = shown ? shown.map(i => tabs[i]) : tabs;
+  const rest = shown ? tabs.filter((_, i) => !shown.includes(i)) : [];
+  const tabButton = t => (
+    <button key={t.id} type="button" className={`tr-navtab ${tab === t.id ? 'tr-navtab-on' : ''}`} aria-current={tab === t.id ? 'page' : undefined} onClick={() => go(t.id)}>{t.label}</button>
+  );
+  return (
+    <>
+      <div className="tr-navtabs" ref={stripRef}>
+        {visible.map(tabButton)}
+        {rest.length ? (
+          <button
+            type="button" ref={moreRef} className="tr-navtab tr-navtab-more" aria-expanded={!!menu} aria-controls="tr-navmore-menu"
+            onClick={() => { if (menu) { setMenu(null); return; } const r = moreRef.current.getBoundingClientRect(); setMenu({ top: Math.round(r.bottom + 4), left: Math.round(Math.min(r.left, window.innerWidth - 228)) }); }}>
+            More <ChevronDown size={14} aria-hidden="true" />
+          </button>
+        ) : null}
+      </div>
+      {/* Every tab's width, measured out of sight. */}
+      <div className="tr-navtabs-measure" ref={measureRef} aria-hidden="true">
+        {tabs.map(t => <span key={t.id}>{t.label}</span>)}
+        <span>More <ChevronDown size={14} /></span>
+      </div>
+      {menu ? (
+        <div className="tr-navmore-menu" id="tr-navmore-menu" style={{ top: menu.top, left: menu.left }}>
+          {rest.map(t => (
+            <button key={t.id} type="button" className={tab === t.id ? 'tr-navmore-on' : ''} aria-current={tab === t.id ? 'page' : undefined} onClick={() => go(t.id)}>
+              <t.Icon size={16} aria-hidden="true" /><span>{t.label}</span>
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </>
+  );
+}
+
 export function TabNav({ tabs, tab, onSelect, onNew }) {
   const [moreOpen, setMoreOpen] = useState(false);
   const primary = tabs.length > 5 ? tabs.slice(0, 4) : tabs;
@@ -42,11 +135,7 @@ export function TabNav({ tabs, tab, onSelect, onNew }) {
   }
   return (
     <>
-      <div className="tr-navtabs">
-        {tabs.map(t => (
-          <button key={t.id} type="button" className={`tr-navtab ${tab === t.id ? 'tr-navtab-on' : ''}`} aria-current={tab === t.id ? 'page' : undefined} onClick={() => { onSelect(t.id); window.scrollTo(0, 0); }}>{t.label}</button>
-        ))}
-      </div>
+      <TabStrip tabs={tabs} tab={tab} onSelect={onSelect} />
       <nav className="tr-bottomnav" aria-label="Main">
         {(() => {
           const items = primary.map(({ id, short, Icon }) => (

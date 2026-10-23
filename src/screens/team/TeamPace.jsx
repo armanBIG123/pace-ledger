@@ -236,11 +236,11 @@ export function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, 
 
   return (
     <>
-      <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
       <div className="tr-row-head tr-screen-head">
         <h2 className="tr-h2"><Icon size={18} aria-hidden="true" /> {heading}</h2>
         <RefreshButton onClick={refreshAppts} />
       </div>
+      <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
       {!loadingMembers && <NewAdvisorsCard members={members} />}
       <div className="tr-typefilter-row">
         <span className="tr-typefilter-label">Show:</span>

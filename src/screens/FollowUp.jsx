@@ -250,7 +250,7 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
         {flash ? <div className="tr-flash" role="status">{flash}</div> : null}
         <div className="tr-search-row">
           <Search size={15} className="tr-search-icon" />
-          <input className="tr-search-input" type="text" placeholder="Search by client name or phone…" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
+          <input className="tr-search-input" type="text" placeholder="Search by name or phone…" aria-label="Search past appointments by client name or phone" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
           {searchQuery && <button type="button" className="tr-icon-btn" onClick={() => setSearchQuery('')} title="Clear search"><X size={15} /></button>}
         </div>
         <div className="tr-fu-list">
@@ -309,7 +309,7 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
                 <div className="tr-fu-chips">
                   {a.followUpCompletedAt
                     ? (st && st.value ? <span className={`tr-status tr-status-${st.color}`}>{st.label}</span> : null)
-                    : <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={e => { e.stopPropagation(); setModalTarget(a); }}>Log outcome</button>}
+                    : open ? null /* (it's in the section below once open) */ : <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={e => { e.stopPropagation(); setModalTarget(a); }}>Log outcome</button>}
                   {istate !== 'none' && <span className={`tr-status ${istate === 'received' ? 'tr-status-green' : 'tr-status-amber'}`}>{istate === 'received' ? 'Intake received' : 'Intake sent'}</span>}
                   {apptNotes.length > 0 && <span className="tr-status tr-status-none">{apptNotes.length} note{apptNotes.length === 1 ? '' : 's'}</span>}
                   {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
@@ -360,7 +360,7 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
                     </div>
                     <div className="tr-intake-link-row">
                       <input
-                        className="tr-search-input" style={{ flex: 1 }} type="text" placeholder="Add a note — called, texted, wants intake, next steps…"
+                        className="tr-search-input" style={{ flex: 1 }} type="text" placeholder="Add a note (called, texted…)" aria-label="Add a follow-up note (called, texted, wants intake, next steps)"
                         value={noteDrafts[a.id] || ''} onChange={e => setNoteDrafts(prev => ({ ...prev, [a.id]: e.target.value }))}
                         onKeyDown={e => { if (e.key === 'Enter') handleAddNote(a); }} />
                       <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" disabled={busyId === a.id || !(noteDrafts[a.id] || '').trim()} onClick={() => handleAddNote(a)}>Add</button>

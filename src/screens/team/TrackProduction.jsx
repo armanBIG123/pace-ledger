@@ -117,7 +117,6 @@ export function TrackProductionBody({ user }) {
 
   return (
     <>
-      <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
       <div className="tr-row-head">
         <TitleInfo title={<><TrendingUp size={18} aria-hidden="true" /> Track production</>} info="Sales and recruits marked in each person's follow-up, counted in the week the appointment took place (Saturday to Friday), whenever it was booked. Tap a name to see who they sold to and recruited." />
         <div style={{ display: 'flex', gap: 8 }}>
@@ -125,13 +124,14 @@ export function TrackProductionBody({ user }) {
           <RefreshButton onClick={refresh} />
         </div>
       </div>
+      <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
       {switcher}
       {loading ? <SkeletonTable rows={5} cols={4} /> : members.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">No team members yet.</p></div>
       ) : (
         <div className="tr-card tr-summary-card">
           <div className="tr-table-wrap">
-            <table className="tr-table tr-table-summary">
+            <table className="tr-table tr-table-summary tr-table-stack">
               <thead><tr><th>Team member</th><th>Sales</th><th>Submitted premium</th><th>Recruits</th></tr></thead>
               <tbody>
                 {members.map(m => {
@@ -150,12 +150,12 @@ export function TrackProductionBody({ user }) {
                           {m.role === 'super_admin' ? <span className="tr-note"> — admin</span> : null}
                           {m.reports_to_name ? <div className="tr-tenure">Reports to {m.reports_to_name}</div> : null}
                         </td>
-                        <td className="tr-mono">{sold.length || '—'}</td>
-                        <td className="tr-mono">
+                        <td className="tr-mono" data-label="Sales">{sold.length || '—'}</td>
+                        <td className="tr-mono" data-label="Premium">
                           {sold.length ? fmtCurrency(premium) : '—'}
                           {noPremium ? <div className="tr-tenure">{noPremium} with no premium entered</div> : null}
                         </td>
-                        <td className="tr-mono">{recruited.length || '—'}</td>
+                        <td className="tr-mono" data-label="Recruits">{recruited.length || '—'}</td>
                       </tr>
                       {isOpen && (
                         <tr className="tr-expand-row">

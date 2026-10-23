@@ -172,7 +172,7 @@ export function ProfilesBody() {
         <div className="tr-search-row tr-pf-search">
           <Search size={15} className="tr-search-icon" />
           <input className="tr-search-input" type="text" value={q} onChange={e => setQ(e.target.value)}
-            placeholder={view === 'people' ? 'Search people, email or NPN' : 'Search entities or partners'} aria-label="Search" />
+            placeholder={view === 'people' ? 'Search name, email, NPN' : 'Search entities, partners'} aria-label={view === 'people' ? 'Search people by name, email or NPN' : 'Search entities or partners'} />
           {q ? <button type="button" className="tr-icon-btn" onClick={() => setQ('')} aria-label="Clear search"><X size={15} /></button> : null}
         </div>
         <label className="tr-pf-sort"><ArrowUpDown size={14} aria-hidden="true" />

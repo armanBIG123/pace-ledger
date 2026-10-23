@@ -685,7 +685,7 @@ export function PolicyCard({ policy, canEdit, currentUser, onSaved }) {
           </div>
         )}
         <div className="tr-note-add" onKeyDown={handleNoteKeyDown}>
-          <input value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="Add a note about open requirements…" />
+          <input value={newNote} onChange={e => setNewNote(e.target.value)} placeholder="Note an open requirement…" aria-label="Add a note about open requirements" />
           <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={submitNote} disabled={noteSaving || !newNote.trim()}>Add</button>
         </div>
       </div>
@@ -1085,7 +1085,7 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
           <div className="tr-search-row">
             <Search size={15} className="tr-search-icon" />
             <input
-              className="tr-search-input" type="text" placeholder="Search every appointment by name or phone…"
+              className="tr-search-input" type="text" placeholder="Search by name or phone…" aria-label="Search appointments by client name or phone"
               value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
             {searchQuery && (
               <button type="button" className="tr-icon-btn" onClick={() => setSearchQuery('')} title="Clear search"><X size={15} /></button>

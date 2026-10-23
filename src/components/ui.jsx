@@ -3,7 +3,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CalendarDays, ChevronLeft, ChevronRight, DollarSign, Info, Loader2, MoreHorizontal, RefreshCw, UserPlus } from 'lucide-react';
 import { CSS } from '../styles.js';
-import { joinedDate, weekLabel } from '../lib/dates.js';
+import { joinedDate, todayStr, weekLabel, weekStartOf } from '../lib/dates.js';
 import { isRecruitType, isSaleType, STATUS_OPTIONS } from '../data/appointments.js';
 
 // "Reports to Sam · Joined 08/26/2026" under a team member's name.
@@ -256,10 +256,11 @@ export function GroupSwitch({ group, onSelect, teamLabel }) {
 export function WeekNav({ weekMonday, onShift, onToday }) {
   return (
     <div className="tr-weeknav">
-      <button className="tr-icon-btn" onClick={() => onShift(-1)} title="Previous week"><ChevronLeft size={18} /></button>
-      <div className="tr-weeknav-label"><CalendarDays size={16} /><span>Week of {weekLabel(weekMonday)}</span></div>
-      <button className="tr-icon-btn" onClick={() => onShift(1)} title="Next week"><ChevronRight size={18} /></button>
-      <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onToday}>This week</button>
+      <button type="button" className="tr-icon-btn" onClick={() => onShift(-1)} title="Previous week" aria-label="Previous week"><ChevronLeft size={18} /></button>
+      <div className="tr-weeknav-label"><CalendarDays size={16} aria-hidden="true" /><span>Week of {weekLabel(weekMonday)}</span></div>
+      <button type="button" className="tr-icon-btn" onClick={() => onShift(1)} title="Next week" aria-label="Next week"><ChevronRight size={18} /></button>
+      {/* (Greyed out while you're already on this week.) */}
+      <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onToday} disabled={weekMonday === weekStartOf(todayStr())}>This week</button>
     </div>
   );
 }

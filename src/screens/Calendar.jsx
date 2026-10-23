@@ -16,8 +16,9 @@ import { GoogleCalendarConnect } from '../components/integrations.jsx';
 // trainings — org-wide announcements, visible to everyone regardless of
 // role or reporting structure, posted by super admins only
 // ---------------------------------------------------------------------
-export function TrainingPostCard({ user, onPosted }) {
-  const [showForm, setShowForm] = useState(false);
+// The form for posting a training; opened from the Calendar's "New training"
+// button. onClose: hide it.
+export function TrainingPostCard({ user, onPosted, onClose }) {
   const [title, setTitle] = useState('');
   const [date, setDate] = useState('');
   const [time, setTime] = useState('');
@@ -52,68 +53,64 @@ export function TrainingPostCard({ user, onPosted }) {
     setSaving(false);
     if (!res.ok) { setErr(res.error || 'Could not post. Try again.'); return; }
     setTitle(''); setDate(''); setTime(''); setEndTime(''); setZoomUrl(''); setNotes(''); setRecurring(false); setRepeatUntil('');
-    setShowForm(false);
     res.records.forEach(onPosted);
+    onClose();
   }
 
   return (
     <div className="tr-card tr-training-post">
-      <div className="tr-row-head" style={{ marginBottom: showForm ? 14 : 0 }}>
-        <h3 className="tr-h3" style={{ margin: 0 }}><GraduationCap size={16} /> Post a training</h3>
-        <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setShowForm(v => !v)}>{showForm ? 'Cancel' : '+ New training'}</button>
+      <div className="tr-row-head" style={{ marginBottom: 14 }}>
+        <h3 className="tr-h3" style={{ margin: 0 }}><GraduationCap size={16} aria-hidden="true" /> Post a training</h3>
+        <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onClose}>Cancel</button>
       </div>
-      {showForm && (
-        <>
-          <div className="tr-form-grid">
-            <label className="tr-field tr-field-wide">
-              <span>Title</span>
-              <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. New Product Training" />
-            </label>
-            <div className="tr-appt-when">
-              <label className="tr-field tr-appt-when-date">
-                <span>Date</span>
-                <input type="date" value={date} onChange={e => setDate(e.target.value)} onClick={openPicker} />
-              </label>
-              <label className="tr-field">
-                <span>Starts</span>
-                <input type="time" value={time} onChange={e => changeStart(e.target.value)} onClick={openPicker} />
-              </label>
-              <label className="tr-field">
-                <span>Ends{length >= 5 && length <= 720 ? <em className="tr-appt-len">{durationLabel(length)}</em> : null}</span>
-                <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} onClick={openPicker} />
-              </label>
-            </div>
-            <label className="tr-field">
-              <span>Time zone</span>
-              <select value={timezone} onChange={e => setTimezone(e.target.value)}>
-                {timezoneOptions.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
-              </select>
-            </label>
-            <label className="tr-field">
-              <span>Zoom link (optional)</span>
-              <input value={zoomUrl} onChange={e => setZoomUrl(e.target.value)} placeholder="https://zoom.us/j/..." />
-            </label>
-            <label className="tr-field tr-field-wide">
-              <span>Notes (optional)</span>
-              <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Anything else worth noting" />
-            </label>
-            <label className="tr-field tr-field-wide tr-checkbox-field">
-              <input type="checkbox" checked={recurring} onChange={e => setRecurring(e.target.checked)} />
-              <span>Repeat weekly (same day of week and time)</span>
-            </label>
-            {recurring && (
-              <label className="tr-field">
-                <span>Repeat until</span>
-                <input type="date" value={repeatUntil} onChange={e => setRepeatUntil(e.target.value)} min={date || undefined} onClick={openPicker} />
-              </label>
-            )}
-          </div>
-          {err && <div className="tr-error">{err}</div>}
-          <div className="tr-form-actions">
-            <button type="button" className="tr-btn tr-btn-brass" onClick={submit} disabled={saving}>{saving ? 'Posting…' : 'Post training'}</button>
-          </div>
-        </>
-      )}
+      <div className="tr-form-grid">
+        <label className="tr-field tr-field-wide">
+          <span>Title</span>
+          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. New Product Training" />
+        </label>
+        <div className="tr-appt-when">
+          <label className="tr-field tr-appt-when-date">
+            <span>Date</span>
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} onClick={openPicker} />
+          </label>
+          <label className="tr-field">
+            <span>Starts</span>
+            <input type="time" value={time} onChange={e => changeStart(e.target.value)} onClick={openPicker} />
+          </label>
+          <label className="tr-field">
+            <span>Ends{length >= 5 && length <= 720 ? <em className="tr-appt-len">{durationLabel(length)}</em> : null}</span>
+            <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} onClick={openPicker} />
+          </label>
+        </div>
+        <label className="tr-field">
+          <span>Time zone</span>
+          <select value={timezone} onChange={e => setTimezone(e.target.value)}>
+            {timezoneOptions.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+          </select>
+        </label>
+        <label className="tr-field">
+          <span>Zoom link (optional)</span>
+          <input value={zoomUrl} onChange={e => setZoomUrl(e.target.value)} placeholder="https://zoom.us/j/..." />
+        </label>
+        <label className="tr-field tr-field-wide">
+          <span>Notes (optional)</span>
+          <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Anything else worth noting" />
+        </label>
+        <label className="tr-field tr-field-wide tr-checkbox-field">
+          <input type="checkbox" checked={recurring} onChange={e => setRecurring(e.target.checked)} />
+          <span>Repeat weekly (same day of week and time)</span>
+        </label>
+        {recurring && (
+          <label className="tr-field">
+            <span>Repeat until</span>
+            <input type="date" value={repeatUntil} onChange={e => setRepeatUntil(e.target.value)} min={date || undefined} onClick={openPicker} />
+          </label>
+        )}
+      </div>
+      {err && <div className="tr-error">{err}</div>}
+      <div className="tr-form-actions">
+        <button type="button" className="tr-btn tr-btn-brass" onClick={submit} disabled={saving}>{saving ? 'Posting…' : 'Post training'}</button>
+      </div>
     </div>
   );
 }
@@ -123,8 +120,9 @@ export function TrainingPostCard({ user, onPosted }) {
 // advisors booking an appointment with them as presenter can be stopped
 // from double-booking that time (see checkAppointmentConflict).
 // ---------------------------------------------------------------------
-export function SchedulePostCard({ user, onPosted }) {
-  const [showForm, setShowForm] = useState(false);
+// The form for blocking out time; opened from the Calendar's "Block out
+// time" button. onClose: hide it.
+export function SchedulePostCard({ user, onPosted, onClose }) {
   const [label, setLabel] = useState('');
   const [date, setDate] = useState('');
   const [startTime, setStartTime] = useState('');
@@ -148,58 +146,54 @@ export function SchedulePostCard({ user, onPosted }) {
     setSaving(false);
     if (!res.ok) { setErr(res.error || 'Could not save. Try again.'); return; }
     setLabel(''); setDate(''); setStartTime(''); setEndTime(''); setRecurring(false); setRepeatUntil('');
-    setShowForm(false);
     res.records.forEach(onPosted);
+    onClose();
   }
 
   return (
     <div className="tr-card tr-training-post">
-      <div className="tr-row-head" style={{ marginBottom: showForm ? 14 : 0 }}>
-        <h3 className="tr-h3" style={{ margin: 0 }}><Ban size={16} /> My schedule</h3>
-        <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setShowForm(v => !v)}>{showForm ? 'Cancel' : '+ Block out time'}</button>
+      <div className="tr-row-head" style={{ marginBottom: 14 }}>
+        <h3 className="tr-h3" style={{ margin: 0 }}><Ban size={16} aria-hidden="true" /> Block out time</h3>
+        <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onClose}>Cancel</button>
       </div>
-      {showForm && (
-        <>
-          <div className="tr-form-grid">
-            <label className="tr-field tr-field-wide">
-              <span>Reason (optional)</span>
-              <input value={label} onChange={e => setLabel(e.target.value)} placeholder="e.g. Team meeting, out of office" />
-            </label>
-            <label className="tr-field">
-              <span>Date</span>
-              <input type="date" value={date} onChange={e => setDate(e.target.value)} onClick={openPicker} />
-            </label>
-            <label className="tr-field">
-              <span>Start time</span>
-              <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} onClick={openPicker} />
-            </label>
-            <label className="tr-field">
-              <span>End time</span>
-              <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} onClick={openPicker} />
-            </label>
-            <label className="tr-field">
-              <span>Time zone</span>
-              <select value={timezone} onChange={e => setTimezone(e.target.value)}>
-                {timezoneOptions.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
-              </select>
-            </label>
-            <label className="tr-field tr-field-wide tr-checkbox-field">
-              <input type="checkbox" checked={recurring} onChange={e => setRecurring(e.target.checked)} />
-              <span>Repeat weekly (same day of week and times)</span>
-            </label>
-            {recurring && (
-              <label className="tr-field">
-                <span>Repeat until</span>
-                <input type="date" value={repeatUntil} onChange={e => setRepeatUntil(e.target.value)} min={date || undefined} onClick={openPicker} />
-              </label>
-            )}
-          </div>
-          {err && <div className="tr-error">{err}</div>}
-          <div className="tr-form-actions">
-            <button type="button" className="tr-btn tr-btn-brass" onClick={submit} disabled={saving}>{saving ? 'Saving…' : 'Block out time'}</button>
-          </div>
-        </>
-      )}
+      <div className="tr-form-grid">
+        <label className="tr-field tr-field-wide">
+          <span>Reason (optional)</span>
+          <input value={label} onChange={e => setLabel(e.target.value)} placeholder="e.g. Team meeting, out of office" />
+        </label>
+        <label className="tr-field">
+          <span>Date</span>
+          <input type="date" value={date} onChange={e => setDate(e.target.value)} onClick={openPicker} />
+        </label>
+        <label className="tr-field">
+          <span>Start time</span>
+          <input type="time" value={startTime} onChange={e => setStartTime(e.target.value)} onClick={openPicker} />
+        </label>
+        <label className="tr-field">
+          <span>End time</span>
+          <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} onClick={openPicker} />
+        </label>
+        <label className="tr-field">
+          <span>Time zone</span>
+          <select value={timezone} onChange={e => setTimezone(e.target.value)}>
+            {timezoneOptions.map(tz => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+          </select>
+        </label>
+        <label className="tr-field tr-field-wide tr-checkbox-field">
+          <input type="checkbox" checked={recurring} onChange={e => setRecurring(e.target.checked)} />
+          <span>Repeat weekly (same day of week and times)</span>
+        </label>
+        {recurring && (
+          <label className="tr-field">
+            <span>Repeat until</span>
+            <input type="date" value={repeatUntil} onChange={e => setRepeatUntil(e.target.value)} min={date || undefined} onClick={openPicker} />
+          </label>
+        )}
+      </div>
+      {err && <div className="tr-error">{err}</div>}
+      <div className="tr-form-actions">
+        <button type="button" className="tr-btn tr-btn-brass" onClick={submit} disabled={saving}>{saving ? 'Saving…' : 'Block out time'}</button>
+      </div>
     </div>
   );
 }
@@ -252,7 +246,7 @@ export function CalendarDay({ cell, appts, googleEvents, trainings, scheduleBloc
             ? <a key={item.data.id} className="tr-cal-appt tr-cal-appt-google tr-cal-appt-btn" href={item.data.htmlLink} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} title="Open in Google Calendar">{label}</a>
             : <div key={item.data.id} className="tr-cal-appt tr-cal-appt-google">{label}</div>;
         })())}
-        {extra > 0 && <div className="tr-cal-more">+{extra} more</div>}
+        {extra > 0 && <div className="tr-cal-more">+{extra}<span className="tr-cal-more-word"> more</span></div>}
       </div>
     </div>
   );
@@ -313,6 +307,8 @@ export function CalendarBody({ user, onLogAppointment }) {
   const [dayModal, setDayModal] = useState(null);
   // A training or blocked-out time opened on its own: { kind, data }.
   const [infoItem, setInfoItem] = useState(null);
+  // Which form is open under the heading: 'training', 'block' or null.
+  const [posting, setPosting] = useState(null);
   const [googleStatus, setGoogleStatus] = useState({ connected: false });
   const [googleEvents, setGoogleEvents] = useState([]);
   const [googleConnecting, setGoogleConnecting] = useState(false);
@@ -434,36 +430,54 @@ export function CalendarBody({ user, onLogAppointment }) {
 
   return (
     <>
-      <PageHead title="Calendar" sub="Your appointments, team trainings and Google events in one place." />
+      {/* Posting a training and blocking out time are buttons up here; their
+          forms open under the heading only when you use them, so the month
+          isn't pushed down the page. */}
+      <PageHead title="Calendar" sub="Your appointments, team trainings and Google events in one place.">
+        {user.role === 'super_admin' ? (
+          <button type="button" className={`tr-btn tr-btn-sm ${posting === 'training' ? 'tr-btn-brass' : 'tr-btn-ghost'}`} aria-expanded={posting === 'training'} onClick={() => setPosting(p => (p === 'training' ? null : 'training'))}>
+            <GraduationCap size={14} aria-hidden="true" /> New training
+          </button>
+        ) : null}
+        {user.role === 'manager' || user.role === 'super_admin' ? (
+          <button type="button" className={`tr-btn tr-btn-sm ${posting === 'block' ? 'tr-btn-brass' : 'tr-btn-ghost'}`} aria-expanded={posting === 'block'} onClick={() => setPosting(p => (p === 'block' ? null : 'block'))}>
+            <Ban size={14} aria-hidden="true" /> Block out time
+          </button>
+        ) : null}
+      </PageHead>
+      {posting === 'training' && user.role === 'super_admin' ? <TrainingPostCard user={user} onClose={() => setPosting(null)} onPosted={t => setTrainings(prev => [...prev, t])} /> : null}
+      {posting === 'block' && (user.role === 'manager' || user.role === 'super_admin') ? <SchedulePostCard user={user} onClose={() => setPosting(null)} onPosted={b => setScheduleBlocks(prev => [...prev, b])} /> : null}
       <GoogleCalendarConnect status={googleStatus} connecting={googleConnecting} onConnect={handleConnect} onDisconnect={handleDisconnect} />
-      {user.role === 'super_admin' && <TrainingPostCard user={user} onPosted={t => setTrainings(prev => [...prev, t])} />}
-      {(user.role === 'manager' || user.role === 'super_admin') && (
-        <SchedulePostCard user={user} onPosted={b => setScheduleBlocks(prev => [...prev, b])} />
-      )}
-      <div className="tr-weeknav">
+      {/* Month / List and ‹ month › stay together on one line; the rest
+          wraps under them on a phone. */}
+      <div className="tr-weeknav tr-cal-toolbar">
         <div className="tr-seg" role="group" aria-label="Calendar view">
           <button type="button" className={calView === 'month' ? 'tr-seg-on' : ''} onClick={() => setCalView('month')}>Month</button>
           <button type="button" className={calView === 'agenda' ? 'tr-seg-on' : ''} onClick={() => setCalView('agenda')}>List</button>
         </div>
-        <button className="tr-icon-btn" onClick={() => setMonthStartStr(shiftMonth(monthStartStr, -1))} title="Previous month"><ChevronLeft size={18} /></button>
-        <div className="tr-weeknav-label"><CalendarDays size={16} /><span>{monthLabel}</span></div>
-        <button className="tr-icon-btn" onClick={() => setMonthStartStr(shiftMonth(monthStartStr, 1))} title="Next month"><ChevronRight size={18} /></button>
-        <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setMonthStartStr(monthStartOf(todayStr()))}>This month</button>
-        <RefreshButton onClick={refresh} />
-        <button
-          type="button" className={`tr-btn tr-btn-sm ${highlightTrainings ? 'tr-btn-brass' : 'tr-btn-ghost'}`}
-          onClick={() => setHighlightTrainings(v => !v)} title="Highlight days with trainings">
-          <GraduationCap size={14} /> Trainings
-        </button>
-        {seesTeam(user) && (
-          <select className="tr-cal-personfilter" value={personFilter} onChange={e => setPersonFilter(e.target.value)}>
-            <option value="all">Everyone</option>
-            <option value="mine">Just me</option>
-            {members.filter(m => m.id !== user.id).map(m => (
-              <option key={m.id} value={m.id}>{m.display_name}</option>
-            ))}
-          </select>
-        )}
+        <div className="tr-monthnav">
+          <button type="button" className="tr-icon-btn" onClick={() => setMonthStartStr(shiftMonth(monthStartStr, -1))} title="Previous month" aria-label="Previous month"><ChevronLeft size={18} /></button>
+          <div className="tr-weeknav-label"><CalendarDays size={16} aria-hidden="true" /><span>{monthLabel}</span></div>
+          <button type="button" className="tr-icon-btn" onClick={() => setMonthStartStr(shiftMonth(monthStartStr, 1))} title="Next month" aria-label="Next month"><ChevronRight size={18} /></button>
+        </div>
+        <div className="tr-cal-tools">
+          <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setMonthStartStr(monthStartOf(todayStr()))} disabled={monthStartStr === monthStartOf(todayStr())}>This month</button>
+          <RefreshButton onClick={refresh} />
+          <button
+            type="button" className={`tr-btn tr-btn-sm ${highlightTrainings ? 'tr-btn-brass' : 'tr-btn-ghost'}`} aria-pressed={highlightTrainings}
+            onClick={() => setHighlightTrainings(v => !v)} title="Highlight days with trainings">
+            <GraduationCap size={14} aria-hidden="true" /> Trainings
+          </button>
+          {seesTeam(user) && (
+            <select className="tr-cal-personfilter" value={personFilter} onChange={e => setPersonFilter(e.target.value)} aria-label="Whose appointments to show">
+              <option value="all">Everyone</option>
+              <option value="mine">Just me</option>
+              {members.filter(m => m.id !== user.id).map(m => (
+                <option key={m.id} value={m.id}>{m.display_name}</option>
+              ))}
+            </select>
+          )}
+        </div>
       </div>
       {loading ? <SkeletonCalendar /> : calView === 'agenda' ? (() => {
         // List view: every day in this month that has something on it,
@@ -551,7 +565,7 @@ export function CalendarBody({ user, onLogAppointment }) {
         <span><i className="tr-lg tr-lg-training" /> Training</span>
         <span><i className="tr-lg tr-lg-block" /> Unavailable</span>
         {googleStatus.connected && <span><i className="tr-lg tr-lg-google" /> Google</span>}
-        <span className="tr-cal-legend-hint">Click an appointment to open it, or a day to see everything on it{onLogAppointment ? ' or book an appointment' : ''}.</span>
+        <span className="tr-cal-legend-hint">Open an appointment to see or change it, or a day to see everything on it{onLogAppointment ? ' and book one' : ''}.</span>
       </div>
       {dayModal && (() => {
         const day = { appts: apptsForDay(dayModal.date), googleEvents: googleForDay(dayModal.date), trainings: trainingsForDay(dayModal.date), blocks: scheduleBlocksForDay(dayModal.date) };

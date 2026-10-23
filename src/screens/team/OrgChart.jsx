@@ -456,11 +456,11 @@ export function OrgChartBody({ user, onOpenPromotion, initialIntent, onIntentCon
 
   return (
     <>
-      <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
       <div className="tr-row-head tr-screen-head">
         <TitleInfo title={<><Network size={18} aria-hidden="true" /> Org chart</>} info="Who reports to whom, with each person's appointment pace for the week. Open a name to see their team." />
         <RefreshButton onClick={load} />
       </div>
+      <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
       {loading ? <SkeletonTable rows={6} cols={3} /> : visiblePeople.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">No one to show yet.</p></div>
       ) : (

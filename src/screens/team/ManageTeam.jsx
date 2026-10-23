@@ -129,39 +129,39 @@ export function ManageUsersView({ currentUserId, currentUserName }) {
       {error && <div className="tr-error" style={{ margin: 16 }}>{error}</div>}
       {loading ? <SkeletonTable rows={6} cols={5} /> : (
         <div className="tr-table-wrap">
-          <table className="tr-table tr-table-summary">
+          <table className="tr-table tr-table-summary tr-table-stack tr-manage-table">
             <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Reports To</th><th>Tier</th><th></th></tr></thead>
             <tbody>
               {users.map(u => (
                 <tr key={u.id}>
-                  <td>
+                  <td className="tr-mt-name">
                     {u.display_name}{u.id === currentUserId ? ' (you)' : ''}
                     <div className="tr-tenure">Joined {joinedDate(u.created_at)}</div>
                   </td>
-                  <td>{u.email || '—'}</td>
-                  <td>
-                    <select value={u.role} disabled={savingId === u.id} onChange={e => handleChange(u.id, e.target.value)}>
+                  <td className="tr-mt-email">{u.email || '—'}</td>
+                  <td className="tr-mt-role" data-label="Role">
+                    <select value={u.role} disabled={savingId === u.id} onChange={e => handleChange(u.id, e.target.value)} aria-label={`Role for ${u.display_name}`}>
                       <option value="advisor">Advisor</option>
                       <option value="manager">Manager</option>
                       <option value="super_admin">Super Admin</option>
                     </select>
                   </td>
-                  <td>
+                  <td className="tr-mt-mgr" data-label="Reports to">
                     {u.role === 'advisor' || u.role === 'manager' ? (
-                      <select value={u.manager_id || ''} disabled={savingId === u.id} onChange={e => handleManagerChange(u.id, e.target.value)}>
+                      <select value={u.manager_id || ''} disabled={savingId === u.id} onChange={e => handleManagerChange(u.id, e.target.value)} aria-label={`Who ${u.display_name} reports to`}>
                         {uplineChoices(u)}
                       </select>
                     ) : '—'}
                   </td>
-                  <td>
-                    <select value={u.hierarchy_tier || ''} disabled={savingId === u.id} onChange={e => handleTierChange(u.id, e.target.value)}>
+                  <td className="tr-mt-tier" data-label="Tier">
+                    <select value={u.hierarchy_tier || ''} disabled={savingId === u.id} onChange={e => handleTierChange(u.id, e.target.value)} aria-label={`Tier for ${u.display_name}`}>
                       <option value="">— none —</option>
                       {HIERARCHY_TIERS.map(t => <option key={t.key} value={t.key}>{t.key} — {t.name}</option>)}
                     </select>
                   </td>
-                  <td>
+                  <td className="tr-mt-del">
                     {u.id !== currentUserId && (
-                      <button className="tr-icon-btn" onClick={() => handleDelete(u.id, u.display_name)} disabled={savingId === u.id} title="Delete account" aria-label="Delete account">
+                      <button className="tr-icon-btn" onClick={() => handleDelete(u.id, u.display_name)} disabled={savingId === u.id} title="Delete account" aria-label={`Delete ${u.display_name}'s account`}>
                         <Trash2 size={14} />
                       </button>
                     )}
