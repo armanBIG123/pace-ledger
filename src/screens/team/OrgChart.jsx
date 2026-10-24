@@ -14,6 +14,8 @@ import { RefreshButton, SkeletonTable, StatusBadge, TitleInfo, WeekNav } from '.
 import { MilestoneCard } from './MilestoneCard.jsx';
 import { Avatar, useAvatars } from '../../components/avatar.jsx';
 import { isAdmin as isAdminRole, roleLabel } from '../../lib/roles.js';
+import { useSystemTabs } from '../../lib/systemScope.js';
+import { SystemTabs } from '../../components/systemTabs.jsx';
 
 // Solar system view of the org chart: the person in focus is the centre, the
 // people who report to them orbit around them. Everyone is drawn as their
@@ -246,7 +248,9 @@ export function SolarSystemView({ user, isAdmin, roots, byId, children, stats, r
                     <span className="tr-solar-list-name">
                       <button type="button" className="tr-solar-name-btn" onClick={() => setSelected(p.id)} aria-label={`${p.display_name}: show milestones`}><strong>{p.display_name}</strong></button>
                       {p.hierarchy_tier ? <span className="tr-org-tier">{p.hierarchy_tier}</span> : null}
-                      {ready ? <button type="button" className="tr-org-ready" onClick={onOpenPromotion}><Award size={12} /> Ready for {ready.key}</button> : null}
+                      {ready ? (onOpenPromotion
+                        ? <button type="button" className="tr-org-ready" onClick={onOpenPromotion}><Award size={12} /> Ready for {ready.key}</button>
+                        : <span className="tr-org-ready"><Award size={12} /> Ready for {ready.key}</span>) : null}
                       <span className="tr-solar-list-sub">{progressLine(p)} · {st.total}/{WEEKLY_TOTAL_TARGET} this week{team ? ` · team of ${team}` : ''}{lic && !lic.licensed && p.role !== 'super_admin' ? ` · licensing ${lic.doneCount}/${lic.total}` : ''}</span>
                       {s && (s.state === 'working' || s.state === 'ready') ? (
                         <span className="tr-solar-list-bar" aria-hidden="true"><i className={s.state === 'ready' ? 'tr-ms-bar-done' : ''} style={{ width: `${Math.max(s.pct, s.pct > 0 ? 3 : 0)}%` }} /></span>
@@ -282,6 +286,13 @@ export function OrgChartBody({ user, onOpenPromotion, initialIntent, onIntentCon
   const [pendingPerson, setPendingPerson] = useState(null); // from search
   const [selectRequest, setSelectRequest] = useState(null);
   const isAdmin = isAdminRole(user);
+  // Super admins: a tab for each solar system.
+  const tabs = useSystemTabs(user);
+  const tabSystemId = tabs.systems.length ? tabs.current : null;
+  function pickSystem(id) { setOpen(null); setSolarFocus(null); setQuery(''); tabs.pick(id); }
+  // Promotions for another solar system are its Super Managers' to approve
+  // (Team Pace shows your own), so on its tab "ready" isn't a link.
+  const openPromotion = tabs.other ? null : onOpenPromotion;
   useEffect(() => {
     if (!initialIntent) return;
     if (typeof initialIntent === 'object' && initialIntent.person) setPendingPerson(initialIntent.person);
@@ -291,7 +302,8 @@ export function OrgChartBody({ user, onOpenPromotion, initialIntent, onIntentCon
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [list, appts, sold] = await Promise.all([fetchHierarchyPeople(), fetchAppointmentsForWeek(weekMonday), fetchRecentSoldAppointments()]);
+    const [all, appts, sold] = await Promise.all([fetchHierarchyPeople(), fetchAppointmentsForWeek(weekMonday), fetchRecentSoldAppointments()]);
+    const list = tabSystemId ? all.filter(p => p.solar_system_id === tabSystemId) : all;
     setPeople(list);
     setWeekAppts(appts);
     const progress = computeReadiness(list, sold, promotionSubjects(user, list));
@@ -300,7 +312,7 @@ export function OrgChartBody({ user, onOpenPromotion, initialIntent, onIntentCon
     const prog = await fetchLicensingForUsers(list.map(p => p.id));
     setLicensing(new Map(list.map(p => [p.id, licensingStatus(prog.get(p.id), p)])));
     setLoading(false);
-  }, [weekMonday, user.id, user.role]);
+  }, [weekMonday, user.id, user.role, tabSystemId]);
   useEffect(() => { load(); }, [load]);
 
   const children = React.useMemo(() => {
@@ -431,9 +443,11 @@ export function OrgChartBody({ user, onOpenPromotion, initialIntent, onIntentCon
                 <span className="tr-org-lic" title={`Next: ${licensing.get(person.id).next.title}`}>Licensing {licensing.get(person.id).doneCount}/{licensing.get(person.id).total}</span>
               ) : null}
               {ready ? (
-                <button type="button" className="tr-org-ready" onClick={onOpenPromotion} title="Open promotion readiness">
-                  <Award size={12} /> Ready for {ready.key}
-                </button>
+                openPromotion ? (
+                  <button type="button" className="tr-org-ready" onClick={openPromotion} title="Open promotion readiness">
+                    <Award size={12} /> Ready for {ready.key}
+                  </button>
+                ) : <span className="tr-org-ready"><Award size={12} /> Ready for {ready.key}</span>
               ) : null}
             </div>
             <div className="tr-org-sub">
@@ -461,6 +475,7 @@ export function OrgChartBody({ user, onOpenPromotion, initialIntent, onIntentCon
         <TitleInfo title={<><Network size={18} aria-hidden="true" /> Org chart</>} info="Who reports to whom, with each person's appointment pace for the week. Open a name to see their team." />
         <RefreshButton onClick={load} />
       </div>
+      <SystemTabs tabs={{ ...tabs, pick: pickSystem }} />
       <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
       {loading ? <SkeletonTable rows={6} cols={3} /> : visiblePeople.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">No one to show yet.</p></div>
@@ -470,7 +485,9 @@ export function OrgChartBody({ user, onOpenPromotion, initialIntent, onIntentCon
             <span><strong>{visiblePeople.length}</strong> {visiblePeople.length === 1 ? 'person' : 'people'}</span>
             <span><strong>{leaders}</strong> leading others</span>
             <span><strong>{onPace}</strong> on pace this week</span>
-            {readyHere > 0 && <button type="button" className="tr-org-stat-ready" onClick={onOpenPromotion}><Award size={13} /> <strong>{readyHere}</strong> ready for promotion</button>}
+            {readyHere > 0 && (openPromotion
+              ? <button type="button" className="tr-org-stat-ready" onClick={openPromotion}><Award size={13} /> <strong>{readyHere}</strong> ready for promotion</button>
+              : <span className="tr-org-stat-ready"><Award size={13} /> <strong>{readyHere}</strong> ready for promotion</span>)}
           </div>
           <div className="tr-org-tools">
             <div className="tr-seg" role="group" aria-label="Org chart view">
@@ -498,7 +515,7 @@ export function OrgChartBody({ user, onOpenPromotion, initialIntent, onIntentCon
                 </div>
               )}
               <SolarSystemView user={user} isAdmin={isAdmin} roots={roots} byId={byId} children={children} stats={stats} readyIds={readyIds} licensing={licensing}
-                teamOf={teamOf} focusId={solarFocus} onFocus={setSolarFocus} onOpenPromotion={onOpenPromotion} summaries={summaries} weekMonday={weekMonday} selectRequest={selectRequest} />
+                teamOf={teamOf} focusId={solarFocus} onFocus={setSolarFocus} onOpenPromotion={openPromotion} summaries={summaries} weekMonday={weekMonday} selectRequest={selectRequest} />
             </>
           ) : (
           <div className="tr-card tr-org-card">

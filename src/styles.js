@@ -141,17 +141,17 @@ export const CSS = `
 .tr-leader-invite-form { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px 14px; margin-top: 8px; }
 .tr-leader-invite-form .tr-error, .tr-leader-invite-form .tr-form-actions { grid-column: 1 / -1; }
 @media (max-width: 640px) { .tr-leader-invite-form { grid-template-columns: minmax(0, 1fr); } }
-.tr-galaxy { background: var(--ink-2); color: rgba(255,255,255,0.78); border-top: 1px solid rgba(255,255,255,0.06); }
-.tr-galaxy-inner { max-width: 1120px; margin: 0 auto; padding: 7px 24px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; font-size: 12.5px; }
-.tr-galaxy-inner svg { color: var(--brass); }
-.tr-galaxy-inner label { font-weight: 600; color: #fff; }
-.tr-galaxy-inner select { min-height: 30px; padding: 3px 28px 3px 10px; border-radius: 7px; border: 1px solid rgba(255,255,255,0.22); background-color: rgba(255,255,255,0.08); color: #fff; font: inherit; font-weight: 600; }
-.tr-galaxy-inner select option { color: var(--ink); }
-.tr-galaxy-note { color: rgba(255,255,255,0.62); }
-.tr-galaxy-one { background: #3A2F14; }
-.tr-galaxy-one .tr-galaxy-inner select { border-color: var(--brass); background-color: rgba(196,154,60,0.18); }
-.tr-galaxy-one .tr-galaxy-note { color: #EED493; }
-@media (max-width: 640px) { .tr-galaxy-inner { padding: 7px 14px; } .tr-galaxy-note { flex-basis: 100%; } }
+.tr-systabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; margin-top: -6px; }
+.tr-systabs::-webkit-scrollbar { display: none; }
+.tr-systab { font: inherit; font-size: 14px; font-weight: 600; color: var(--slate); background: none; border: none; border-bottom: 2.5px solid transparent; padding: 9px 14px 10px; margin-bottom: -1px; cursor: pointer; white-space: nowrap; min-height: 42px; }
+.tr-systab:hover { color: var(--ink); }
+.tr-systab-on, .tr-systab-on:hover { color: var(--ink); border-bottom-color: var(--brass); }
+.tr-mt-move { position: relative; display: inline-block; }
+.tr-mt-move-menu { position: fixed; z-index: 60; background: var(--card); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: 0 10px 24px rgba(19,33,46,0.16); padding: 6px; min-width: 210px; display: flex; flex-direction: column; gap: 2px; text-align: left; }
+.tr-mt-move-menu span { font-size: 11.5px; font-weight: 600; color: var(--slate); padding: 4px 8px 2px; }
+.tr-mt-move-menu button { font: inherit; font-size: 13.5px; text-align: left; background: none; border: none; border-radius: 7px; padding: 8px; cursor: pointer; color: var(--ink); }
+.tr-mt-move-menu button:hover { background: var(--brass-tint); }
+.tr-mt-del { white-space: nowrap; }
 .tr-row-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 /* Serif is reserved for page titles and headline figures; everything
    inside a card is set in Plex so the page reads in two clear voices. */

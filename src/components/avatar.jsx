@@ -20,7 +20,8 @@ export function useAvatars() {
     const load = () => fetchAvatarsShared().then(m => { if (alive) setMap(m); });
     load();
     window.addEventListener('paceledger:avatars-changed', load);
-    return () => { alive = false; window.removeEventListener('paceledger:avatars-changed', load); };
+    window.addEventListener('paceledger:system-scope', load);
+    return () => { alive = false; window.removeEventListener('paceledger:avatars-changed', load); window.removeEventListener('paceledger:system-scope', load); };
   }, []);
   return map;
 }

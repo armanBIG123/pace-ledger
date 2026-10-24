@@ -11,13 +11,6 @@ export async function fetchSolarSystems() {
   return data || [];
 }
 
-// Super admins: look at one solar system (or null: all of them).
-export async function setViewingSystem(systemId) {
-  const { error } = await supabase.rpc('set_viewing_system', { p_system: systemId || null });
-  if (error) { console.error(error); return false; }
-  return true;
-}
-
 // A sign-up link for someone to lead a solar system as its Super Manager
 // (super admins only).
 export async function createLeaderInvite({ creatorId, systemId, name }) {
@@ -32,6 +25,10 @@ export async function createLeaderInvite({ creatorId, systemId, name }) {
 // Move someone (and everyone under them) to another solar system. They
 // report to no one there until a leader is picked.
 export async function moveToSystem(personId, systemId) {
-  const { error } = await supabase.from('profiles').update({ solar_system_id: systemId, manager_id: null }).eq('id', personId);
-  return error ? error.message : null;
+  const { error } = await supabase.rpc('move_to_solar_system', { p_person: personId, p_system: systemId });
+  if (!error) return null;
+  if (!missing(error)) return error.message;
+  // Before migration-solar-system-tabs.sql.
+  const res = await supabase.from('profiles').update({ solar_system_id: systemId, manager_id: null }).eq('id', personId);
+  return res.error ? res.error.message : null;
 }

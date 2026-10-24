@@ -10,7 +10,7 @@ import { fetchMyLicensing, updateMyProfile } from '../data/team.js';
 import { avatarUrl, removeAllMyAvatarFiles } from '../data/avatars.js';
 import { InviteShare } from './invites.jsx';
 import { ProfilePhoto } from './profilePhoto.jsx';
-import { roleLabel } from '../lib/roles.js';
+import { isGalaxyAdmin, roleLabel } from '../lib/roles.js';
 
 // True when the top bar's row is wider than the screen (only with very
 // large phone text): then the PaceLedger wordmark steps aside (the shield
@@ -290,7 +290,7 @@ export function AccountSheet({ user, focusName = false, onClose }) {
         <dl className="tr-account-list">
           <div><dt>Email</dt><dd>{user.email || '—'}</dd></div>
           <div><dt>Role</dt><dd>{roleLabel(user.role)}</dd></div>
-          {user.solarSystemName ? <div><dt>Solar system</dt><dd>{user.solarSystemName}</dd></div> : null}
+          {isGalaxyAdmin(user) && user.solarSystemName ? <div><dt>Solar system</dt><dd>{user.solarSystemName}</dd></div> : null}
         </dl>
         <div className="tr-account-links">
           <a href={`${PUBLIC_SITE_URL}/privacy-policy.html`} target="_blank" rel="noopener noreferrer">Privacy policy</a>
