@@ -26,6 +26,7 @@ import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../c
 import { fetchMyIntakeStatus } from '../clientIntake.js';
 import { openIntakeSend } from '../lib/intakeEvents.js';
 import { dayWord, intakeStatusText } from '../lib/intakeStatus.js';
+import { isAdmin as isAdminRole } from '../lib/roles.js';
 
 // The checklist card. `result` comes from computeOnboarding().
 export function FirstThirtyDays({ result, day, onGo, onHide }) {
@@ -172,7 +173,7 @@ export function useNeedsYou({ user, licProfile, showLicensing, onMilestones, onR
     return () => { alive = false; window.removeEventListener('paceledger:onboarding-changed', load); };
   }, [user.id]);
 
-  const isAdmin = user.role === 'super_admin';
+  const isAdmin = isAdminRole(user);
   const keyOf = x => `${x.member.id}:${x.progress.nextTier.key}`;
   function hide(x) {
     const next = new Set(hidden); next.add(keyOf(x)); setHidden(next);

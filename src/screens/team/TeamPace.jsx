@@ -14,6 +14,7 @@ import { RequirementRow } from '../Milestones.jsx';
 import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../../components/appointmentPanel.jsx';
 import { RecruitsSubView } from './Recruits.jsx';
 import { FieldTrainingSubView } from './FieldTraining.jsx';
+import { isAdmin as isAdminRole } from '../../lib/roles.js';
 
 // A general, week-scoped feedback channel a manager can leave for an
 // advisor — separate from Open Requirements' policy-specific notes.
@@ -360,7 +361,11 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
   const [expanded, setExpanded] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [notice, setNotice] = useState(null);
-  const isAdmin = user.role === 'super_admin';
+  const isAdmin = isAdminRole(user);
+  // A Super Manager can't approve their own.
+  const decides = member => isAdmin && !(member.id === user.id && user.role !== 'super_admin');
+  // Where promotion submissions are emailed.
+  const emailedTo = !user.solarSystemName || /^Big Insurance Network$/.test(user.solarSystemName) ? `the agency (${AGENCY_EMAIL})` : `${user.solarSystemName}'s Super Managers`;
 
   const refresh = useCallback(async () => {
     if (members.length === 0) { setProgressList([]); setLoading(false); return; }
@@ -392,7 +397,7 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
 
   async function submit(member, progress) {
     const t = progress.nextTier;
-    if (!window.confirm(`Submit ${member.display_name}'s promotion to ${t.name} (${t.key}) for approval?\n\nPaceLedger will email the agency (${AGENCY_EMAIL}) with their results.`)) return;
+    if (!window.confirm(`Submit ${member.display_name}'s promotion to ${t.name} (${t.key}) for approval?\n\nPaceLedger will email ${emailedTo} with their results.`)) return;
     setBusyId(member.id); setNotice(null);
     const res = await submitPromotion(member, progress);
     setBusyId(null);
@@ -428,7 +433,7 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
     let req = waitingFor(member, progress);
     const ask = req
       ? `Approve ${member.display_name}'s promotion to ${t.name} (${t.key})?`
-      : `Promote ${member.display_name} to ${t.name} (${t.key})?\n\nNo one has submitted it yet, so PaceLedger will submit it now and email the agency (${AGENCY_EMAIL}) with their results.`;
+      : `Promote ${member.display_name} to ${t.name} (${t.key})?\n\nNo one has submitted it yet, so PaceLedger will submit it now and email ${emailedTo} with their results.`;
     if (!window.confirm(ask)) return;
     setBusyId(member.id); setNotice(null);
     if (!req) {
@@ -519,13 +524,13 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
                               {waiting ? <span className="tr-promo-waiting-text">Waiting for approval</span>
                                 : progress.allMet ? <span className="tr-promo-ready-text"><Check size={14} aria-hidden="true" /> Ready</span> : null}
                               {!progress.allMet ? <span className="tr-mono">{metCount} / {totalCount} met{waiting ? ' now' : ''}</span> : null}
-                              {isAdmin && waiting ? (
+                              {decides(member) && waiting ? (
                                 <>
                                   <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" disabled={busy} onClick={stop(() => approve(member, progress))}>{busy ? 'Saving…' : 'Approve'}</button>
                                   <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" disabled={busy} onClick={stop(() => sendBack(waiting, member))}>Send back</button>
                                 </>
                               ) : null}
-                              {isAdmin && !waiting && progress.allMet ? (
+                              {decides(member) && !waiting && progress.allMet ? (
                                 <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" disabled={busy} onClick={stop(() => approve(member, progress))}>
                                   {busy ? 'Saving…' : `Promote to ${progress.nextTier.key}`}
                                 </button>
@@ -705,7 +710,7 @@ export function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage
 export function TeamPaceBody({ user, initialView, onIntentConsumed }) {
   useEffect(() => { if (initialView) onIntentConsumed?.(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [scope, setScope] = useState('all'); // 'all' | 'directs'
-  const isSuperAdmin = user.role === 'super_admin';
+  const isSuperAdmin = isAdminRole(user);
   const showDirects = isSuperAdmin && scope === 'directs';
   const fetchMembers = showDirects ? fetchDirectManagers : fetchTeamMembers;
   const heading = showDirects ? 'Direct managers' : 'Team pace';

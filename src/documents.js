@@ -1,17 +1,18 @@
 import { supabase } from './supabaseClient.js';
 
 // ---------------------------------------------------------------------
-// documents (data layer) — shared PDF/PPTX library, open to everyone;
-// upload/delete/rename is super_admin only. DocumentsBody itself (the
-// UI) lives in App.jsx.
+// documents (data layer) — each solar system's PDF/PPTX library, open to
+// everyone in it; upload/delete/rename is for super admins and Super
+// Managers. New files go in the solar system's own folder (BHB/...).
+// DocumentsBody itself (the UI) lives in screens/Documents.jsx.
 // ---------------------------------------------------------------------
 export async function fetchDocuments() {
   const { data, error } = await supabase.from('documents').select('*').order('created_at', { ascending: false });
   if (error) { console.error(error); return []; }
   return data;
 }
-export async function uploadDocument(file, title, userId, userName, fileType) {
-  const filePath = `${crypto.randomUUID()}-${file.name}`;
+export async function uploadDocument(file, title, userId, userName, fileType, folder = '') {
+  const filePath = `${folder ? `${folder}/` : ''}${crypto.randomUUID()}-${file.name}`;
   const { error: uploadErr } = await supabase.storage.from('documents').upload(filePath, file);
   if (uploadErr) return { ok: false, error: uploadErr.message };
   const { data, error: insertErr } = await supabase.from('documents').insert({
@@ -21,10 +22,18 @@ export async function uploadDocument(file, title, userId, userName, fileType) {
   if (insertErr) return { ok: false, error: insertErr.message };
   return { ok: true, record: data };
 }
+// The file goes too, unless another solar system's copy still uses it.
 export async function deleteDocument(id, filePath) {
-  await supabase.storage.from('documents').remove([filePath]);
-  const { error } = await supabase.from('documents').delete().eq('id', id);
-  return !error;
+  const { data, error } = await supabase.rpc('delete_document', { p_id: id });
+  if (error) {
+    if (!(error.code === 'PGRST202' || /could not find the function|does not exist/i.test(error.message || ''))) { console.error(error); return false; }
+    // Before the database update: as it always was.
+    await supabase.storage.from('documents').remove([filePath]);
+    const { error: e2 } = await supabase.from('documents').delete().eq('id', id);
+    return !e2;
+  }
+  if (data) await supabase.storage.from('documents').remove([data]);
+  return true;
 }
 export async function updateDocumentTitle(id, title) {
   const { error } = await supabase.from('documents').update({ title: title.trim() }).eq('id', id);

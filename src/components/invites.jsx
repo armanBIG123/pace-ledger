@@ -20,7 +20,9 @@ export function inviteEmailError(code) {
   return "The email couldn't be sent. Check your connection and try again, or copy the link instead.";
 }
 
-export function InviteShare({ invite, recruitName, defaultEmail }) {
+// leads: the solar system's name, for a link that makes them its Super
+// Manager (Manage Team -> Invite a Super Manager).
+export function InviteShare({ invite, recruitName, defaultEmail, leads = '' }) {
   const [copied, setCopied] = useState('');
   const [to, setTo] = useState(invite.emailed_to || defaultEmail || '');
   const [sending, setSending] = useState(false);
@@ -28,7 +30,9 @@ export function InviteShare({ invite, recruitName, defaultEmail }) {
   const [emailErr, setEmailErr] = useState('');
   const link = buildInviteLink(invite.token);
   const first = (recruitName || '').trim().split(' ')[0];
-  const message = `Hey ${first || 'there'}! Here's your personal link to create your PaceLedger account. It's already set up to put you on my team: ${link}`;
+  const message = leads
+    ? `Hey ${first || 'there'}! Here's your personal link to create your PaceLedger account. It's set up for you to lead ${leads} as its Super Manager: ${link}`
+    : `Hey ${first || 'there'}! Here's your personal link to create your PaceLedger account. It's already set up to put you on my team: ${link}`;
   async function copy(kind) {
     const res = await shareOrCopy(kind === 'link' ? { url: link, title: 'PaceLedger sign-up link' } : { text: message });
     if (res === 'copied') {

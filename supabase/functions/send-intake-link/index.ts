@@ -10,7 +10,10 @@
 //   APP_URL             — https://big-pace-ledger.com (the link's address)
 //
 // Needs migration-intake-sending.sql (sent_at, sent_via, emailed_at,
-// email_send_count on client_intake_candidates).
+// email_send_count on client_intake_candidates). With
+// migration-solar-systems.sql, the email carries the advisor's own agency
+// name (e.g. Big Huge Business), and a Super Manager can send for their
+// own solar system.
 //
 // Security: the form is loaded server-side and must belong to the signed-in
 // caller (or they're a super admin), and must not be filled in yet. The link
@@ -29,7 +32,7 @@ const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
 const INVITE_FROM_EMAIL = Deno.env.get('INVITE_FROM_EMAIL') || '';
 const APP_URL = (Deno.env.get('APP_URL') || 'https://big-pace-ledger.com').replace(/\/+$/, '');
-const AGENCY = 'Big Insurance Network';
+const DEFAULT_AGENCY = 'Big Insurance Network';
 
 // The email holds a personal link, which must never land in a browser cache.
 const CORS_HEADERS = {
@@ -70,8 +73,18 @@ Deno.serve(async (req: Request) => {
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
     const { data: form } = await admin.from('client_intake_candidates').select('*').eq('id', candidateId).maybeSingle();
     if (!form) return json({ sent: false, error: 'not_found' }, 404);
-    const { data: me } = await admin.from('profiles').select('display_name, email, role').eq('id', userId).maybeSingle();
-    if (form.advisor_id !== userId && me?.role !== 'super_admin') return json({ sent: false, error: 'not_found' }, 404);
+    const { data: me } = await admin.from('profiles').select('*').eq('id', userId).maybeSingle();
+    const { data: owner } = await admin.from('profiles').select('*').eq('id', form.advisor_id).maybeSingle();
+    const sameSystem = !!me && !!owner && (me.solar_system_id ?? null) === (owner.solar_system_id ?? null);
+    if (form.advisor_id !== userId && me?.role !== 'super_admin' && !(me?.role === 'super_manager' && sameSystem)) {
+      return json({ sent: false, error: 'not_found' }, 404);
+    }
+    // The advisor's agency (their solar system), or Big Insurance Network.
+    let AGENCY = DEFAULT_AGENCY;
+    if (owner?.solar_system_id) {
+      const { data: sys } = await admin.from('solar_systems').select('email_name').eq('id', owner.solar_system_id).maybeSingle();
+      if (sys?.email_name) AGENCY = sys.email_name;
+    }
     if (form.status === 'submitted') return json({ sent: false, error: 'already_received' });
     if ((form.email_send_count || 0) >= PER_FORM_CAP) return json({ sent: false, error: 'form_limit' });
 

@@ -9,6 +9,7 @@ import { fetchHierarchyPeopleShared } from '../data/team.js';
 import { computeDownline } from '../hierarchy.js';
 import { personInitials } from '../lib/format.js';
 import { Avatar, useAvatars } from './avatar.jsx';
+import { isAdmin as isAdminRole } from '../lib/roles.js';
 
 const COLORS = ['#2D68A8', '#6B51A0', '#2E7D5B', '#A0522D', '#8E6B1F', '#24548A', '#7A3E5C'];
 const colorOf = id => COLORS[[...String(id)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % COLORS.length];
@@ -126,7 +127,7 @@ export function AnnouncementTeam({ user }) {
     return () => { alive = false; };
   }, [ids, state]);
   if (!live.length) return null;
-  const isAdmin = user.role === 'super_admin';
+  const isAdmin = isAdminRole(user);
   const below = people ? new Set(computeDownline(user.id, people).map(p => p.id).filter(id => id !== user.id)) : new Set();
   return (
     <>

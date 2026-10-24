@@ -2,7 +2,9 @@
 import { Suspense, useEffect, useState } from 'react';
 import { GroupSwitch, Shell } from '../components/ui.jsx';
 import { Header } from '../components/Header.jsx';
-import { ADMIN_TEAM_TABS, MY_WORK_TABS, TabNav, TEAM_TABS, useAndroidBackButton } from '../components/navigation.jsx';
+import { ADMIN_TEAM_TABS, MY_WORK_TABS, SUPER_MANAGER_TEAM_TABS, TabNav, TEAM_TABS, useAndroidBackButton } from '../components/navigation.jsx';
+import { GalaxyBar } from '../components/galaxyBar.jsx';
+import { isGalaxyAdmin } from '../lib/roles.js';
 import { GlobalSearch, useNewMenu } from '../components/quickActions.jsx';
 import { useAppointmentReminders } from '../components/reminders.jsx';
 import { ChatButton, useChatUnread } from '../components/chatButton.jsx';
@@ -231,15 +233,16 @@ export function AdminView({ user }) {
       <Header user={user} search={<GlobalSearch user={user} go={go} withPeople />} onNew={openNew}
         chat={<ChatButton counts={chatCounts} onOpen={() => go('chat')} active={tab === 'chat'} />} nav={<>
         <GroupSwitch group={group} onSelect={selectGroup} teamLabel="Team & admin" />
-        <TabNav tabs={group === 'mine' ? MY_WORK_TABS : ADMIN_TEAM_TABS} tab={tab} onSelect={setTab} onNew={openNew} />
+        <TabNav tabs={group === 'mine' ? MY_WORK_TABS : isGalaxyAdmin(user) ? ADMIN_TEAM_TABS : SUPER_MANAGER_TEAM_TABS} tab={tab} onSelect={setTab} onNew={openNew} />
       </>} />
+      <GalaxyBar user={user} />
       <main className="tr-main">
         <Screens id={`${group}:${tab}`}>
           <MyWorkScreens user={user} nav={nav} />
           <TeamScreens user={user} nav={nav} />
-          {tab === 'profiles' && <ProfilesBody />}
+          {tab === 'profiles' && isGalaxyAdmin(user) && <ProfilesBody />}
           {tab === 'clientforms' && <ClientFormsBody />}
-          {tab === 'users' && <ManageUsersView currentUserId={user.id} currentUserName={user.displayName} />}
+          {tab === 'users' && <ManageUsersView user={user} currentUserId={user.id} currentUserName={user.displayName} />}
         </Screens>
       </main>
       {newEl}

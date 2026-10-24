@@ -11,6 +11,7 @@ import { fetchHierarchyPeople } from '../data/team.js';
 import { InviteSomeone } from './Header.jsx';
 import { openAppointment } from './appointmentPanel.jsx';
 import { openIntakeSend } from '../lib/intakeEvents.js';
+import { isAdmin } from '../lib/roles.js';
 
 // ---------------------------------------------------------------------
 // + New
@@ -175,7 +176,7 @@ export function GlobalSearch({ user, go, withPeople }) {
     ]);
     let team = [];
     if (withPeople) {
-      const ids = user.role === 'super_admin' ? new Set(people.map(p => p.id)) : new Set(downlineIds(user.id, buildChildrenMap(people)));
+      const ids = isAdmin(user) ? new Set(people.map(p => p.id)) : new Set(downlineIds(user.id, buildChildrenMap(people)));
       ids.delete(user.id);
       team = people.filter(p => ids.has(p.id));
     }

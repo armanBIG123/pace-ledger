@@ -138,8 +138,10 @@ export function AuthScreen() {
             )}
             {mode === 'signup' && canSignUp && (
               <div className="tr-join-box">
-                <div>You're joining <strong>{invite.uplineName}</strong>'s team.</div>
-                {invite.aboveUpline && invite.aboveUpline.length > 0 && (
+                {invite.leadsSystem
+                  ? <div>You're joining <strong>{invite.systemName}</strong> as its Super Manager.</div>
+                  : <div>You're joining <strong>{invite.uplineName}</strong>'s team{invite.systemName && invite.systemName !== 'Big Insurance Network' ? <> in <strong>{invite.systemName}</strong></> : null}.</div>}
+                {!invite.leadsSystem && invite.aboveUpline && invite.aboveUpline.length > 0 && (
                   <div className="tr-join-chain">{teamLine}</div>
                 )}
               </div>

@@ -8,6 +8,8 @@ import { AndroidBackLeavesApp } from './components/navigation.jsx';
 import { lazyScreen, ScreenBoundary } from './components/lazyScreen.jsx';
 import { AuthScreen, ResetPasswordScreen } from './screens/Auth.jsx';
 import { AdminView, AdvisorView, ManagerView } from './views/RoleViews.jsx';
+import { isAdmin } from './lib/roles.js';
+import { fetchSolarSystems } from './data/solarSystems.js';
 
 // The client intake form (opened from a link sent to a client) loads only
 // for that link.
@@ -142,11 +144,11 @@ export default function App() {
 
     setProfileLoading(true);
     setProfileError('');
-    Promise.all([supabase.from('profiles').select('*').eq('id', userId).single(), hasDirectReports(userId)])
-      .then(([{ data, error }, leads]) => {
+    Promise.all([supabase.from('profiles').select('*').eq('id', userId).single(), hasDirectReports(userId), fetchSolarSystems()])
+      .then(([{ data, error }, leads, systems]) => {
         if (cancelled) return;
         if (error) setProfileError('Could not load your profile. Try refreshing the page.');
-        setProfile(data ? { ...data, _leads: leads } : null);
+        setProfile(data ? { ...data, _leads: leads, _systems: systems } : null);
         setProfileLoading(false);
         fetchedForUserId.current = userId;
       });
@@ -176,11 +178,23 @@ export default function App() {
   }
   if (profileLoading || !profile) return <Shell><AndroidBackLeavesApp /><Spinner label="Loading your account…" /></Shell>;
 
-  const user = { id: session.user.id, email: session.user.email || profile.email || '', displayName: profile.display_name, role: profile.role, hierarchyTier: profile.hierarchy_tier, managerId: profile.manager_id, createdAt: profile.created_at, isLeader: !!profile._leads, avatarPath: profile.avatar_path || '' };
+  const systems = profile._systems || [];
+  const home = systems.find(s => s.id === profile.solar_system_id) || null;
+  const viewing = profile.role === 'super_admin' ? systems.find(s => s.id === profile.viewing_system_id) || null : home;
+  const user = {
+    id: session.user.id, email: session.user.email || profile.email || '', displayName: profile.display_name, role: profile.role,
+    hierarchyTier: profile.hierarchy_tier, managerId: profile.manager_id, createdAt: profile.created_at, isLeader: !!profile._leads,
+    avatarPath: profile.avatar_path || '',
+    // Solar systems: theirs, the one a super admin is looking at (null: all),
+    // and where their new posts and uploads go.
+    solarSystemId: profile.solar_system_id || null, solarSystemName: systems.length > 1 || (home && home.short_name !== 'BIG') ? (home && home.name) || '' : '',
+    viewingSystemId: viewing ? viewing.id : null, writerSystemShort: (viewing || home || {}).short_name || '',
+    solarSystems: systems,
+  };
   return (
     <>
       <ConnectionBanner banner={connectionBanner} onDismiss={() => setConnectionBanner(null)} />
-      {user.role === 'super_admin' ? <AdminView user={user} /> : seesTeam(user) ? <ManagerView user={user} /> : <AdvisorView user={user} />}
+      {isAdmin(user) ? <AdminView user={user} /> : seesTeam(user) ? <ManagerView user={user} /> : <AdvisorView user={user} />}
     </>
   );
 }

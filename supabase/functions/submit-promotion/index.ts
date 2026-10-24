@@ -20,6 +20,11 @@
 // Body: { advisorId, toTier, results: [{ label, result, met }] } to submit,
 //   or { requestId } to try the email again if it didn't send.
 //
+// Solar systems (migration-solar-systems.sql): a Super Manager can submit
+// for anyone in their own solar system, and a submission is emailed to the
+// person's solar system: its notify email if it has one (BIG:
+// agency@biginsurancenetwork.com), otherwise its Super Managers.
+//
 // Deploy with: supabase functions deploy submit-promotion
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -89,9 +94,15 @@ Deno.serve(async (req: Request) => {
     const userId = userData.user.id;
 
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-    const { data: me } = await admin.from('profiles').select('id, display_name, email, role').eq('id', userId).maybeSingle();
+    const { data: me } = await admin.from('profiles').select('*').eq('id', userId).maybeSingle();
     if (!me) return json({ submitted: false, error: 'not_allowed' }, 403);
-    const isAdmin = me.role === 'super_admin';
+    // A super admin, or a Super Manager for someone in their solar system.
+    const adminOf = async (personId: string) => {
+      if (me.role === 'super_admin') return true;
+      if (me.role !== 'super_manager' || personId === userId) return false;
+      const { data: p } = await admin.from('profiles').select('*').eq('id', personId).maybeSingle();
+      return !!p && (p.solar_system_id ?? null) === (me.solar_system_id ?? null);
+    };
 
     const body = await req.json().catch(() => ({}));
     let row: Record<string, any> | null = null;
@@ -99,7 +110,7 @@ Deno.serve(async (req: Request) => {
     if (body.requestId) {
       // Try the email again for a submission that's already saved.
       const { data } = await admin.from('promotion_requests').select('*').eq('id', String(body.requestId)).maybeSingle();
-      if (!data || (data.submitted_by !== userId && !isAdmin)) return json({ submitted: false, error: 'not_found' }, 404);
+      if (!data || (data.submitted_by !== userId && !(await adminOf(data.user_id)))) return json({ submitted: false, error: 'not_found' }, 404);
       row = data;
     } else {
       const advisorId = String(body.advisorId || '');
@@ -107,7 +118,7 @@ Deno.serve(async (req: Request) => {
       const { data: advisor } = await admin.from('profiles')
         .select('id, manager_id, hierarchy_tier').eq('id', advisorId).maybeSingle();
       if (!advisor) return json({ submitted: false, error: 'not_found' }, 404);
-      if (advisor.manager_id !== userId && !isAdmin) return json({ submitted: false, error: 'not_direct_manager' }, 403);
+      if (advisor.manager_id !== userId && !(await adminOf(advisor.id))) return json({ submitted: false, error: 'not_direct_manager' }, 403);
       const next = nextTier(advisor.hierarchy_tier);
       if (!next || next.key !== toTier) return json({ submitted: false, error: 'level_changed' });
       const results = cleanResults(body.results);
@@ -148,13 +159,30 @@ Deno.serve(async (req: Request) => {
     if (!claimed || claimed.length === 0) return json({ submitted: true, emailed: true, already: true, request: row });
 
     const [{ data: advisor }, { data: submitter }] = await Promise.all([
-      admin.from('profiles').select('display_name, email, manager_id, npn, fg_writing_number').eq('id', row!.user_id).maybeSingle(),
+      admin.from('profiles').select('*').eq('id', row!.user_id).maybeSingle(),
       admin.from('profiles').select('display_name, email').eq('id', row!.submitted_by).maybeSingle(),
     ]);
     const name = advisor?.display_name || 'An advisor';
     const to = tierOf(row!.to_tier);
     const submittedBy = row!.submitted_by_name || submitter?.display_name || 'PaceLedger';
-    const submittedAs = advisor && row!.submitted_by === advisor.manager_id ? 'direct manager' : 'super admin';
+    const submittedAs = advisor && row!.submitted_by === advisor.manager_id ? 'direct manager' : me.role === 'super_manager' ? 'Super Manager' : 'super admin';
+
+    // Who hears about it: the person's solar system.
+    let recipients = [AGENCY_EMAIL];
+    let approver = 'A super admin';
+    if (advisor?.solar_system_id) {
+      const { data: sys } = await admin.from('solar_systems').select('short_name, notify_email').eq('id', advisor.solar_system_id).maybeSingle();
+      if (sys && sys.short_name !== 'BIG') {
+        approver = 'A Super Manager';
+        if (sys.notify_email) {
+          recipients = [sys.notify_email];
+        } else {
+          const { data: leads } = await admin.from('profiles').select('email').eq('solar_system_id', advisor.solar_system_id).eq('role', 'super_manager');
+          const emails = (leads || []).map(x => String(x.email || '').trim()).filter(e => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(e));
+          if (emails.length) recipients = emails;
+        }
+      }
+    }
     const when = new Date(row!.submitted_at).toLocaleString('en-US', {
       timeZone: 'America/Chicago', weekday: 'short', month: 'short', day: 'numeric', year: 'numeric',
       hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
@@ -181,7 +209,7 @@ Deno.serve(async (req: Request) => {
 <table role="presentation" style="border-collapse:collapse;margin:0 0 20px">${factRows}</table>
 <p style="margin:0 0 8px;font-size:14px;font-weight:bold;color:#14202B">Results that earned it</p>
 <table role="presentation" style="border-collapse:collapse;width:100%;margin:0 0 20px;background:#FBF9F4;border-radius:8px">${resultRows}</table>
-<p style="margin:0 0 6px;font-size:13px;color:#7C8998">These are the numbers PaceLedger showed when it was submitted. A super admin approves it in PaceLedger (Team &amp; admin, Team Pace, Promotion).</p>
+<p style="margin:0 0 6px;font-size:13px;color:#7C8998">These are the numbers PaceLedger showed when it was submitted. ${esc(approver)} approves it in PaceLedger (Team &amp; admin, Team Pace, Promotion).</p>
 <p style="margin:0;font-size:13px"><a href="${esc(APP_URL)}" style="color:#24548A">Open PaceLedger</a> &middot; Reply to reach ${esc(submittedBy)}.</p>
 </div></body></html>`;
     const text = [
@@ -192,12 +220,12 @@ Deno.serve(async (req: Request) => {
       'Results that earned it:',
       ...results.map(r => `- ${r.label}: ${r.result} (${r.met ? 'met' : 'not met'})`),
       '',
-      'These are the numbers PaceLedger showed when it was submitted. A super admin approves it in PaceLedger (Team & admin > Team Pace > Promotion).',
+      `These are the numbers PaceLedger showed when it was submitted. ${approver} approves it in PaceLedger (Team & admin > Team Pace > Promotion).`,
       APP_URL,
     ].join('\n');
 
     const replyTo = submitter?.email || undefined;
-    const payload = JSON.stringify({ from: INVITE_FROM_EMAIL, to: [AGENCY_EMAIL], subject, html, text, ...(replyTo ? { reply_to: replyTo } : {}) });
+    const payload = JSON.stringify({ from: INVITE_FROM_EMAIL, to: recipients, subject, html, text, ...(replyTo ? { reply_to: replyTo } : {}) });
     let ok = false;
     for (let attempt = 0; attempt < 2 && !ok; attempt++) {
       const res = await fetch('https://api.resend.com/emails', {
@@ -217,7 +245,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const { data: saved } = await admin.from('promotion_requests')
-      .update({ emailed_to: AGENCY_EMAIL, emailed_at: new Date().toISOString() }).eq('id', row!.id).select().single();
+      .update({ emailed_to: recipients.join(', '), emailed_at: new Date().toISOString() }).eq('id', row!.id).select().single();
     return json({ submitted: true, emailed: true, request: saved || row });
   } catch (err) {
     console.error(err);
