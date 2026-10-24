@@ -100,7 +100,7 @@ export function RecruitSignupSection({ user, recruitName, recruitEmail, joined, 
       <div className="tr-row-head">
         <h4 className="tr-h4" style={{ margin: 0 }}>Recruit sign-up</h4>
         {signedUp
-          ? <span className="tr-status tr-status-green">Signed up</span>
+          ? <span className="tr-status tr-status-green">Signed up{state === 'used' && invite.used_at ? ` ${new Date(invite.used_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}` : ''}</span>
           : <span className="tr-status tr-status-none">Not signed up yet</span>}
       </div>
       {signedUp && !joined && state === 'used' && (

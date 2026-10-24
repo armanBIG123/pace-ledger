@@ -5,8 +5,12 @@ import { isPastAppointment, isPolicyIssued } from '../data/appointments.js';
 import { prospectTotalChecked } from '../data/prospects.js';
 import { WEEKLY_TOTAL_TARGET } from './pace.js';
 import { fmtDate, todayStr, weekStartOf } from './dates.js';
+import { centralDate, tickboxRecruitCounts } from './recruitCounts.js';
 
-export function pipelineSummary({ prospects, appointments, presenting, userId, now = new Date() }) {
+// signups: { since, rows } from fetchRecruitSignups for this month. Recruits
+// are the people who signed up under you this month; before the switch,
+// appointments marked "Officially recruited" count instead.
+export function pipelineSummary({ prospects, appointments, presenting, signups = { since: null, rows: [] }, userId, now = new Date() }) {
   const today = todayStr();
   const month = today.slice(0, 7);
   const week = weekStartOf(today);
@@ -25,7 +29,8 @@ export function pipelineSummary({ prospects, appointments, presenting, userId, n
   const needs = past.filter(a => a.status === 'needs_follow_up').length;
   const followUpsBooked = mine.filter(a => a.isFollowUp && !isPastAppointment(a)).length;
   const sold = mine.filter(a => a.officiallySold && (a.appointmentDate || '').slice(0, 7) === month);
-  const recruits = mine.filter(a => a.officiallyRecruited && (a.appointmentDate || '').slice(0, 7) === month).length;
+  const recruits = mine.filter(a => tickboxRecruitCounts(a, signups.since) && (a.appointmentDate || '').slice(0, 7) === month).length
+    + (signups.rows || []).filter(s => s.uplineId === userId && centralDate(s.signedUpAt).slice(0, 7) === month).length;
   const waiting = mine.filter(a => a.officiallySold && !isPolicyIssued(a));
   return {
     names: { n: active.length, sub: `${active.filter(p => prospectTotalChecked(p) > 0).length} scored` },

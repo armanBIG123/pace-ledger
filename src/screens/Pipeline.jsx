@@ -6,7 +6,9 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Award, CalendarDays, ChevronRight, ListChecks, MessageCircle, Users } from 'lucide-react';
 import { fetchAppointmentsImOn, fetchMyAppointments } from '../data/appointments.js';
 import { fetchMyProspects, prospectToAppointmentPrefill } from '../data/prospects.js';
+import { fetchRecruitSignups } from '../data/recruits.js';
 import { pipelineSummary } from '../lib/pipeline.js';
+import { fmtDate, parseDate, todayStr } from '../lib/dates.js';
 import { fmtCurrency } from '../lib/format.js';
 import { TitleInfo } from '../components/ui.jsx';
 import { SystemsBody } from './Prospecting.jsx';
@@ -52,10 +54,13 @@ function WonStage({ user, summary }) {
 export function PipelineBody({ user, stage, onStage, intentFor, clearIntent, prefillData, onPrefillConsumed, cameFrom, onReturn, onLogAppointment }) {
   const [summary, setSummary] = useState(null);
   const load = useCallback(async () => {
-    const [prospects, appointments, presenting] = await Promise.all([
+    const first = parseDate(`${todayStr().slice(0, 7)}-01`);
+    const last = new Date(first.getFullYear(), first.getMonth() + 1, 0);
+    const [prospects, appointments, presenting, signups] = await Promise.all([
       fetchMyProspects(user.id), fetchMyAppointments(user.id), fetchAppointmentsImOn(user.id).catch(() => []),
+      fetchRecruitSignups(fmtDate(first), fmtDate(last)),
     ]);
-    setSummary(pipelineSummary({ prospects, appointments, presenting, userId: user.id }));
+    setSummary(pipelineSummary({ prospects, appointments, presenting, signups, userId: user.id }));
   }, [user.id]);
   // Fresh numbers whenever the stage changes or appointments are saved.
   useEffect(() => { load(); }, [load, stage]);

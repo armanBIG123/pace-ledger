@@ -7,6 +7,47 @@ import { rowToRecord } from './appointments.js';
 
 const missing = error => !!error && (error.code === '42883' || error.code === 'PGRST202' || /could not find the function|does not exist/i.test(error.message || ''));
 
+// When recruits started counting from sign-ups (an ISO time), or null if
+// the database update (migration-recruits-from-signups.sql) hasn't been run,
+// in which case recruits still count the old way. Asked once per session.
+let since; // undefined until asked
+let sinceAsking = null;
+export function recruitsFromSignupsSince() {
+  if (since !== undefined) return Promise.resolve(since);
+  if (sinceAsking) return sinceAsking;
+  sinceAsking = supabase.rpc('recruits_from_signups_since').then(({ data, error }) => {
+    sinceAsking = null;
+    if (error) {
+      if (missing(error)) since = null; // not switched on yet
+      else console.error(error); // offline etc.: ask again next time
+      return null;
+    }
+    since = data || null;
+    return since;
+  });
+  return sinceAsking;
+}
+// The same, if it's already known this session (undefined if not asked yet).
+export function knownRecruitsSince() { return since; }
+
+// People who signed up through a recruit link between two dates
+// (YYYY-MM-DD, Central time, inclusive) that you can see: yours, your
+// team's, and everyone's for super admins. { since, rows } — rows are
+// empty before the switch.
+export async function fetchRecruitSignups(start, end) {
+  const from = await recruitsFromSignupsSince();
+  if (!from) return { since: null, rows: [] };
+  const { data, error } = await supabase.rpc('recruit_signups', { p_start: start, p_end: end });
+  if (error) { console.error(error); return { since: from, rows: [] }; }
+  return {
+    since: from,
+    rows: (data || []).map(r => ({
+      id: r.invite_id, uplineId: r.upline_id, createdBy: r.created_by, recruitId: r.recruit_id,
+      recruitName: r.recruit_name || 'New teammate', signedUpAt: r.signed_up_at, appointmentId: r.appointment_id,
+    })),
+  };
+}
+
 // Sign-up links on your team that haven't been used yet (never the link).
 export async function fetchTeamOpenInvites() {
   const { data, error } = await supabase.rpc('team_open_invites');

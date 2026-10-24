@@ -32,7 +32,13 @@ export function winText(w, nameOf, meId) {
   switch (w.kind) {
     case 'first_sale': return <><strong>{who}</strong> made {you ? 'your' : 'their'} first sale!</>;
     case 'sale': return <><strong>{who}</strong> made a sale</>;
-    case 'recruit': return <><strong>{who}</strong> recruited a new teammate</>;
+    case 'recruit': {
+      // From a sign-up: who joined. ("Tasha recruited Marcus Reed. Welcome to the team!")
+      const r = w.detail && w.detail.recruit_id;
+      if (r && r === meId) return <><strong>{who}</strong> recruited you. <strong>Welcome to the team!</strong></>;
+      if (r && nameOf(r)) return <><strong>{who}</strong> recruited <strong>{nameOf(r)}</strong>. Welcome to the team!</>;
+      return <><strong>{who}</strong> recruited a new teammate</>;
+    }
     case 'joined': {
       const up = w.detail && w.detail.upline_id;
       return you ? <>You joined the team. <strong>Welcome!</strong></>
