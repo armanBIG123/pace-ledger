@@ -6,7 +6,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Award, BadgeCheck, DollarSign, GraduationCap, ShieldCheck, SmilePlus, Sparkles, Star, Target, Trophy, UserPlus, X } from 'lucide-react';
 import { addHighFive, fetchNewHighFives, fetchReactions, fetchWeeklyTop3, fetchWins, HIGH_FIVES, postDueWins, removeHighFive, subscribeWins } from '../data/wins.js';
-import { fetchOrgDirectoryShared } from '../data/team.js';
+import { clearSharedPeople, fetchOrgDirectoryShared } from '../data/team.js';
 import { tierInfo } from '../lib/milestones.js';
 import { addDays, fmtDate, parseDate, todayStr, weekStartOf } from '../lib/dates.js';
 import { personInitials } from '../lib/format.js';
@@ -38,10 +38,13 @@ export function winText(w, nameOf, meId) {
     case 'first_sale': return <><strong>{who}</strong> made {you ? 'your' : 'their'} first sale!</>;
     case 'sale': return <><strong>{who}</strong> made a sale</>;
     case 'recruit': {
-      // From a sign-up: who joined. ("Tasha recruited Marcus Reed. Welcome to the team!")
+      // Who joined: from a sign-up ("Tasha recruited Marcus Reed. Welcome to
+      // the team!"), or, for ones counted the old way, the name on the
+      // appointment (see migration-recruit-win-names.sql).
       const r = w.detail && w.detail.recruit_id;
+      const named = (r && nameOf(r)) || (w.detail && w.detail.name) || '';
       if (r && r === meId) return <><strong>{who}</strong> recruited you. <strong>Welcome to the team!</strong></>;
-      if (r && nameOf(r)) return <><strong>{who}</strong> recruited <strong>{nameOf(r)}</strong>. Welcome to the team!</>;
+      if (named) return <><strong>{who}</strong> recruited <strong>{named}</strong>. Welcome to the team!</>;
       return <><strong>{who}</strong> recruited a new teammate</>;
     }
     case 'joined': {
@@ -250,6 +253,19 @@ export function TeamWinsSection({ user, compact = false }) {
     });
     return () => { alive = false; };
   }, [weekStart]);
+  // Someone new (a recruit who just signed up): get the names again, once.
+  const askedNames = useRef(new Set());
+  useEffect(() => {
+    if (!Array.isArray(wins) || !names.size) return;
+    const ids = new Set();
+    wins.forEach(w => {
+      [w.user_id, w.detail && w.detail.recruit_id, w.detail && w.detail.upline_id].forEach(id => { if (id && !names.has(id) && !askedNames.current.has(id)) ids.add(id); });
+    });
+    if (!ids.size) return;
+    ids.forEach(id => askedNames.current.add(id));
+    clearSharedPeople();
+    fetchOrgDirectoryShared().then(dir => { if (dir && dir.length) setNames(new Map(dir.map(p => [p.id, p.display_name]))); });
+  }, [wins, names]);
   const load = useCallback(async (n) => {
     setExtended(await postDueWins());
     const w = await fetchWins(n + 2); // one more than shown, plus last week's winners
@@ -273,6 +289,7 @@ export function TeamWinsSection({ user, compact = false }) {
     const stop = subscribeWins({
       onWin: (type, row) => {
         if (type === 'DELETE') { setWins(prev => (Array.isArray(prev) ? prev.filter(w => w.id !== row.id) : prev)); return; }
+        if (type === 'UPDATE') { setWins(prev => (Array.isArray(prev) ? prev.map(w => (w.id === row.id ? { ...w, ...row } : w)) : prev)); return; }
         if (type !== 'INSERT') return;
         setWins(prev => (Array.isArray(prev) && !prev.some(w => w.id === row.id)
           ? [row, ...prev].sort((a, b) => (a.occurred_at < b.occurred_at ? 1 : -1)) : prev));
