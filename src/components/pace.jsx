@@ -1,5 +1,6 @@
 // Pace widgets: this week's strip, the 6-week trend, personal bests and coaching notes.
 import { useEffect, useState } from 'react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import { computeStreaksAndBests, WEEKDAY_TARGET, WEEKEND_TARGET, WEEKLY_TOTAL_TARGET } from '../lib/pace.js';
 import { fmtDisplayDate, shiftWeekStr } from '../lib/dates.js';
 import { fetchCoachingNotes } from '../data/team.js';
@@ -32,32 +33,59 @@ export function MyCoachingNotes({ userId, weekOf }) {
   );
 }
 
-export function PaceStrip({ groups, header, note }) {
+// collapsible: one line of batch counts ("Mon 4/5") with Details to open
+// the dots. Whether it's open is remembered on this device.
+const PACE_OPEN_KEY = 'pl_pace_open';
+export function PaceStrip({ groups, header, note, collapsible = false }) {
   const total = groups.reduce((n, g) => n + g.count, 0);
   const target = groups.reduce((n, g) => n + g.option.target, 0);
+  const [open, setOpen] = useState(() => { if (!collapsible) return true; try { return localStorage.getItem(PACE_OPEN_KEY) === '1'; } catch { return false; } });
+  function toggle() {
+    setOpen(v => {
+      try { localStorage.setItem(PACE_OPEN_KEY, v ? '0' : '1'); } catch { /* fine */ }
+      return !v;
+    });
+  }
+  const shortName = g => (g.option.category === 'weekend' ? 'Weekend' : g.option.label.slice(0, 3));
   return (
-    <div className="tr-card tr-pace">
+    <div className={`tr-card tr-pace ${collapsible && !open ? 'tr-pace-closed' : ''}`}>
       {header ? <div className="tr-pace-head">{header}<span className="tr-pace-total"><strong>{total}</strong> / {target} set</span></div> : null}
-      <p className="tr-pace-hint">The {WEEKEND_TARGET} you schedule over the weekend for the week ahead, plus {WEEKDAY_TARGET} new ones each weekday.{note ? ` ${note}` : ''}</p>
-      <div className="tr-pace-grid">
-        {groups.map(g => (
-          <div className="tr-pace-group" key={g.option.value}>
-            <div className="tr-pace-label">
-              <span><span className="tr-hide-mobile">{g.option.batchLabel}</span><span className="tr-mobile-only">{g.option.category === 'weekend' ? 'Weekend' : g.option.label}</span></span>
-              <span className="tr-mono tr-pace-count">{g.count}/{g.option.target}</span>
-            </div>
-            <div className="tr-pace-row">
-              {Array.from({ length: Math.max(g.option.target, g.count) }).map((_, i) => (
-                <span
-                  key={i}
-                  className={`tr-pill ${g.option.category === 'weekday' ? 'tr-pill-alt' : ''} ${i < g.count ? 'tr-pill-filled' : ''}`}
-                  title={g.list[i] ? `${g.list[i].client} · ${fmtDisplayDate(g.list[i].appointmentDate)}` : 'Not yet logged'}
-                />
-              ))}
-            </div>
+      {collapsible ? (
+        <button type="button" className="tr-pace-summary" aria-expanded={open} onClick={toggle}>
+          <span className="tr-pace-minis">
+            {groups.map(g => (
+              <span key={g.option.value} className={`tr-pace-mini ${g.count >= g.option.target ? 'tr-pace-mini-done' : ''}`}>
+                {shortName(g)} <strong>{g.count}/{g.option.target}</strong>
+              </span>
+            ))}
+          </span>
+          <span className="tr-pace-more">{open ? 'Hide' : 'Details'} {open ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}</span>
+        </button>
+      ) : null}
+      {open ? (
+        <>
+          <p className="tr-pace-hint">The {WEEKEND_TARGET} you schedule over the weekend for the week ahead, plus {WEEKDAY_TARGET} new ones each weekday.{note ? ` ${note}` : ''}</p>
+          <div className="tr-pace-grid">
+            {groups.map(g => (
+              <div className="tr-pace-group" key={g.option.value}>
+                <div className="tr-pace-label">
+                  <span><span className="tr-hide-mobile">{g.option.batchLabel}</span><span className="tr-mobile-only">{g.option.category === 'weekend' ? 'Weekend' : g.option.label}</span></span>
+                  <span className="tr-mono tr-pace-count">{g.count}/{g.option.target}</span>
+                </div>
+                <div className="tr-pace-row">
+                  {Array.from({ length: Math.max(g.option.target, g.count) }).map((_, i) => (
+                    <span
+                      key={i}
+                      className={`tr-pill ${g.option.category === 'weekday' ? 'tr-pill-alt' : ''} ${i < g.count ? 'tr-pill-filled' : ''}`}
+                      title={g.list[i] ? `${g.list[i].client} · ${fmtDisplayDate(g.list[i].appointmentDate)}` : 'Not yet logged'}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </>
+      ) : null}
     </div>
   );
 }

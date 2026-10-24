@@ -1,23 +1,23 @@
 // My Appointments: the weekly batches, the appointment form, outcomes and Open Requirements.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, ClipboardCheck, Download, Link2, Pencil, Plus, Search, Trash2, UserPlus, X } from 'lucide-react';
-import { supabase } from '../supabaseClient.js';
-import { isNativeApp, openInBrowserSheet } from '../native.js';
+import { ChevronDown, ChevronRight, ClipboardCheck, Download, Link2, Plus, Search, Trash2, UserPlus, X } from 'lucide-react';
+import { isNativeApp } from '../native.js';
 import { computeDownline, computeUpline } from '../hierarchy.js';
 import { checkAppointmentConflict } from '../schedule.js';
 import { DATE_SET_OPTIONS, dateSetMeta, defaultDateSetOption } from '../lib/pace.js';
-import { addMinutesToDateTime, addMinutesToTime, detectTimezone, durationLabel, fmtApptDateTime, fmtClockRange, fmtDisplayDate, fmtFollowUpDateTime, minutesBetweenTimes, parseDate, shiftWeekStr, timezoneOptionsWithDetected, todayStr, weekStartOf } from '../lib/dates.js';
+import { addMinutesToDateTime, addMinutesToTime, apptEndMs, apptStartMs, detectTimezone, durationLabel, fmtApptDateTime, fmtClockRange, fmtDisplayDate, fmtFollowUpDateTime, minutesBetweenTimes, parseDate, shiftWeekStr, timezoneOptionsWithDetected, todayStr, weekStartOf } from '../lib/dates.js';
 import { downloadCSV, fmtCurrency, isValidEmail } from '../lib/format.js';
 import { addPolicyNote, applyFollowUpToList, DEFAULT_APPT_MINUTES, deleteAppointmentRow, fetchAppointmentsImPresenting, fetchMyAppointments, fetchPolicyNotes, fetchSoldPolicies, fetchZoomConnectedManagers, insertAppointment, inviteFailureMessage, isPastAppointment, isPolicyIssued, isRecruitType, isSaleType, ISSUED_PREMIUM_VIEW, markInviteSent, persistFollowUp, SOLD_PREMIUM_VIEW, STATUS_OPTIONS, typeLabel, updateAppointment, updatePolicyFields, updateTeamAppointment } from '../data/appointments.js';
 import { ALL_CHARACTERISTICS, fetchMyProspects, insertProspect, LEANING_LABELS, normName, prospectLeaningKey, prospectNameKey, prospectTotalChecked } from '../data/prospects.js';
 import { fetchOrgDirectory } from '../data/team.js';
-import { connectZoom, createZoomMeeting, disconnectZoom, fetchZoomConnectionStatus, pushAppointmentToGoogleCalendar, sendAppointmentInviteEmail, updateAppointmentZoomUrl, zoomOAuthUrl } from '../data/integrations.js';
+import { createZoomMeeting, fetchZoomConnectionStatus, pushAppointmentToGoogleCalendar, sendAppointmentInviteEmail, startZoomConnect, updateAppointmentZoomUrl } from '../data/integrations.js';
 import { Modal, openPicker, PageHead, RefreshButton, Sheet, SkelBlock, SkeletonCards, SkeletonRows, StatusChip, TitleInfo, TypeBadge, TypeChoice, TypeFilter, useIsPhone, WeekNav } from '../components/ui.jsx';
 import { MyCoachingNotes, PaceStrip, PaceTrend, PersonalBests } from '../components/pace.jsx';
-import { ZoomConnect } from '../components/integrations.jsx';
+import { ZoomNudge } from '../components/integrations.jsx';
 import { FollowUpModal } from '../components/followUpModal.jsx';
 import { appointmentTexts, CallButton, TextButton } from '../components/contact.jsx';
 import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../components/appointmentPanel.jsx';
+import { IntakeStatusRow, sendIntakeAfterBooking } from '../components/intakePanel.jsx';
 import { isValidPhone } from '../lib/phone.js';
 
 export function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty, hideSet, me = '' }) {
@@ -73,8 +73,6 @@ export function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty, hi
                             <ClipboardCheck size={14} />
                           </button>
                         )}
-                        {onEdit && <button className="tr-icon-btn" onClick={() => onEdit(a)} title="Edit appointment"><Pencil size={14} /></button>}
-                        <button className="tr-icon-btn" onClick={() => onDelete(a.id)} title="Delete"><Trash2 size={14} /></button>
                       </td>
                     )}
                   </tr>
@@ -125,6 +123,8 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
   const [inviteMe, setInviteMe] = useState(true);
   const [extraEmails, setExtraEmails] = useState('');
   const [sendUpdate, setSendUpdate] = useState(false);
+  // New appointment: send the client their intake form once it's saved.
+  const [sendIntake, setSendIntake] = useState(false);
   const [typeRecruit, setTypeRecruit] = useState(editing ? isRecruitType(editing) : !!prefillData?.typeRecruit);
   const [typeSale, setTypeSale] = useState(editing ? isSaleType(editing) : !!prefillData?.typeSale);
   const [zoomHostId, setZoomHostId] = useState(!editing && user.managerId ? user.managerId : '');
@@ -132,7 +132,7 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
   const [checking, setChecking] = useState(false);
   const [zoomManagers, setZoomManagers] = useState([]);
   const [myProspects, setMyProspects] = useState([]);  // everyone on your list
-  // Client email, date set, time zone, trainee, notes and invites fold away,
+  // Date set, time zone, trainee, notes and invites fold away,
   // so the form stays short (they open by themselves if one needs fixing).
   const [showMore, setShowMore] = useState(false);
   const timezoneOptions = timezoneOptionsWithDetected();
@@ -280,8 +280,8 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
     if (!endTime) { setErr('Add when it ends.'); return; }
     // Up to 12 hours; an end before the start would mean it runs overnight.
     if (duration < 5 || duration > 720) { setErr('The end time needs to be after the start time.'); return; }
-    if (clientEmail.trim() && !isValidEmail(clientEmail)) { setShowMore(true); setErr("The client's email address doesn't look right."); return; }
-    if (clientPhone.trim() && !isValidPhone(clientPhone)) { setShowMore(true); setErr("The client's phone number doesn't look right. Include the area code."); return; }
+    if (clientEmail.trim() && !isValidEmail(clientEmail)) { setErr("The client's email address doesn't look right."); return; }
+    if (clientPhone.trim() && !isValidPhone(clientPhone)) { setErr("The client's phone number doesn't look right. Include the area code."); return; }
     const inviteBoxOpen = !editing || sendUpdate;
     const extras = inviteBoxOpen ? extraEmails.split(/[\s,;]+/).map(e => e.trim()).filter(Boolean) : [];
     const badExtra = extras.find(e => !isValidEmail(e));
@@ -331,6 +331,7 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
       presenter: presenterName, presenterId, trainee: traineeName, traineeId,
       client, clientEmail, clientPhone, notes, presentationType, presentationTypeSecondary, zoomHostId: zoomHostId || null,
       inviteEmails, prospectId: linkId, addToList: addToList && !linkId,
+      sendIntake: !editing && !forOther && sendIntake,
     });
   }
   function handleKeyDown(e) {
@@ -360,6 +361,7 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
           <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={onLogOutcome}>Log how it went</button>
         </div>
       )}
+      {editing && !forOther && <IntakeStatusRow user={user} appointment={editing} />}
       {editing?.status === 'needs_reschedule' && (
         <div className="tr-badge tr-badge-weekday tr-form-section">
           This one needs to be rescheduled. Saving counts it toward this week's batch as a new entry and clears its old follow-up status.
@@ -413,6 +415,23 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
             </div>
           ) : null}
         </div>
+        {/* Their phone and email power Call, Text, the invite and the intake
+            form, so they're right here (picking someone from your list fills
+            them in). */}
+        <label className="tr-field">
+          <span>Client phone</span>
+          <input type="tel" inputMode="tel" autoComplete="off" value={clientPhone} onChange={e => setClientPhone(e.target.value)} placeholder="(214) 555-0187" />
+        </label>
+        <label className="tr-field">
+          <span>Client email</span>
+          <input type="email" inputMode="email" autoComplete="off" autoCapitalize="none" value={clientEmail} onChange={e => setClientEmail(e.target.value)} placeholder="name@example.com" />
+        </label>
+        {!editing && !forOther && (
+          <label className="tr-checkbox-field tr-field-wide tr-intake-check">
+            <input type="checkbox" checked={sendIntake} onChange={e => setSendIntake(e.target.checked)} />
+            <span>Send them the client intake form<small className="tr-field-hint">{clientEmail.trim() ? `Emailed to ${clientEmail.trim()} when you save.` : 'After saving you can text it or copy the link (or add their email above and it goes by email).'}</small></span>
+          </label>
+        )}
         <div className="tr-field tr-field-wide">
           <span>Recruit, sale or both</span>
           <TypeChoice recruit={typeRecruit} sale={typeSale} onToggleRecruit={() => setTypeRecruit(v => !v)} onToggleSale={() => setTypeSale(v => !v)} />
@@ -468,19 +487,11 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
         <button type="button" className="tr-form-more-head" aria-expanded={showMore} onClick={() => setShowMore(v => !v)}>
           {showMore ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}
           <strong>More options</strong>
-          <span>Counts toward {meta.batchLabel}{traineeNote ? ` · ${traineeNote}` : ''} · client email and phone, time zone, notes, invites</span>
+          <span>Counts toward {meta.batchLabel}{traineeNote ? ` · ${traineeNote}` : ''} · time zone, notes, invites</span>
         </button>
         {showMore && (
           <div className="tr-form-more-body">
             <div className="tr-form-grid">
-              <label className="tr-field">
-                <span>Client email</span>
-                <input type="email" inputMode="email" autoComplete="off" autoCapitalize="none" value={clientEmail} onChange={e => setClientEmail(e.target.value)} placeholder="name@example.com" />
-              </label>
-              <label className="tr-field">
-                <span>Client phone</span>
-                <input type="tel" inputMode="tel" autoComplete="off" value={clientPhone} onChange={e => setClientPhone(e.target.value)} placeholder="(214) 555-0187" />
-              </label>
               <label className="tr-field">
                 <span>Date set</span>
                 <select value={dateSetOption} onChange={e => setDateSetOption(e.target.value)}>
@@ -833,6 +844,7 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
         .sort((a, b) => (b.appointmentDate + b.appointmentTime).localeCompare(a.appointmentDate + a.appointmentTime))
     : [];
   const [showHistory, setShowHistory] = useState(false);
+  const [showEarlier, setShowEarlier] = useState(false);
   const [notice, setNotice] = useState(null); // { kind: 'ok' | 'warn', text }
   useEffect(() => {
     if (!notice) return undefined;
@@ -878,18 +890,8 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
   }, [appointments, loading]);
 
   async function handleZoomConnect() {
-    if (isNativeApp()) {
-      const { data } = await supabase.auth.getSession();
-      if (!data.session) return;
-      await openInBrowserSheet(zoomOAuthUrl(data.session.access_token), () => refresh());
-      return;
-    }
-    setZoomConnecting(true);
-    await connectZoom();
-  }
-  async function handleZoomDisconnect() {
-    const ok = await disconnectZoom();
-    if (ok) setZoomStatus({ connected: false });
+    if (!isNativeApp()) setZoomConnecting(true);
+    await startZoomConnect(() => refresh());
   }
 
   useEffect(() => { refresh(); }, [refresh]);
@@ -1011,6 +1013,11 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
     setAppointments(prev => [...prev, record]);
     if (listNote) setNotice({ kind: 'warn', text: listNote });
     closeForm();
+    // "Send them the client intake form": emailed, or the send window opens.
+    if (form.sendIntake) {
+      const n = await sendIntakeAfterBooking(user, record);
+      if (n) setNotice(prev => (prev && prev.kind === 'warn' ? prev : prev ? { kind: n.kind, text: `${prev.text} ${n.text}` } : n));
+    }
   }
   async function handleDelete(id) {
     const target = appointments.find(a => a.id === id);
@@ -1111,39 +1118,63 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
         ) : statusView === null ? (
           <>
             <MyCoachingNotes userId={user.id} weekOf={weekMonday} />
-            <ZoomConnect status={zoomStatus} connecting={zoomConnecting} onConnect={handleZoomConnect} onDisconnect={handleZoomDisconnect} />
+            {/* Zoom: a one-line reminder until it's connected (you can wave
+                it off for a month; it's also under Your account). */}
+            {!loading && !zoomStatus.connected ? <ZoomNudge connecting={zoomConnecting} onConnect={handleZoomConnect} /> : null}
             <PaceStrip
+              collapsible
               header={<WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />}
               groups={groups.map(g => ({ option: g.option, count: g.list.length, list: g.list }))}
               note={(() => { const n = weekAppts.filter(a => a.presentingFor).length; return n ? `Includes ${n} you're presenting for your team.` : ''; })()} />
-            {upcomingFollowUps.length > 0 && (
-              <ApptGroup
-                title={`Upcoming follow-ups (${upcomingFollowUps.length})`} me={user.displayName}
-                list={byType(upcomingFollowUps)} onDelete={handleDelete} onFollowUp={setFollowUpTarget}
-                onEdit={openEdit} empty="" />
-            )}
             {loading ? <SkeletonRows count={5} /> : (() => {
-              // Batches with something in them get a full table; the empty
-              // ones collapse into a single line instead of a card each.
-              const withItems = groups.filter(g => byType(g.list).length > 0);
-              const emptyOnes = groups.filter(g => byType(g.list).length === 0);
+              // What's next first; then the ones that need how they went
+              // logged; then the rest of this week, folded away.
+              const nowMs = Date.now();
+              const thisWeek = weekMonday === weekStartOf(todayStr());
+              const listed = byType(weekAppts);
+              const ahead = listed.filter(a => apptEndMs(a) > nowMs).sort((a, b) => apptStartMs(a) - apptStartMs(b));
+              const over = listed.filter(a => apptEndMs(a) <= nowMs).sort((a, b) => apptStartMs(b) - apptStartMs(a));
+              const needs = over.filter(a => !a.presentingFor && !a.followUpCompletedAt);
+              const rest = over.filter(a => !needs.includes(a));
+              const kind = typeFilter === 'all' ? '' : `${typeFilter} `;
               return (
                 <>
-                  {withItems.length === 0 && (
-                    <div className="tr-card"><p className="tr-empty" style={{ margin: 0 }}>
-                      No {typeFilter === 'all' ? '' : `${typeFilter} `}appointments set for this week yet — log one above, or start from a prospect.
-                    </p></div>
-                  )}
-                  {withItems.map(g => (
+                  {ahead.length > 0 ? (
                     <ApptGroup
-                      key={g.option.value} hideSet me={user.displayName}
-                      title={`${g.option.batchLabel} (${g.list.length}/${g.option.target})`}
-                      list={byType(g.list)} onDelete={handleDelete} onFollowUp={setFollowUpTarget}
+                      title={`Coming up (${ahead.length})`} me={user.displayName}
+                      list={ahead} onDelete={handleDelete} onFollowUp={setFollowUpTarget} onEdit={openEdit} empty="" />
+                  ) : (thisWeek || weekMonday > weekStartOf(todayStr())) ? (
+                    <div className="tr-card"><p className="tr-empty" style={{ margin: 0 }}>
+                      {listed.length ? `Nothing else ${kind ? `(${kind.trim()}) ` : ''}coming up this week.` : `No ${kind}appointments set for this week yet. Log one above, or start from a prospect.`}
+                    </p></div>
+                  ) : null}
+                  {upcomingFollowUps.length > 0 && (
+                    <ApptGroup
+                      title={`Upcoming follow-ups (${upcomingFollowUps.length})`} me={user.displayName}
+                      list={byType(upcomingFollowUps)} onDelete={handleDelete} onFollowUp={setFollowUpTarget}
                       onEdit={openEdit} empty="" />
-                  ))}
-                  {withItems.length > 0 && emptyOnes.length > 0 && (
-                    <p className="tr-empty tr-empty-batches">Nothing set yet: {emptyOnes.map(g => `${g.option.batchLabel} (0/${g.option.target})`).join(' · ')}</p>
                   )}
+                  {needs.length > 0 && (
+                    <ApptGroup
+                      title={`Needs an outcome (${needs.length})`} me={user.displayName}
+                      list={needs} onDelete={handleDelete} onFollowUp={setFollowUpTarget} onEdit={openEdit} empty="" />
+                  )}
+                  {rest.length > 0 && (thisWeek ? (
+                    <div className="tr-list-fold">
+                      <button type="button" className="tr-list-fold-head" aria-expanded={showEarlier} onClick={() => setShowEarlier(v => !v)}>
+                        {showEarlier ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronRight size={16} aria-hidden="true" />}
+                        <strong>Earlier this week</strong><span>{rest.length} done</span>
+                      </button>
+                      {showEarlier ? <ApptGroup me={user.displayName} list={rest} onDelete={handleDelete} onFollowUp={setFollowUpTarget} onEdit={openEdit} empty="" /> : null}
+                    </div>
+                  ) : (
+                    <ApptGroup
+                      title={`${weekMonday < weekStartOf(todayStr()) ? 'That week' : 'Done'} (${rest.length})`} me={user.displayName}
+                      list={rest} onDelete={handleDelete} onFollowUp={setFollowUpTarget} onEdit={openEdit} empty="" />
+                  ))}
+                  {!thisWeek && listed.length === 0 && weekMonday < weekStartOf(todayStr()) ? (
+                    <div className="tr-card"><p className="tr-empty" style={{ margin: 0 }}>No {kind}appointments that week.</p></div>
+                  ) : null}
                 </>
               );
             })()}

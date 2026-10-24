@@ -8,6 +8,7 @@ import { useAppointmentReminders } from '../components/reminders.jsx';
 import { ChatButton, useChatUnread } from '../components/chatButton.jsx';
 import { AnnouncementGate } from '../components/announcements.jsx';
 import { AppointmentPanel } from '../components/appointmentPanel.jsx';
+import { IntakePanel } from '../components/intakePanel.jsx';
 import { lazyScreen, prefetchScreens, ScreenBoundary, ScreenLoading } from '../components/lazyScreen.jsx';
 import { TodayBody } from '../screens/Today.jsx';
 
@@ -184,6 +185,7 @@ export function AdvisorView({ user }) {
       </main>
       {newEl}
       <AppointmentPanel user={user} />
+      <IntakePanel user={user} />
       <AnnouncementGate user={user} />
     </Shell>
   );
@@ -211,6 +213,7 @@ export function ManagerView({ user }) {
       </main>
       {newEl}
       <AppointmentPanel user={user} />
+      <IntakePanel user={user} />
       <AnnouncementGate user={user} />
     </Shell>
   );
@@ -241,6 +244,7 @@ export function AdminView({ user }) {
       </main>
       {newEl}
       <AppointmentPanel user={user} />
+      <IntakePanel user={user} />
       <AnnouncementGate user={user} />
     </Shell>
   );

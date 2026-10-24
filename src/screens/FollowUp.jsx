@@ -1,12 +1,14 @@
 // Follow Up: past appointments, notes, next steps, intake forms and recruit sign-up.
 import { useEffect, useRef, useState } from 'react';
 import { CheckCheck, ChevronDown, ChevronUp, Pencil, Plus, Presentation, Search, Trash2, X } from 'lucide-react';
-import { supabase } from '../supabaseClient.js';
-import { createClientIntakeCandidate, deleteClientIntakeCandidate, fetchClientIntakeCandidates } from '../clientIntake.js';
+import { deleteClientIntakeCandidate, fetchClientIntakeCandidates } from '../clientIntake.js';
+import { intakeChanged, openIntakeSend } from '../lib/intakeEvents.js';
+import { intakeStatusText, intakeStatusTone } from '../lib/intakeStatus.js';
+import { lowerFirst } from '../lib/format.js';
 import { ClientIntakeSection } from '../ClientIntake.jsx';
 import { addFollowUpNote, deleteFollowUpNote, fetchMyFollowUpNotes } from '../followUpNotes.js';
 import { daysSince, fmtApptDateTime, fmtFollowUpDateTime, fmtNoteStamp } from '../lib/dates.js';
-import { applyFollowUpToList, fetchAppointmentsImOn, fetchMyAppointments, isPastAppointment, isRecruitType, isSaleType, loggedSummary, logPresentedAppointment, OUTCOME_OPTIONS, persistFollowUp, STATUS_OPTIONS, typeLabel } from '../data/appointments.js';
+import { applyFollowUpToList, fetchAppointmentsImOn, fetchMyAppointments, isPastAppointment, isRecruitType, isSaleType, loggedSummary, logPresentedAppointment, OUTCOME_OPTIONS, persistFollowUp, setAppointmentIntakeRequested, STATUS_OPTIONS, typeLabel } from '../data/appointments.js';
 import { normName } from '../data/prospects.js';
 import { fetchOrgDirectory } from '../data/team.js';
 import { PageHead, SkelBlock } from '../components/ui.jsx';
@@ -55,6 +57,20 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
   const [orgDirectory, setOrgDirectory] = useState([]);
   const [presented, setPresented] = useState([]);
   const [presentedTarget, setPresentedTarget] = useState(null);
+  // Cards you just sent an intake from stay in the list you're on.
+  const [pinned, setPinned] = useState(() => new Set());
+  useEffect(() => { setPinned(new Set()); }, [view]);
+  // An intake form was made or sent from the send window: show it here.
+  useEffect(() => {
+    const on = e => {
+      const d = e && e.detail;
+      if (!d || !d.candidate || d.candidate.advisor_id !== user.id) return;
+      setCandidates(prev => [d.candidate, ...prev.filter(c => c.id !== d.candidate.id)]);
+      if (d.candidate.source_appointment_id) setAppointments(prev => prev.map(x => (x.id === d.candidate.source_appointment_id ? { ...x, clientIntakeRequested: true } : x)));
+    };
+    window.addEventListener('paceledger:intake-changed', on);
+    return () => window.removeEventListener('paceledger:intake-changed', on);
+  }, [user.id]);
 
   useEffect(() => { if (initialIntent) onIntentConsumed?.(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   // Requests that arrive while this tab is already open (+ New → Log how it went).
@@ -104,7 +120,8 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
   const notesByAppt = {};
   notes.forEach(n => { (notesByAppt[n.appointment_id] = notesByAppt[n.appointment_id] || []).push(n); });
 
-  const intakeState = a => { const c = candByAppt[a.id]; return !c ? 'none' : c.status === 'submitted' ? 'received' : 'sent'; };
+  // A link made but never sent still counts as not started.
+  const intakeState = a => { const c = candByAppt[a.id]; return !c ? 'none' : c.status === 'submitted' ? 'received' : c.sent_via ? 'sent' : 'none'; };
   // A recruit counts as signed up once someone with their name has joined
   // directly under you.
   const myRecruitNames = new Set(orgDirectory.filter(p => p.manager_id === user.id).map(p => normName(p.display_name)));
@@ -141,7 +158,7 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
   const qDigits = q.replace(/\D/g, '');
   const found = a => !q || a.client.toLowerCase().includes(q) || (qDigits.length >= 3 && (a.clientPhone || '').replace(/\D/g, '').includes(qDigits));
   const list = view === 'presented' ? presentedPast.filter(found) : past
-    .filter(a => matchesView(a, view))
+    .filter(a => matchesView(a, view) || pinned.has(a.id))
     .filter(found);
 
   async function handleSaveOutcome(id, data) {
@@ -201,22 +218,20 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
     if (!window.confirm('Delete this note?')) return;
     if (await deleteFollowUpNote(n.id)) setNotes(prev => prev.filter(x => x.id !== n.id));
   }
-  async function handleSendIntake(a) {
-    setBusyId(a.id);
-    const res = await createClientIntakeCandidate({ advisorId: user.id, advisorName: user.displayName, appointmentId: a.id, clientName: a.client });
-    if (res.ok) {
-      await supabase.from('appointments').update({ client_intake_requested: true }).eq('id', a.id);
-      setCandidates(prev => [res.record, ...prev]);
-      setAppointments(prev => prev.map(x => x.id === a.id ? { ...x, clientIntakeRequested: true } : x));
-    }
-    setBusyId(null);
+  // Opens the send window (text, email or copy the link). The card stays
+  // in this list until you switch lists, even once it's no longer
+  // "not started", so the link and what happened stay in view.
+  function handleSendIntake(a, cand = null) {
+    setPinned(prev => new Set(prev).add(a.id));
+    openIntakeSend({ appointment: a, candidate: cand });
   }
   async function handleRemoveIntake(a, candidate) {
     if (!window.confirm(`Remove ${a.client}'s intake? Their link will stop working and any answers are deleted.`)) return;
     if (await deleteClientIntakeCandidate(candidate.id)) {
-      await supabase.from('appointments').update({ client_intake_requested: false }).eq('id', a.id);
+      await setAppointmentIntakeRequested(a.id, false);
       setCandidates(prev => prev.filter(c => c.id !== candidate.id));
       setAppointments(prev => prev.map(x => x.id === a.id ? { ...x, clientIntakeRequested: false } : x));
+      intakeChanged({ removedId: candidate.id });
     }
   }
 
@@ -284,7 +299,6 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
           const st = STATUS_OPTIONS.find(o => o.value === a.status);
           const outcome = OUTCOME_OPTIONS.find(o => o.value === a.outcome);
           const cand = candByAppt[a.id];
-          const istate = intakeState(a);
           const apptNotes = notesByAppt[a.id] || [];
           return (
             <div className="tr-card tr-fu-card" key={a.id} data-fu-card={a.id}>
@@ -310,7 +324,7 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
                   {a.followUpCompletedAt
                     ? (st && st.value ? <span className={`tr-status tr-status-${st.color}`}>{st.label}</span> : null)
                     : open ? null /* (it's in the section below once open) */ : <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={e => { e.stopPropagation(); setModalTarget(a); }}>Log outcome</button>}
-                  {istate !== 'none' && <span className={`tr-status ${istate === 'received' ? 'tr-status-green' : 'tr-status-amber'}`}>{istate === 'received' ? 'Intake received' : 'Intake sent'}</span>}
+                  {cand ? <span className={`tr-status tr-status-${intakeStatusTone(cand)}`}>{cand.status === 'submitted' ? 'Intake received' : `Intake: ${lowerFirst(intakeStatusText(cand))}`}</span> : null}
                   {apptNotes.length > 0 && <span className="tr-status tr-status-none">{apptNotes.length} note{apptNotes.length === 1 ? '' : 's'}</span>}
                   {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
                 </div>
@@ -342,11 +356,11 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
 
                   <div className="tr-fu-section">
                     {cand ? (
-                      <ClientIntakeSection candidate={cand} canManage onRemove={() => handleRemoveIntake(a, cand)} />
+                      <ClientIntakeSection candidate={cand} canManage onRemove={() => handleRemoveIntake(a, cand)} onSend={() => handleSendIntake(a, cand)} />
                     ) : (
                       <div className="tr-row-head">
                         <h4 className="tr-h4" style={{ margin: 0 }}>Client intake</h4>
-                        <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" disabled={busyId === a.id} onClick={() => handleSendIntake(a)}>Send client intake</button>
+                        <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" disabled={busyId === a.id} onClick={() => handleSendIntake(a)}>Send intake form</button>
                       </div>
                     )}
                   </div>

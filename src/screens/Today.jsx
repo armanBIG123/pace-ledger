@@ -1,6 +1,6 @@
 // Today: four number tiles, one "Do next" list (appointments coming up, then what needs you), folds for the rest of the week, and team wins.
 import { Children, useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, Award, CalendarDays, Check, CheckCheck, CheckCircle2, ChevronDown, ChevronRight, ChevronUp, ClipboardCheck, GraduationCap, List as ListIcon, Pencil, Plus, Presentation, Sparkles, Target, UserPlus, Users, Video, Wallet, X } from 'lucide-react';
+import { Activity, Award, CalendarDays, Check, CheckCheck, CheckCircle2, ChevronDown, ChevronRight, ChevronUp, ClipboardCheck, FileText, GraduationCap, List as ListIcon, Pencil, Plus, Presentation, Sparkles, Target, UserPlus, Users, Video, Wallet, X } from 'lucide-react';
 import { examWhen, fetchLicensingProgress, licensingStatus } from '../licensing.js';
 import { computeOnboarding, fetchMyOnboarding, ONBOARDING_DAYS, ONBOARDING_WEEKS, onboardingDay, saveOnboardingSnapshot, setOnboardingVisibility, shouldShowOnboarding, weekForDay } from '../onboarding.js';
 import { isNativeApp, onAppResume, reminderPermission, requestReminderPermission } from '../native.js';
@@ -23,6 +23,9 @@ import { appointmentTexts, CallButton, prospectTexts, TextButton } from '../comp
 import { isValidPhone } from '../lib/phone.js';
 import { AnnouncementToday } from '../components/announcements.jsx';
 import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../components/appointmentPanel.jsx';
+import { fetchMyIntakeStatus } from '../clientIntake.js';
+import { openIntakeSend } from '../lib/intakeEvents.js';
+import { dayWord, intakeStatusText } from '../lib/intakeStatus.js';
 
 // The checklist card. `result` comes from computeOnboarding().
 export function FirstThirtyDays({ result, day, onGo, onHide }) {
@@ -220,7 +223,12 @@ export function useNeedsYou({ user, licProfile, showLicensing, onMilestones, onR
 export function TodayBody({ user, onNavigate, initialIntent = null, onIntentConsumed }) {
   const [loading, setLoading] = useState(true);
   const [appointments, setAppointments] = useState([]);
+  // Ones you're presenting or training on, today and tomorrow.
   const [involvedToday, setInvolvedToday] = useState([]);
+  // Your clients' intake forms (who, sent how, filled in yet).
+  const [intakes, setIntakes] = useState([]);
+  // Intake rows you've hidden (this device): { [formId]: until-ms }.
+  const [intakeHidden, setIntakeHidden] = useState(() => { try { return JSON.parse(localStorage.getItem('pl_intake_hidden') || '{}'); } catch { return {}; } });
   const [presenting, setPresenting] = useState([]);
   const [prospects, setProspects] = useState([]);
   const [plan, setPlan] = useState(null);
@@ -260,8 +268,8 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
 
   const load = useCallback(async () => {
     const start = new Date(); start.setHours(0, 0, 0, 0);
-    const end = new Date(start); end.setDate(end.getDate() + 1);
-    const [a, p, row, g, lic, ob, perm, on] = await Promise.all([
+    const end = new Date(start); end.setDate(end.getDate() + 2); // today and tomorrow
+    const [a, p, row, g, lic, ob, perm, on, forms] = await Promise.all([
       fetchMyAppointments(user.id), fetchMyProspects(user.id), fetchBusinessPlan(user.id),
       fetchGoogleConnectionStatus().catch(() => ({ connected: false })),
       // Your NPN and writing number come from the people list the other
@@ -271,6 +279,7 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
       // Appointments someone else set that you're presenting (they count
       // toward your pace) or training on.
       fetchAppointmentsImOn(user.id).catch(() => []),
+      fetchMyIntakeStatus(user.id).catch(() => []),
     ]);
     fetchHierarchyPeopleShared().then(list => setPeople(new Map((list || []).map(x => [x.id, x.display_name])))).catch(() => {});
     const inv = on.filter(x => x.appointmentAt && new Date(x.appointmentAt) >= start && new Date(x.appointmentAt) < end);
@@ -283,6 +292,7 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
     setOnboardingRow(ob && !ob.error ? ob : null);
     setInvolvedToday(inv);
     setPresenting(pres);
+    setIntakes(forms || []);
     setLoading(false);
   }, [user.id]);
   useEffect(() => { load(); }, [load]);
@@ -294,6 +304,17 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
     setInvolvedToday(prev => applyAppointmentEdit(prev, change));
     setPresenting(prev => applyAppointmentEdit(prev, change));
   });
+  // An intake form was made, sent or removed from the send window.
+  useEffect(() => {
+    const on = e => {
+      const d = e && e.detail;
+      if (!d) return;
+      if (d.candidate && d.candidate.advisor_id === user.id) setIntakes(prev => [{ ...d.candidate }, ...prev.filter(c => c.id !== d.candidate.id)]);
+      if (d.removedId) setIntakes(prev => prev.filter(c => c.id !== d.removedId));
+    };
+    window.addEventListener('paceledger:intake-changed', on);
+    return () => window.removeEventListener('paceledger:intake-changed', on);
+  }, [user.id]);
   useEffect(() => {
     const again = () => { load(); };
     window.addEventListener('paceledger:onboarding-changed', again);
@@ -462,6 +483,12 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
     .forEach(x => todaysById.set(x.id, x));
   const todaysAppts = [...todaysById.values()].sort((x, y) => apptStartMs(x) - apptStartMs(y));
   const comingUp = todaysAppts.filter(x => apptEndMs(x) > nowMs);
+  // Once today's are over (or there were none), tomorrow's show instead.
+  const tomorrow = fmtDate(addDays(parseDate(today), 1));
+  const tomorrowById = new Map();
+  [...appointments.filter(x => apptLocalDate(x) === tomorrow), ...involvedToday.filter(x => apptLocalDate(x) === tomorrow)]
+    .forEach(x => tomorrowById.set(x.id, x));
+  const tomorrowAppts = comingUp.length ? [] : [...tomorrowById.values()].sort((x, y) => apptStartMs(x) - apptStartMs(y));
   const inProgress = x => apptStartMs(x) <= nowMs && apptEndMs(x) > nowMs;
 
   // Pace for today's batch (Sat/Sun count as one weekend batch).
@@ -570,6 +597,34 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
         }),
       });
     });
+  // Intake forms that came back in the last week: review them (before
+  // the meeting, if it's still ahead).
+  const hideIntake = id => setIntakeHidden(prev => {
+    const next = { ...prev, [id]: Date.now() + 3 * 864e5 };
+    try { localStorage.setItem('pl_intake_hidden', JSON.stringify(next)); } catch { /* fine */ }
+    return next;
+  });
+  const intakeShown = c => !(intakeHidden[c.id] > nowMs);
+  const apptOf = c => appointments.find(x => x.id === c.source_appointment_id) || null;
+  const backForms = intakes
+    .filter(c => c.status === 'submitted' && c.submitted_at && nowMs - new Date(c.submitted_at).getTime() < 7 * 864e5 && intakeShown(c))
+    .sort((x, y) => new Date(y.submitted_at) - new Date(x.submitted_at));
+  if (backForms.length) {
+    const c = backForms[0];
+    const ap = apptOf(c);
+    const ahead = ap && !isPastAppointment(ap);
+    mustDo.push({
+      key: 'intake-back', Icon: FileText, tone: 'green',
+      title: backForms.length === 1
+        ? <><strong>{c.client_name}</strong> filled in the intake form</>
+        : <><strong>{backForms.length} intake forms</strong> came back</>,
+      meta: backForms.length === 1
+        ? `${intakeStatusText(c)}${ahead ? ` · read it before you meet ${fmtDisplayDate(ap.appointmentDate)}` : ''}`
+        : `${backForms.slice(0, 2).map(x => x.client_name).join(', ')}${backForms.length > 2 ? ` and ${backForms.length - 2} more` : ''}`,
+      action: { label: 'Review', run: () => onNavigate('followup', ap && backForms.length === 1 ? { view: 'received', open: ap.id } : 'received') },
+      onHide: () => backForms.forEach(x => hideIntake(x.id)),
+    });
+  }
   // Sales saved with "I'll add it later": the premium they still need,
   // so the sale counts on Track Production and the paycheck.
   const premiumFrom = fmtDate(addDays(parseDate(today), -30));
@@ -634,6 +689,29 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
     // Opens its card on Follow-up (notes, next meeting, intake).
     action: { label: 'Open', run: () => onNavigate('followup', { view: 'needs', open: x.id }) },
   }));
+  // Intake forms that need a nudge: sent 3+ days ago and not filled in, or
+  // made and never sent (over an hour ago). One row; Send again opens the
+  // oldest, See all opens Follow-up.
+  const nudge = intakes
+    .filter(c => c.status !== 'submitted' && intakeShown(c) && apptOf(c) && (c.sent_at
+      ? nowMs - new Date(c.sent_at).getTime() >= 3 * 864e5 && nowMs - new Date(c.sent_at).getTime() < 30 * 864e5
+      : c.created_at && nowMs - new Date(c.created_at).getTime() >= 36e5 && nowMs - new Date(c.created_at).getTime() < 30 * 864e5))
+    .sort((x, y) => new Date(x.sent_at || x.created_at) - new Date(y.sent_at || y.created_at));
+  if (nudge.length) {
+    const c = nudge[0];
+    later.push({
+      key: 'intake-nudge', Icon: FileText, tone: 'amber',
+      title: nudge.length === 1
+        ? (c.sent_at ? <>Nudge <strong>{c.client_name}</strong> about the intake form</> : <>Send <strong>{c.client_name}</strong> the intake form</>)
+        : <>Nudge <strong>{nudge.length} clients</strong> about their intake forms</>,
+      meta: nudge.length === 1
+        ? (c.sent_at ? `${intakeStatusText(c)} · not filled in yet` : `Link made ${dayWord(c.created_at)}, not sent yet`)
+        : `${nudge.slice(0, 2).map(x => x.client_name).join(', ')}${nudge.length > 2 ? ` and ${nudge.length - 2} more` : ''}`,
+      action: { label: c.sent_at ? 'Send again' : 'Send it', run: () => openIntakeSend({ appointment: apptOf(c), candidate: c }) },
+      more: nudge.length > 1 ? { label: 'See all', run: () => onNavigate('followup', 'sent') } : null,
+      onHide: () => nudge.forEach(x => hideIntake(x.id)),
+    });
+  }
   const staleCount = prospects.filter(x => isStaleProspect(x, booked)).length;
   if (staleCount) later.push({
     key: 'stale', Icon: Users, tone: 'amber',
@@ -823,12 +901,13 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
             <span className="tr-plan-sub">{summary}</span>
           </div>
 
-          {comingUp.length > 0 && (
-            <div className="tr-plan-section">
-              <h4 className="tr-plan-label">Coming up today</h4>
+          {[{ label: 'Coming up today', list: comingUp, now: true }, { label: `Tomorrow · ${new Date(`${tomorrow}T12:00:00`).toLocaleDateString('en-US', { weekday: 'long' })}`, list: tomorrowAppts, now: false }]
+            .filter(sec => sec.list.length > 0).map(sec => (
+            <div className="tr-plan-section" key={sec.label}>
+              <h4 className="tr-plan-label">{sec.label}</h4>
               <ul className="tr-dayagenda">
-                {comingUp.map(x => {
-                  const soon = startsInLabel(apptStartMs(x));
+                {sec.list.map(x => {
+                  const soon = sec.now ? startsInLabel(apptStartMs(x)) : null;
                   const mine = x.userId === user.id;
                   return (
                     <li key={x.id} className={`tr-dayagenda-row ${soon ? 'tr-dayagenda-soon' : ''}`}>
@@ -843,7 +922,7 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
                           </span>
                         </span>
                       </button>
-                      {x.zoomUrl || x.clientPhone ? (
+                      {(x.zoomUrl && sec.now) || x.clientPhone ? (
                         <span className="tr-dayagenda-acts">
                           {x.clientPhone ? (
                             <>
@@ -851,7 +930,7 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
                               <TextButton phone={x.clientPhone} name={x.client} texts={appointmentTexts(x, user.displayName)} compact />
                             </>
                           ) : null}
-                          {x.zoomUrl ? <a className={`tr-btn tr-btn-sm ${soon ? 'tr-btn-brass' : 'tr-btn-ghost'}`} href={x.zoomUrl} target="_blank" rel="noreferrer"><Video size={14} /> Join</a> : null}
+                          {x.zoomUrl && sec.now ? <a className={`tr-btn tr-btn-sm ${soon ? 'tr-btn-brass' : 'tr-btn-ghost'}`} href={x.zoomUrl} target="_blank" rel="noreferrer"><Video size={14} /> Join</a> : null}
                         </span>
                       ) : null}
                     </li>
@@ -859,7 +938,7 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
                 })}
               </ul>
             </div>
-          )}
+          ))}
 
           <div className="tr-plan-section">
             <h4 className="tr-plan-label">To do</h4>
