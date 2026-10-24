@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ShieldCheck, CheckCircle2, Copy, Trash2, ChevronDown, ChevronUp, ArrowRight, Plus, X } from 'lucide-react';
 import { shareOrCopy, isNativeApp } from './native.js';
+import { intakeStatusText, intakeStatusTone } from './lib/intakeStatus.js';
 import { CSS } from './styles.js';
 import {
   buildIntakeLink,
@@ -663,7 +664,8 @@ function fmtIntakeDate(iso) {
 
 // Per-client intake panel, shown inside a Follow Up card. Pending ->
 // copyable link; submitted -> the client's answers, expandable.
-export function ClientIntakeSection({ candidate, canManage, onRemove }) {
+// onSend: open the send window (text, email or copy the link again).
+export function ClientIntakeSection({ candidate, canManage, onRemove, onSend }) {
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const link = buildIntakeLink(candidate.token);
@@ -680,8 +682,8 @@ export function ClientIntakeSection({ candidate, canManage, onRemove }) {
     <div>
       <div className="tr-row-head">
         <h4 className="tr-h4" style={{ margin: 0 }}>Client intake</h4>
-        <span className={`tr-status ${submitted ? 'tr-status-green' : 'tr-status-amber'}`}>
-          {submitted ? `Received ${fmtIntakeDate(candidate.submitted_at)}` : 'Link sent — waiting on client'}
+        <span className={`tr-status tr-status-${intakeStatusTone(candidate)}`}>
+          {submitted ? `Received ${fmtIntakeDate(candidate.submitted_at)}` : `${intakeStatusText(candidate)}${candidate.sent_via ? ', waiting on client' : ''}`}
         </span>
       </div>
       {!submitted && (
@@ -695,6 +697,9 @@ export function ClientIntakeSection({ candidate, canManage, onRemove }) {
           <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setExpanded(e => !e)}>
             {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />} {expanded ? 'Hide answers' : 'View submitted info'}
           </button>
+        )}
+        {!submitted && onSend && (
+          <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={onSend}>{candidate.sent_via ? 'Send again' : 'Send it'}</button>
         )}
         {canManage && (
           <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onRemove}><Trash2 size={13} /> Remove intake</button>

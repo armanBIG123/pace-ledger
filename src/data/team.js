@@ -1,4 +1,5 @@
 // Team and hierarchy data: who's on whose team, promotion readiness, Manage Team actions, coaching notes and licensing numbers.
+import { selectAll } from './paged.js';
 import { supabase } from '../supabaseClient.js';
 import { buildChildrenMap, computeDownline, computeReadiness, downlineIds } from '../hierarchy.js';
 import { apptStartMs, fmtDate } from '../lib/dates.js';
@@ -12,9 +13,9 @@ import { rowToRecord } from './appointments.js';
 // Everyone's place in the hierarchy, with the fields tier progress needs.
 // (org_directory has no tiers, so tier-count requirements need this.)
 export async function fetchHierarchyPeople() {
-  const { data, error } = await supabase.from('profiles')
-    .select('id, display_name, email, manager_id, role, hierarchy_tier, hierarchy_tier_changed_at, created_at, npn, fg_writing_number, licensed_at')
-    .order('display_name');
+  const { data, error } = await selectAll(o => supabase.from('profiles')
+    .select('id, display_name, email, manager_id, role, hierarchy_tier, hierarchy_tier_changed_at, created_at, npn, fg_writing_number, licensed_at', o)
+    .order('display_name').order('id'));
   if (error) { console.error(error); return []; }
   return data;
 }
@@ -47,7 +48,7 @@ export async function fetchRecentSoldAppointments() {
   const monthsBack = new Date(now.getFullYear(), now.getMonth() - 2, 1);
   const thirtyBack = new Date(now.getTime() - 31 * 864e5);
   const since = fmtDate(monthsBack < thirtyBack ? monthsBack : thirtyBack);
-  const { data, error } = await supabase.from('appointments').select('*').eq('officially_sold', true).gte('appointment_date', since);
+  const { data, error } = await selectAll(o => supabase.from('appointments').select('*', o).eq('officially_sold', true).gte('appointment_date', since).order('id'));
   if (error) { console.error(error); return []; }
   return data.map(rowToRecord);
 }
@@ -90,7 +91,7 @@ export async function approvePromotion(admin, member, nextTier) {
 }
 
 export async function fetchTeamMembers(viewer) {
-  const { data, error } = await supabase.from('profiles').select('*').order('display_name');
+  const { data, error } = await selectAll(o => supabase.from('profiles').select('*', o).order('display_name').order('id'));
   if (error) { console.error(error); return []; }
   if (viewer.role === 'super_admin') return data.filter(p => ['advisor', 'manager', 'super_admin'].includes(p.role));
   // Everyone else (managers and advisors who lead people) sees their whole
@@ -126,7 +127,7 @@ export async function fetchDirectManagers(viewer) {
 }
 
 export async function fetchOrgDirectory() {
-  const { data, error } = await supabase.from('org_directory').select('*');
+  const { data, error } = await selectAll(o => supabase.from('org_directory').select('*', o).order('id'));
   if (error) { console.error(error); return []; }
   return data;
 }
@@ -174,7 +175,7 @@ export async function saveLicensing(userId, npn, fgWritingNumber) {
 // super admin — promote/demote people, plus the same team pace view
 // ---------------------------------------------------------------------
 export async function fetchAllUsers() {
-  const { data, error } = await supabase.from('profiles').select('*').order('display_name');
+  const { data, error } = await selectAll(o => supabase.from('profiles').select('*', o).order('display_name').order('id'));
   if (error) { console.error(error); return []; }
   return data;
 }

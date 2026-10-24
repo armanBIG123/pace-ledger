@@ -1346,6 +1346,14 @@ export const CSS = `
   .tr-pace-head .tr-weeknav { display: contents; }
   .tr-pace-head .tr-weeknav-label { flex: 1 1 calc(100% - 140px); min-width: 0; margin-right: 0; font-size: 14px; justify-content: center; }
   .tr-pace-total { margin-left: auto; }
+  /* Phones: on this week, "This week" (greyed out) steps aside so the week,
+     its arrows and the total share one line. */
+  .tr-pace-head .tr-weeknav-label { flex: 1 1 0; }
+  .tr-pace-head .tr-weeknav-label svg { display: none; }
+  .tr-pace-head .tr-weeknav > .tr-btn:disabled { display: none; }
+  /* The Zoom reminder stays one line. */
+  .tr-connect-slim.tr-connect-nudge { flex-wrap: nowrap; }
+  .tr-connect-nudge .tr-connect-text { flex: 1 1 auto; min-width: 0; }
   .tr-ov-row { flex-wrap: wrap; }
   .tr-quickadd { flex-wrap: wrap; }
   .tr-connect-slim { flex-wrap: wrap; }
@@ -1539,6 +1547,9 @@ export const CSS = `
 .tr-gsearch-box input { flex: 1; min-width: 0; border: none; background: transparent; font-family: inherit; font-size: 13.5px; color: #fff; outline: none; -webkit-appearance: none; appearance: none; }
 .tr-gsearch-box input::-webkit-search-cancel-button { display: none; }
 .tr-root .tr-gsearch-box input:focus-visible { outline: none; }
+/* Search boxes and the note field show focus with their own ring, so the
+   field inside doesn't need a second outline. */
+.tr-root .tr-search-row .tr-search-input:focus-visible, .tr-root .tr-intake-link-row > .tr-search-input:focus-visible { outline: none; }
 .tr-gsearch-box:focus-within input { color: var(--ink); }
 .tr-gsearch-box input::placeholder { color: rgba(255,255,255,0.6); }
 .tr-gsearch-box:focus-within input::placeholder { color: var(--slate-light); }
@@ -2496,6 +2507,65 @@ a.tr-agenda-open, a.tr-cal-appt { text-decoration: none; }
   .tr-agenda-item > .tr-agenda-what { flex-basis: calc(100% - 82px); }
   .tr-agenda-item > a.tr-btn { margin-left: 82px; }
 }
+/* ---- Client intake: the send window, the picker, the status row ---- */
+.tr-modal-card.tr-intake-modal { max-width: 480px; }
+.tr-intake-body { display: flex; flex-direction: column; gap: 14px; }
+.tr-modal-card .tr-intake-body { margin-top: 4px; }
+.tr-intake-status { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; margin: 0; font-size: 13px; font-weight: 600; padding: 4px 11px; border-radius: 999px; }
+.tr-intake-status-none { color: var(--slate); background: var(--paper-dim); }
+.tr-intake-status-amber { color: #7E520E; background: rgba(194,124,30,0.13); }
+.tr-intake-status-green { color: #23654A; background: rgba(46,125,91,0.11); }
+.tr-intake-ways { display: flex; flex-direction: column; gap: 8px; }
+.tr-intake-way { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 60px; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--card); font-family: inherit; text-align: left; color: var(--ink); text-decoration: none; cursor: pointer; transition: border-color .15s, background .15s; }
+a.tr-intake-way, a.tr-intake-way:visited { color: var(--ink); }
+.tr-intake-way:hover:not(.tr-intake-way-ask) { border-color: var(--brass); background: rgba(196,154,60,0.05); }
+.tr-intake-way:disabled { opacity: .6; cursor: default; }
+.tr-intake-way-ask { cursor: default; }
+.tr-intake-way-icon { width: 38px; height: 38px; flex-shrink: 0; border-radius: 10px; background: var(--brass-tint); color: var(--brass-dark); display: inline-flex; align-items: center; justify-content: center; }
+.tr-intake-way-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tr-intake-way-text strong { font-size: 14.5px; font-weight: 600; }
+.tr-intake-way-text > span { font-size: 12.5px; color: var(--slate-light); overflow-wrap: anywhere; }
+.tr-intake-inline { display: block; margin-top: 4px; }
+.tr-intake-inline input { width: 100%; min-height: 38px; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: var(--card); font-family: inherit; font-size: 14px; color: var(--ink); }
+.tr-intake-inline input:focus { border-color: var(--brass); box-shadow: var(--ring); outline: none; }
+.tr-intake-preview { font-size: 13px; color: var(--slate-light); }
+.tr-intake-preview summary { cursor: pointer; font-weight: 500; color: var(--slate); padding: 4px 0; }
+.tr-intake-preview p { margin: 6px 0 0; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--paper); color: var(--slate); line-height: 1.5; overflow-wrap: anywhere; }
+.tr-intake-search { margin-bottom: 0; }
+.tr-intake-pick { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.tr-intake-pick li + li { border-top: 1px solid var(--line); }
+.tr-intake-pick button { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 56px; padding: 10px 4px; border: none; background: none; font-family: inherit; text-align: left; color: var(--ink); cursor: pointer; border-radius: 8px; }
+.tr-intake-pick button:hover:not(:disabled) { background: var(--paper); }
+.tr-intake-pick button:disabled { cursor: default; opacity: .75; }
+.tr-intake-pick-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tr-intake-pick-main strong { font-size: 14.5px; font-weight: 600; }
+.tr-intake-pick-main span { display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--slate-light); }
+.tr-intake-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--paper); color: var(--slate-light); }
+.tr-intake-row-text { flex: 1 1 180px; min-width: 0; font-size: 13.5px; color: var(--slate); }
+.tr-intake-row-text strong { color: var(--ink); font-weight: 600; }
+.tr-intake-check { align-items: flex-start !important; }
+.tr-intake-check input[type="checkbox"] { margin-top: 2px; }
+.tr-intake-check > span { display: flex; flex-direction: column; gap: 2px; font-weight: 600; }
+
+/* ---- Pipeline → Appointments: folds, the Zoom line, the week tracker ---- */
+.tr-list-fold { border-radius: var(--radius); border: 1px solid var(--line); background: var(--card); overflow: hidden; }
+.tr-list-fold-head { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 48px; padding: 12px 16px; border: none; background: none; font-family: inherit; text-align: left; cursor: pointer; color: var(--slate-light); }
+.tr-list-fold-head strong { font-size: 14px; font-weight: 600; color: var(--ink); }
+.tr-list-fold-head span { font-size: 13px; }
+.tr-list-fold > .tr-card { border: none; border-top: 1px solid var(--line); border-radius: 0; }
+.tr-connect-nudge { padding-top: 6px; padding-bottom: 6px; }
+.tr-connect-nudge .tr-icon-btn { margin-right: -6px; color: var(--slate-light); }
+.tr-pace.tr-pace-closed { gap: 0; }
+.tr-pace-summary { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px 0 0; border: none; background: none; font-family: inherit; text-align: left; cursor: pointer; }
+.tr-pace-closed .tr-pace-summary { padding-bottom: 0; }
+.tr-pace-minis { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.tr-pace-mini { display: inline-flex; align-items: baseline; gap: 4px; padding: 3px 9px; border-radius: 999px; background: var(--paper); font-size: 12.5px; color: var(--slate); white-space: nowrap; }
+.tr-pace-mini strong { font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 500; color: var(--brass-dark); }
+.tr-pace-mini-done { background: rgba(46,125,91,0.1); }
+.tr-pace-mini-done strong { color: #23654A; }
+.tr-pace-more { display: inline-flex; align-items: center; gap: 3px; flex-shrink: 0; font-size: 13px; font-weight: 500; color: var(--brass-dark); }
+@media (hover: hover) { .tr-pace-summary:hover .tr-pace-more { text-decoration: underline; } }
+
 /* Phones and tablets: toggles, chips and the small text links get a
    finger-sized target too. (Last in the sheet, so these win over each
    control's own size above.) */

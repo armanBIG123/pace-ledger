@@ -1,3 +1,4 @@
+import { selectAll } from './data/paged.js';
 import { supabase } from './supabaseClient.js';
 
 // Dated running log of follow-up notes per appointment (see
@@ -7,11 +8,11 @@ import { supabase } from './supabaseClient.js';
 // One query for all of a person's appointments (joins through the
 // appointment so a long list of ids never has to go in the URL).
 export async function fetchMyFollowUpNotes(userId) {
-  const { data, error } = await supabase
+  const { data, error } = await selectAll(o => supabase
     .from('follow_up_notes')
-    .select('id, appointment_id, author_id, author_name, note, created_at, appointments!inner(user_id)')
+    .select('id, appointment_id, author_id, author_name, note, created_at, appointments!inner(user_id)', o)
     .eq('appointments.user_id', userId)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false }).order('id'));
   if (error) { console.error(error); return []; }
   return data.map(({ appointments, ...row }) => row);
 }

@@ -3,7 +3,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { LogOut, Plus, ShieldCheck, UserPlus, X } from 'lucide-react';
 import { createInvite } from '../invites.js';
 import { fetchMyOnboarding, onboardingDay, setOnboardingVisibility, shouldShowOnboarding } from '../onboarding.js';
-import { PUBLIC_SITE_URL } from '../native.js';
+import { isNativeApp, PUBLIC_SITE_URL } from '../native.js';
+import { disconnectZoom, fetchZoomConnectionStatus, startZoomConnect } from '../data/integrations.js';
 import { deleteMyAccount, signOut } from '../data/auth.js';
 import { fetchMyLicensing, updateMyProfile } from '../data/team.js';
 import { avatarUrl, removeAllMyAvatarFiles } from '../data/avatars.js';
@@ -156,6 +157,33 @@ export function OnboardingToggle({ user }) {
   );
 }
 
+// Zoom: connected or not, with Connect / Disconnect (the same as the
+// reminder on Pipeline → Appointments).
+function ZoomAccountRow() {
+  const [st, setSt] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const load = () => fetchZoomConnectionStatus().then(setSt).catch(() => setSt({ connected: false }));
+  useEffect(() => { load(); }, []);
+  if (!st) return null;
+  async function disconnect() {
+    if (!window.confirm("Disconnect Zoom? New appointments won't get their own meeting link.")) return;
+    setBusy(true);
+    if (await disconnectZoom()) setSt({ connected: false });
+    setBusy(false);
+  }
+  return (
+    <div className="tr-account-toggle">
+      <div>
+        <div className="tr-account-toggle-title">Zoom</div>
+        <div className="tr-account-toggle-sub">{st.connected ? `Connected as ${st.zoomEmail || 'your Zoom account'}. New appointments get their own meeting link.` : 'Not connected. Connect it and new appointments get their own meeting link.'}</div>
+      </div>
+      {st.connected
+        ? <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={disconnect} disabled={busy}>Disconnect</button>
+        : <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={() => { if (!isNativeApp()) setBusy(true); startZoomConnect(load); }} disabled={busy}>{busy ? 'Opening…' : 'Connect'}</button>}
+    </div>
+  );
+}
+
 // Your name, NPN (license number) and F&G writing number, editable by you.
 // Saving updates the name everywhere it shows, and the same numbers as
 // Milestones -> Licensing.
@@ -268,6 +296,7 @@ export function AccountSheet({ user, focusName = false, onClose }) {
           <a href={`${PUBLIC_SITE_URL}/support.html`} target="_blank" rel="noopener noreferrer">Support</a>
         </div>
         <OnboardingToggle user={user} />
+        <ZoomAccountRow />
         <InviteSomeone user={user} />
         <button type="button" className="tr-btn tr-btn-ghost tr-btn-block" onClick={signOut}><LogOut size={15} /> Log out</button>
 

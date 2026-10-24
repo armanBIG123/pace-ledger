@@ -3,6 +3,7 @@ import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CalendarDays, ChevronLeft, ChevronRight, DollarSign, Info, Loader2, MoreHorizontal, RefreshCw, UserPlus } from 'lucide-react';
 import { CSS } from '../styles.js';
+import { invalidateAppointments } from '../data/apptCache.js';
 import { joinedDate, todayStr, weekLabel, weekStartOf } from '../lib/dates.js';
 import { isRecruitType, isSaleType, STATUS_OPTIONS } from '../data/appointments.js';
 
@@ -96,9 +97,10 @@ export function TitleInfo({ title, info, as: Tag = 'h2', className = 'tr-h2', id
   );
 }
 
+// Refresh always loads fresh (skips the shared copy of your appointments).
 export function RefreshButton({ onClick }) {
   return (
-    <button type="button" className="tr-icon-btn tr-icon-btn-line" onClick={onClick} aria-label="Refresh" title="Refresh">
+    <button type="button" className="tr-icon-btn tr-icon-btn-line" onClick={() => { invalidateAppointments(); onClick(); }} aria-label="Refresh" title="Refresh">
       <RefreshCw size={15} aria-hidden="true" />
     </button>
   );

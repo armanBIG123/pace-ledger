@@ -1,7 +1,7 @@
 // + New (add or log anything from any tab) and search (find any teammate,
 // appointment, client or prospect from any tab).
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CalendarDays, CalendarPlus, ClipboardCheck, Search, Send, Star, User, UserPlus, X } from 'lucide-react';
+import { CalendarDays, CalendarPlus, ClipboardCheck, FileText, Search, Send, Star, User, UserPlus, X } from 'lucide-react';
 import { apptLocalDate, apptStartMs, fmtApptDateTime, todayStr } from '../lib/dates.js';
 import { buildChildrenMap, downlineIds, hierarchyTierLabel } from '../hierarchy.js';
 import { fetchMyAppointments, typeLabel } from '../data/appointments.js';
@@ -10,6 +10,7 @@ import { fmtPhone } from '../lib/phone.js';
 import { fetchHierarchyPeople } from '../data/team.js';
 import { InviteSomeone } from './Header.jsx';
 import { openAppointment } from './appointmentPanel.jsx';
+import { openIntakeSend } from '../lib/intakeEvents.js';
 
 // ---------------------------------------------------------------------
 // + New
@@ -18,6 +19,7 @@ export const NEW_ITEMS = [
   { kind: 'appointment', Icon: CalendarPlus, title: 'Log an appointment', sub: 'Sale, recruit or both' },
   { kind: 'prospect', Icon: UserPlus, title: 'Add a prospect', sub: 'A name for your list' },
   { kind: 'outcome', Icon: ClipboardCheck, title: 'Log how it went', sub: 'Appointments with no outcome yet' },
+  { kind: 'intake', Icon: FileText, title: 'Send a client intake', sub: 'Text or email their form' },
   { kind: 'invite', Icon: Send, title: 'Invite a recruit', sub: 'Text or email their sign-up link' },
 ];
 
@@ -78,6 +80,7 @@ export function useNewMenu(user, go) {
     else if (kind === 'appointment') go('mine', 'new');
     else if (kind === 'prospect') go('systems', 'new');
     else if (kind === 'outcome') go('followup', 'nolog');
+    else if (kind === 'intake') openIntakeSend({ pick: true });
   }
   const el = (
     <>

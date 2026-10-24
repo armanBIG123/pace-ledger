@@ -1,3 +1,4 @@
+import { selectAll } from './data/paged.js';
 import { publicBaseUrl } from './native.js';
 import { supabase } from './supabaseClient.js';
 
@@ -39,11 +40,70 @@ export async function createClientIntakeCandidate({ advisorId, advisorName, appo
 // Pass an advisor's id to get only their forms (leaders and super admins
 // can read other people's too).
 export async function fetchClientIntakeCandidates(advisorId) {
-  let q = supabase.from('client_intake_candidates').select('*');
-  if (advisorId) q = q.eq('advisor_id', advisorId);
-  const { data, error } = await q.order('created_at', { ascending: false });
+  const { data, error } = await selectAll(o => {
+    let q = supabase.from('client_intake_candidates').select('*', o);
+    if (advisorId) q = q.eq('advisor_id', advisorId);
+    return q.order('created_at', { ascending: false }).order('id');
+  });
   if (error) { console.error(error); return []; }
   return data;
+}
+
+// Your forms without the answers (for Today and the + New picker): who,
+// for which appointment, and whether and how each was sent and returned.
+// Works before the sent_at / sent_via columns exist (they come back empty).
+const LIGHT = 'id, advisor_id, source_appointment_id, client_name, token, status, submitted_at, created_at';
+export async function fetchMyIntakeStatus(advisorId) {
+  const run = cols => selectAll(o => supabase.from('client_intake_candidates').select(cols, o)
+    .eq('advisor_id', advisorId).order('created_at', { ascending: false }).order('id'));
+  let { data, error } = await run(`${LIGHT}, sent_at, sent_via`);
+  if (error && /sent_at|sent_via/.test(error.message || '')) ({ data, error } = await run(LIGHT));
+  if (error) { console.error(error); return []; }
+  return data || [];
+}
+
+// The form made for one of your appointments, if there is one.
+export async function fetchIntakeForAppointment(advisorId, appointmentId) {
+  const { data, error } = await supabase.from('client_intake_candidates').select('*')
+    .eq('advisor_id', advisorId).eq('source_appointment_id', appointmentId)
+    .order('created_at', { ascending: false }).limit(1);
+  if (error) { console.error(error); return null; }
+  return (data && data[0]) || null;
+}
+
+// Marks a form as sent (via: 'text' | 'email' | 'copy'). Before the database
+// update that adds these columns has run, it quietly does nothing.
+export async function markIntakeSent(id, via) {
+  const sentAt = new Date().toISOString();
+  const { error } = await supabase.from('client_intake_candidates').update({ sent_at: sentAt, sent_via: via }).eq('id', id);
+  if (error && !/sent_at|sent_via/.test(error.message || '')) console.error(error);
+  return error ? null : { sent_at: sentAt, sent_via: via };
+}
+
+// Emails the client their link from PaceLedger (supabase/functions/
+// send-intake-link). Returns { sent, error? }.
+export async function sendIntakeEmail(candidateId, email) {
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (!sessionData.session) return { sent: false, error: 'not_signed_in' };
+  try {
+    const res = await fetch(`${supabase.supabaseUrl}/functions/v1/send-intake-link`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${sessionData.session.access_token}`,
+        apikey: supabase.supabaseKey,
+      },
+      body: JSON.stringify({ candidateId, email }),
+    });
+    const body = await res.json().catch(() => null);
+    // A 404 from the function itself says the form wasn't found; one from
+    // Supabase means the function hasn't been added yet.
+    if (body && typeof body.sent === 'boolean') return body;
+    if (res.status === 404) return { sent: false, error: 'not_set_up' };
+    return { sent: false, error: 'request_failed' };
+  } catch {
+    return { sent: false, error: 'request_failed' };
+  }
 }
 
 // Every form the signed-in person can see (all of them for super admins),

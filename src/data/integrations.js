@@ -1,5 +1,7 @@
 // Google Calendar and Zoom connections, calendar events, Zoom meetings and emailed invites.
+import { invalidateAppointments } from './apptCache.js';
 import { supabase } from '../supabaseClient.js';
+import { isNativeApp, openInBrowserSheet } from '../native.js';
 
 // ---------------------------------------------------------------------
 // calendar — a live month view of every appointment's actual date/time
@@ -222,6 +224,19 @@ export function zoomOAuthUrl(accessToken) {
 
 export async function connectZoom() { return connectProvider(zoomOAuthUrl); }
 
+// Connect Zoom from anywhere: on the web the page goes to Zoom's sign-in
+// and comes back; in the phone app it opens in a browser sheet and onDone
+// runs when that closes.
+export async function startZoomConnect(onDone) {
+  if (isNativeApp()) {
+    const { data } = await supabase.auth.getSession();
+    if (!data.session) return;
+    await openInBrowserSheet(zoomOAuthUrl(data.session.access_token), onDone);
+    return;
+  }
+  await connectZoom();
+}
+
 export async function fetchZoomConnectionStatus() { return fetchProviderConnectionStatus('zoom_connections', 'zoom_email', 'zoomEmail'); }
 
 export async function disconnectZoom() { return disconnectProvider('zoom_connections'); }
@@ -249,7 +264,9 @@ export async function createZoomMeeting({ topic, startTime, durationMinutes, tim
 }
 
 export async function updateAppointmentZoomUrl(id, zoomUrl) {
+  invalidateAppointments();
   const { error } = await supabase.from('appointments').update({ zoom_url: zoomUrl }).eq('id', id);
+  invalidateAppointments();
   return !error;
 }
 

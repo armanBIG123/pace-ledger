@@ -2,6 +2,9 @@
 import { supabase } from '../supabaseClient.js';
 import { fetchHierarchyPeopleShared } from './team.js';
 import { createClientIntakeCandidate } from '../clientIntake.js';
+import { openIntakeSend } from '../lib/intakeEvents.js';
+import { cachedLoad, invalidateAppointments } from './apptCache.js';
+import { selectAll } from './paged.js';
 import { dateSetMeta, defaultDateSetOption } from '../lib/pace.js';
 import { addDays, apptEndMs, detectTimezone, fmtDate, fmtDisplayDate, LEGACY_APPT_MINUTES, parseDate, todayStr, weekStartOf } from '../lib/dates.js';
 
@@ -95,7 +98,9 @@ export const DEFAULT_APPT_MINUTES = 60;
 // Before migration-appointment-end-times.sql has run there's no
 // duration_minutes column yet: save without the length instead of failing.
 async function saveWithLength(payload, write) {
+  invalidateAppointments();
   const res = await write(payload);
+  invalidateAppointments();
   if (!res.error || !('duration_minutes' in payload) || !/duration_minutes/.test(res.error.message || '')) return res;
   const rest = { ...payload };
   delete rest.duration_minutes;
@@ -119,9 +124,9 @@ export function isPolicyIssued(a) {
 // allowed to see: an advisor gets their own, a manager gets their own
 // plus their assigned advisors', a super_admin gets everyone's.
 export async function fetchSoldPolicies() {
-  const { data, error } = await supabase
-    .from('appointments').select('*').eq('officially_sold', true)
-    .order('appointment_date', { ascending: false });
+  const { data, error } = await selectAll(o => supabase
+    .from('appointments').select('*', o).eq('officially_sold', true)
+    .order('appointment_date', { ascending: false }).order('id'));
   if (error) { console.error(error); return []; }
   return data.map(rowToRecord);
 }
@@ -132,12 +137,13 @@ export async function fetchSoldPolicies() {
 // appointment_time, so reschedules, follow-ups, and edits show up
 // automatically with no extra sync logic needed.
 export async function fetchAppointmentsInRange(startDate, endDate) {
-  const { data, error } = await supabase
-    .from('appointments').select('*')
+  const { data, error } = await selectAll(o => supabase
+    .from('appointments').select('*', o)
     .gte('appointment_date', startDate)
     .lte('appointment_date', endDate)
     .order('appointment_date', { ascending: true })
-    .order('appointment_time', { ascending: true });
+    .order('appointment_time', { ascending: true })
+    .order('id'));
   if (error) { console.error(error); return []; }
   return data.map(rowToRecord);
 }
@@ -147,6 +153,7 @@ export async function updatePolicyFields(id, fields) {
   if ('effectiveDate' in fields) payload.effective_date = fields.effectiveDate || null;
   if ('requirementsCompleted' in fields) payload.requirements_completed = !!fields.requirementsCompleted;
   const { error } = await supabase.from('appointments').update(payload).eq('id', id);
+  invalidateAppointments();
   return !error;
 }
 
@@ -211,6 +218,7 @@ export async function saveFollowUp(id, data, followUpTimezone) {
   // question, so the candidate record it created is never orphaned.
   if (data.clientIntake === true) updatePayload.client_intake_requested = true;
   const { error } = await supabase.from('appointments').update(updatePayload).eq('id', id);
+  invalidateAppointments();
   return !error;
 }
 
@@ -251,11 +259,15 @@ export async function insertFollowUpAppointment(userId, original, followUpDate, 
 // Appointments someone else set that you're on: presenting (these count
 // toward your pace) or sitting in as the trainee. One request for both.
 // Each comes back with presentingFor and the name of who set it.
-export async function fetchAppointmentsImOn(userId) {
+// Shared between screens (see apptCache.js); fresh: true skips the copy.
+export function fetchAppointmentsImOn(userId, opts) {
+  return cachedLoad(`on:${userId}`, () => loadAppointmentsImOn(userId), opts);
+}
+async function loadAppointmentsImOn(userId) {
   const [{ data, error }, people] = await Promise.all([
-    supabase.from('appointments').select('*')
+    selectAll(o => supabase.from('appointments').select('*', o)
       .or(`presenter_id.eq.${userId},trainee_id.eq.${userId}`).neq('user_id', userId)
-      .order('appointment_date', { ascending: true }),
+      .order('appointment_date', { ascending: true }).order('id')),
     fetchHierarchyPeopleShared().catch(() => []),
   ]);
   if (error) { console.error(error); return []; }
@@ -269,10 +281,15 @@ export async function fetchAppointmentsImPresenting(userId) {
   return (await fetchAppointmentsImOn(userId)).filter(a => a.presentingFor);
 }
 
-export async function fetchMyAppointments(userId) {
-  const { data, error } = await supabase
-    .from('appointments').select('*').eq('user_id', userId)
-    .order('appointment_date', { ascending: true });
+// Every appointment you set, oldest first. Shared between screens (see
+// apptCache.js); fresh: true skips the shared copy.
+export function fetchMyAppointments(userId, opts) {
+  return cachedLoad(`mine:${userId}`, () => loadMyAppointments(userId), opts);
+}
+async function loadMyAppointments(userId) {
+  const { data, error } = await selectAll(o => supabase
+    .from('appointments').select('*', o).eq('user_id', userId)
+    .order('appointment_date', { ascending: true }).order('id'));
   if (error) { console.error(error); return []; }
   return data.map(rowToRecord);
 }
@@ -282,7 +299,7 @@ export async function fetchMyAppointments(userId) {
 // direct reports.
 export async function fetchAppointmentsForUserIds(userIds) {
   if (userIds.length === 0) return [];
-  const { data, error } = await supabase.from('appointments').select('*').in('user_id', userIds);
+  const { data, error } = await selectAll(o => supabase.from('appointments').select('*', o).in('user_id', userIds).order('id'));
   if (error) { console.error(error); return []; }
   return data.map(rowToRecord);
 }
@@ -291,14 +308,14 @@ export async function fetchAppointmentsForUserIds(userIds) {
 // the trainee, regardless of who logged it (relies on the
 // trainee-visibility RLS policy).
 export async function fetchAppointmentsAsTrainee(userId) {
-  const { data, error } = await supabase.from('appointments').select('*').eq('trainee_id', userId);
+  const { data, error } = await selectAll(o => supabase.from('appointments').select('*', o).eq('trainee_id', userId).order('id'));
   if (error) { console.error(error); return []; }
   return data.map(rowToRecord);
 }
 
 export async function fetchAppointmentsForWeek(weekMonday) {
-  const { data, error } = await supabase
-    .from('appointments').select('*').eq('week_of', weekMonday);
+  const { data, error } = await selectAll(o => supabase
+    .from('appointments').select('*', o).eq('week_of', weekMonday).order('id'));
   if (error) { console.error(error); return []; }
   return data.map(rowToRecord);
 }
@@ -308,8 +325,8 @@ export async function fetchAppointmentsForWeek(weekMonday) {
 // week it happened, the same as the weekly top 3 and the paycheck.
 export async function fetchAppointmentsHeldInWeek(weekStart) {
   const weekEnd = fmtDate(addDays(parseDate(weekStart), 6));
-  const { data, error } = await supabase
-    .from('appointments').select('*').gte('appointment_date', weekStart).lte('appointment_date', weekEnd);
+  const { data, error } = await selectAll(o => supabase
+    .from('appointments').select('*', o).gte('appointment_date', weekStart).lte('appointment_date', weekEnd).order('id'));
   if (error) { console.error(error); return []; }
   return data.map(rowToRecord);
 }
@@ -400,6 +417,7 @@ export async function updateTeamAppointment(id, form, isReschedule) {
   delete fields.prospect_id;
   if (isReschedule) fields.week_of = weekStartOf(todayStr());
   const { data, error } = await supabase.rpc('leader_update_appointment', { p_appointment: id, p_fields: fields, p_reschedule: !!isReschedule });
+  invalidateAppointments();
   if (error || !data) {
     const msg = (error && error.message) || '';
     return { ok: false, error: /not_allowed/.test(msg) ? 'Only the person they report to, or a super admin, can change this appointment.' : "Couldn't save. Check your connection and try again." };
@@ -438,6 +456,7 @@ export async function rescheduleAppointment(appt, { date, time, timezone }) {
 // appointment, and puts any follow-up they booked on the advisor's list.
 // The sale or recruit still counts for the advisor.
 export async function logPresentedAppointment(id, data) {
+  invalidateAppointments();
   const { data: out, error } = await supabase.rpc('log_presented_appointment', {
     p_appointment: id,
     p_data: {
@@ -454,13 +473,16 @@ export async function logPresentedAppointment(id, data) {
       followUpWeekOf: weekStartOf(todayStr()),
     },
   });
+  invalidateAppointments();
   if (error || !out) return { ok: false, error: error ? error.message : 'failed' };
   return { ok: true, record: rowToRecord(out.appointment), followUp: out.followUp ? rowToRecord(out.followUp) : null };
 }
 
 // Links an appointment to a prospect on your list (or unlinks it, with null).
 export async function linkAppointmentToProspect(appointmentId, prospectId) {
+  invalidateAppointments();
   const { data, error } = await supabase.from('appointments').update({ prospect_id: prospectId || null }).eq('id', appointmentId).select().single();
+  invalidateAppointments();
   if (error) return { ok: false };
   return { ok: true, record: rowToRecord(data) };
 }
@@ -476,13 +498,38 @@ export function inviteFailureMessage(code, isUpdate = false) {
 
 // Records who the Zoom link was sent to, and how ('google' or 'email').
 export async function markInviteSent(id, emails, method) {
+  invalidateAppointments();
   const { error } = await supabase.from('appointments')
     .update({ invitee_emails: emails, invite_method: method, invite_sent_at: new Date().toISOString() }).eq('id', id);
+  invalidateAppointments();
+  return !error;
+}
+
+// Notes on the appointment that it has an intake form (on: false when the
+// form is removed).
+export async function setAppointmentIntakeRequested(id, on) {
+  invalidateAppointments();
+  const { error } = await supabase.from('appointments').update({ client_intake_requested: !!on }).eq('id', id);
+  invalidateAppointments();
+  return !error;
+}
+
+// Saves a client's email or phone typed in while sending them something.
+export async function saveAppointmentContact(id, { clientEmail, clientPhone }) {
+  const payload = {};
+  if (clientEmail !== undefined) payload.client_email = clientEmail || null;
+  if (clientPhone !== undefined) payload.client_phone = clientPhone || null;
+  if (!Object.keys(payload).length) return true;
+  invalidateAppointments();
+  const { error } = await supabase.from('appointments').update(payload).eq('id', id);
+  invalidateAppointments();
   return !error;
 }
 
 export async function deleteAppointmentRow(id) {
+  invalidateAppointments();
   const { error } = await supabase.from('appointments').delete().eq('id', id);
+  invalidateAppointments();
   return !error;
 }
 
@@ -549,10 +596,12 @@ export async function persistFollowUp(user, id, original, data) {
     if (res.ok) newAppt = res.record;
   }
   if (data.clientIntake === true && original && !original.clientIntakeRequested) {
-    await createClientIntakeCandidate({
+    const made = await createClientIntakeCandidate({
       advisorId: user.id, advisorName: user.displayName,
       appointmentId: id, clientName: original.client,
     });
+    // Straight on to sending it: text, email or copy the link.
+    if (made.ok) openIntakeSend({ appointment: { ...original, clientIntakeRequested: true }, candidate: made.record });
   }
   return { ok: true, newAppt, followUpTimezone };
 }

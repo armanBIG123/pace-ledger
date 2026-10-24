@@ -1,4 +1,5 @@
 // Prospects: scoring, loading and saving, plus the Memory Jogger list.
+import { selectAll } from './paged.js';
 import { supabase } from '../supabaseClient.js';
 
 // ---------------------------------------------------------------------
@@ -128,7 +129,7 @@ export function rowToProspect(row) {
 }
 
 export async function fetchMyProspects(userId) {
-  const { data, error } = await supabase.from('prospects').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+  const { data, error } = await selectAll(o => supabase.from('prospects').select('*', o).eq('user_id', userId).order('created_at', { ascending: false }).order('id'));
   if (error) { console.error(error); return []; }
   return data.map(rowToProspect);
 }
@@ -137,7 +138,7 @@ export async function fetchMyProspects(userId) {
 // prospects plus their team's (or everyone's, for super_admin), same
 // pattern as fetchSoldPolicies.
 export async function fetchAllVisibleProspects() {
-  const { data, error } = await supabase.from('prospects').select('*').order('created_at', { ascending: false });
+  const { data, error } = await selectAll(o => supabase.from('prospects').select('*', o).order('created_at', { ascending: false }).order('id'));
   if (error) { console.error(error); return []; }
   return data.map(rowToProspect);
 }
