@@ -383,6 +383,7 @@ export const CSS = `
 .tr-log-pick { margin: 10px 0 0; font-size: 12.5px; color: var(--slate-light); text-align: center; }
 .tr-log-premium { display: flex; flex-direction: column; gap: 8px; padding: 12px; margin-top: -4px; border-left: 2px solid var(--brass); background: var(--paper); border-radius: 0 8px 8px 0; }
 .tr-log-needed { font-style: normal; font-size: 11px; font-weight: 700; color: #9B3A26; background: rgba(176,67,47,0.1); border-radius: 999px; padding: 1px 7px; margin-left: 4px; }
+.tr-log-recruit-yes { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 14px; font-weight: 600; color: #23654A; }
 .tr-field input.tr-input-bad { border-color: var(--rust); box-shadow: 0 0 0 3px rgba(176,67,47,0.12); }
 .tr-check-inline { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 13.5px; color: var(--ink); cursor: pointer; }
 .tr-check-inline input { width: 18px; height: 18px; accent-color: var(--ink); }

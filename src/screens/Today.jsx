@@ -262,6 +262,8 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
   const [numberBusy, setNumberBusy] = useState(false);
   // Names, for "Dynamite Jones logged how it went".
   const [people, setPeople] = useState(new Map());
+  // Someone joined your team (signed up under you): your first recruit.
+  const [hasRecruit, setHasRecruit] = useState(false);
   // "Logged for you" rows you've hidden (this device).
   const [seenLogged, setSeenLogged] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('pl_logged_seen') || '[]')); } catch { return new Set(); } });
   const savedSnapshotFor = useRef('');
@@ -281,7 +283,10 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
       fetchAppointmentsImOn(user.id).catch(() => []),
       fetchMyIntakeStatus(user.id).catch(() => []),
     ]);
-    fetchHierarchyPeopleShared().then(list => setPeople(new Map((list || []).map(x => [x.id, x.display_name])))).catch(() => {});
+    fetchHierarchyPeopleShared().then(list => {
+      setPeople(new Map((list || []).map(x => [x.id, x.display_name])));
+      setHasRecruit((list || []).some(x => x.manager_id === user.id));
+    }).catch(() => {});
     const inv = on.filter(x => x.appointmentAt && new Date(x.appointmentAt) >= start && new Date(x.appointmentAt) < end);
     const pres = on.filter(x => x.presentingFor);
     setAppointments(a);
@@ -346,7 +351,7 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
     calendarConnected: facts.google,
     bookedCount: appointments.filter(x => !x.isFollowUp).length,
     outcomeLogged: appointments.some(x => x.followUpCompletedAt),
-    hasWin: appointments.some(x => x.officiallySold || x.officiallyRecruited) || prospects.some(x => x.markedSold || x.markedRecruited),
+    hasWin: hasRecruit || appointments.some(x => x.officiallySold || x.officiallyRecruited) || prospects.some(x => x.markedSold || x.markedRecruited),
     licensed: facts.licensed,
   });
   const visibility = (onboardingRow && onboardingRow.visibility) || 'auto';

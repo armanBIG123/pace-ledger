@@ -1,16 +1,21 @@
 // The "How did it go?" window for a past appointment. It asks how it went
 // first, then only what fits that answer:
-// - Went well / Not interested: sold (with the premium), recruited,
-//   follow-up, tax and home/auto interest, and client intake, as before.
+// - Went well / Not interested: sold (with the premium), follow-up, tax and
+//   home/auto interest, and client intake. Recruits aren't asked: they count
+//   on their own when the person signs up through their recruit link, so a
+//   recruit appointment just shows whether they have (until the database
+//   update is run, the old "Officially recruited?" question stays).
 // - No show / Rescheduled: pick the new date and time right here (the same
 //   as editing it from the Reschedule list), or "Not now".
 // Used on Today, Pipeline (Appointments, Log outcome, Follow-up), and by leaders
 // for appointments they presented (presenter: no time picking, no intake).
 // onEdit: "Edit the appointment" instead (wrong time or details).
-import { useState } from 'react';
-import { CalendarClock, CircleX, ThumbsUp, UserX } from 'lucide-react';
-import { boolToYesNo, rescheduleAppointment, typeLabel, YES_NO_OPTIONS, yesNoToBool } from '../data/appointments.js';
+import { useEffect, useState } from 'react';
+import { CalendarClock, Check, CircleX, ThumbsUp, UserX } from 'lucide-react';
+import { boolToYesNo, isRecruitType, rescheduleAppointment, typeLabel, YES_NO_OPTIONS, yesNoToBool } from '../data/appointments.js';
 import { sendAppointmentInviteEmail } from '../data/integrations.js';
+import { knownRecruitsSince, recruitsFromSignupsSince } from '../data/recruits.js';
+import { fetchInviteForAppointment, inviteState } from '../invites.js';
 import { detectTimezone, fmtApptDateTime } from '../lib/dates.js';
 import { Modal, openPicker, PillChoice } from './ui.jsx';
 
@@ -23,6 +28,35 @@ const OUTCOMES = [
 const MET = ['went_well', 'not_interested'];
 const MISSED = ['no_show', 'rescheduled'];
 const first = n => (n || '').trim().split(/\s+/)[0] || n;
+const shortDate = iso => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+// Recruit appointments: have they signed up through their link yet?
+// (Counted on its own; nothing to answer.)
+function RecruitSignupStatus({ appointment, presenter, setByName }) {
+  const [invite, setInvite] = useState(undefined); // undefined = loading
+  useEffect(() => {
+    let alive = true;
+    fetchInviteForAppointment(appointment.id).then(inv => { if (alive) setInvite(inv); }).catch(() => { if (alive) setInvite(null); });
+    return () => { alive = false; };
+  }, [appointment.id]);
+  const whose = presenter ? (setByName ? `${first(setByName)}'s` : "the advisor's") : 'your';
+  const state = inviteState(invite);
+  return (
+    <div className="tr-field tr-log-recruit">
+      <span>Recruit</span>
+      {invite === undefined ? <p className="tr-empty" style={{ margin: 0 }}>Checking…</p>
+        : state === 'used' ? (
+          <p className="tr-log-recruit-yes"><Check size={14} aria-hidden="true" /> Signed up {shortDate(invite.used_at)}. They count as {whose} recruit.</p>
+        ) : state === 'active' ? (
+          <p className="tr-empty" style={{ margin: 0 }}>Not signed up yet. {first(appointment.client)} counts as {whose} recruit when they sign up with their link.</p>
+        ) : (
+          <p className="tr-empty" style={{ margin: 0 }}>
+            {first(appointment.client)} counts as {whose} recruit when they sign up with a recruit link{presenter ? '' : ' (make one on their Follow-up card)'}.
+          </p>
+        )}
+    </div>
+  );
+}
 
 export function FollowUpModal({ appointment, onClose, onSave, saving, onRescheduled = null, presenter = false, setByName = '', onEdit = null }) {
   const [outcome, setOutcome] = useState(appointment.outcome || '');
@@ -46,6 +80,11 @@ export function FollowUpModal({ appointment, onClose, onSave, saving, onReschedu
   const [emailClient, setEmailClient] = useState(false);
   const [moving, setMoving] = useState(false);
   const [err, setErr] = useState('');
+  // Recruits count from sign-ups once the database update is in; until we
+  // know, the question stays hidden (it only shows if it's still needed).
+  const [since, setSince] = useState(knownRecruitsSince());
+  useEffect(() => { if (since === undefined) recruitsFromSignupsSince().then(setSince); }, [since]);
+  const askRecruited = since === null;
 
   // Already logged with no outcome (older records): show every question.
   const full = MET.includes(outcome) || (!outcome && !!appointment.followUpCompletedAt);
@@ -76,7 +115,8 @@ export function FollowUpModal({ appointment, onClose, onSave, saving, onReschedu
       followUpScheduled: full ? yesNoToBool(followUpScheduled) : null,
       followUpDate: full && followUpScheduled === 'yes' ? followUpDate : null,
       followUpTime: full && followUpScheduled === 'yes' ? followUpTime : null,
-      officiallyRecruited: full ? yesNoToBool(officiallyRecruited) : false,
+      // From sign-ups: leave it as it was (older weeks keep their numbers).
+      officiallyRecruited: !askRecruited ? !!appointment.officiallyRecruited : full ? yesNoToBool(officiallyRecruited) : false,
       officiallySold: full ? yesNoToBool(officiallySold) : false,
       targetPremium: full && officiallySold === 'yes' && Number(targetPremium) > 0 ? targetPremium : '',
       interestedTax: full ? yesNoToBool(interestedTax) : null,
@@ -133,7 +173,11 @@ export function FollowUpModal({ appointment, onClose, onSave, saving, onReschedu
               </label>
             </div>
           )}
-          <div className="tr-field"><span>Officially recruited?</span><PillChoice options={YES_NO_OPTIONS} value={officiallyRecruited} onChange={setOfficiallyRecruited} /></div>
+          {askRecruited ? (
+            <div className="tr-field"><span>Officially recruited?</span><PillChoice options={YES_NO_OPTIONS} value={officiallyRecruited} onChange={setOfficiallyRecruited} /></div>
+          ) : since && isRecruitType(appointment) ? (
+            <RecruitSignupStatus appointment={appointment} presenter={presenter} setByName={setByName} />
+          ) : null}
           <div className="tr-field"><span>Follow-up appointment scheduled?</span><PillChoice options={YES_NO_OPTIONS} value={followUpScheduled} onChange={setFollowUpScheduled} /></div>
           {followUpScheduled === 'yes' && (
             <div className="tr-followup-subfields">

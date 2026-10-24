@@ -1,8 +1,12 @@
-// Track Production: sales, submitted premium and recruits for the week, counted
-// in the week the appointment took place (whenever it was booked).
+// Track Production: sales and submitted premium for the week, counted in the
+// week the appointment took place (whenever it was booked), and recruits:
+// people who signed up through a recruit link that week, for the person they
+// joined under (see lib/recruitCounts.js).
 import { Fragment, useCallback, useEffect, useState } from 'react';
 import { ChevronDown, ChevronUp, Download, TrendingUp } from 'lucide-react';
-import { apptStartMs, fmtApptDateTime, shiftWeekStr, todayStr, weekStartOf } from '../../lib/dates.js';
+import { addDays, apptStartMs, fmtApptDateTime, fmtDate, parseDate, shiftWeekStr, todayStr, weekStartOf } from '../../lib/dates.js';
+import { signupsFor, tickboxRecruitCounts } from '../../lib/recruitCounts.js';
+import { fetchRecruitSignups } from '../../data/recruits.js';
 import { downloadCSV, fmtCurrency } from '../../lib/format.js';
 import { fetchAppointmentsHeldInWeek, isPolicyIssued } from '../../data/appointments.js';
 import { fetchTeamMembers } from '../../data/team.js';
@@ -13,9 +17,12 @@ import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../.
 const byTime = list => list.slice().sort((a, b) => apptStartMs(a) - apptStartMs(b));
 const withWhom = a => (a.presenter && a.presenterId !== a.userId ? ` · with ${a.presenter}` : '');
 
-// Tap a name: who they sold to and recruited this week, with the date and
-// time of each appointment.
-function ProductionDetail({ sold, recruited, premium }) {
+const signedUpWhen = iso => new Date(iso).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+
+// Tap a name: who they sold to and recruited this week. Sales show the
+// appointment; recruits show when they signed up (or, before the switch,
+// the appointment marked recruited).
+function ProductionDetail({ sold, recruited, joined, premium }) {
   return (
     <div className="tr-prod-detail">
       <section>
@@ -32,13 +39,19 @@ function ProductionDetail({ sold, recruited, premium }) {
         )}
       </section>
       <section>
-        <h4 className="tr-prod-h">Recruits <span>{recruited.length}</span></h4>
-        {recruited.length === 0 ? <p className="tr-empty">No recruits this week.</p> : (
+        <h4 className="tr-prod-h">Recruits <span>{recruited.length + joined.length}</span></h4>
+        {recruited.length + joined.length === 0 ? <p className="tr-empty">No one signed up this week.</p> : (
           <ul className="tr-prod-list">
+            {joined.map(j => (
+              <li key={j.id}>
+                <div className="tr-prod-line"><strong>{j.recruitName}</strong></div>
+                <div className="tr-prod-sub">Signed up {signedUpWhen(j.signedUpAt)}</div>
+              </li>
+            ))}
             {byTime(recruited).map(a => (
               <li key={a.id}>
                 <div className="tr-prod-line"><button type="button" className="tr-appt-client-btn" onClick={() => openAppointment(a)}><strong>{a.client}</strong></button></div>
-                <div className="tr-prod-sub">{fmtApptDateTime(a)}{withWhom(a)}</div>
+                <div className="tr-prod-sub">{fmtApptDateTime(a)}{withWhom(a)} · marked recruited</div>
               </li>
             ))}
           </ul>
@@ -51,6 +64,7 @@ function ProductionDetail({ sold, recruited, premium }) {
 export function TrackProductionBody({ user }) {
   const [members, setMembers] = useState([]);
   const [weekAppts, setWeekAppts] = useState([]);
+  const [signups, setSignups] = useState({ since: null, rows: [] });
   const [loading, setLoading] = useState(true);
   const [weekMonday, setWeekMonday] = useState(weekStartOf(todayStr()));
   const [expanded, setExpanded] = useState(null);
@@ -59,12 +73,14 @@ export function TrackProductionBody({ user }) {
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const [memberList, appts] = await Promise.all([
+    const [memberList, appts, joined] = await Promise.all([
       fetchTeamMembers(user),
       fetchAppointmentsHeldInWeek(weekMonday),
+      fetchRecruitSignups(weekMonday, fmtDate(addDays(parseDate(weekMonday), 6))),
     ]);
     setMembers(memberList);
     setWeekAppts(appts);
+    setSignups(joined);
     setLoading(false);
   }, [weekMonday, user.id, user.role]);
 
@@ -78,17 +94,18 @@ export function TrackProductionBody({ user }) {
   function tally(m) {
     const list = weekAppts.filter(a => a.userId === m.id);
     const sold = list.filter(a => a.officiallySold);
-    const recruited = list.filter(a => a.officiallyRecruited);
+    const recruited = list.filter(a => tickboxRecruitCounts(a, signups.since));
+    const joined = signupsFor(signups.rows, m.id);
     const premium = sold.reduce((t, a) => t + (Number(a.targetPremium) || 0), 0);
     const noPremium = sold.filter(a => !(Number(a.targetPremium) > 0)).length;
-    return { sold, recruited, premium, noPremium };
+    return { sold, recruited, joined, recruits: recruited.length + joined.length, premium, noPremium };
   }
 
   function handleExport() {
     const rows = [['Team member', 'Role', 'Sales', 'Submitted premium', 'Sales with no premium entered', 'Recruits']];
     members.forEach(m => {
       const t = tally(m);
-      rows.push([m.display_name, m.role, t.sold.length, t.premium, t.noPremium, t.recruited.map(a => a.client).join('; ')]);
+      rows.push([m.display_name, m.role, t.sold.length, t.premium, t.noPremium, [...t.joined.map(j => j.recruitName), ...t.recruited.map(a => a.client)].join('; ')]);
     });
     downloadCSV(`track-production-week-of-${weekMonday}.csv`, rows);
   }
@@ -118,7 +135,7 @@ export function TrackProductionBody({ user }) {
   return (
     <>
       <div className="tr-row-head">
-        <TitleInfo title={<><TrendingUp size={18} aria-hidden="true" /> Track production</>} info="Sales and recruits marked in each person's follow-up, counted in the week the appointment took place (Saturday to Friday), whenever it was booked. Tap a name to see who they sold to and recruited." />
+        <TitleInfo title={<><TrendingUp size={18} aria-hidden="true" /> Track production</>} info="Sales marked in each person's follow-up, counted in the week the appointment took place (Saturday to Friday). Recruits are people who signed up through a recruit link that week, counted for the person they joined under. Tap a name to see who they sold to and who joined." />
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={handleExport} disabled={loading || members.length === 0}><Download size={14} /> Export CSV</button>
           <RefreshButton onClick={refresh} />
@@ -135,7 +152,7 @@ export function TrackProductionBody({ user }) {
               <thead><tr><th>Team member</th><th>Sales</th><th>Submitted premium</th><th>Recruits</th></tr></thead>
               <tbody>
                 {members.map(m => {
-                  const { sold, recruited, premium, noPremium } = tally(m);
+                  const { sold, recruited, joined, recruits, premium, noPremium } = tally(m);
                   const isOpen = expanded === m.id;
                   const toggle = () => setExpanded(isOpen ? null : m.id);
                   return (
@@ -155,12 +172,12 @@ export function TrackProductionBody({ user }) {
                           {sold.length ? fmtCurrency(premium) : '—'}
                           {noPremium ? <div className="tr-tenure">{noPremium} with no premium entered</div> : null}
                         </td>
-                        <td className="tr-mono" data-label="Recruits">{recruited.length || '—'}</td>
+                        <td className="tr-mono" data-label="Recruits">{recruits || '—'}</td>
                       </tr>
                       {isOpen && (
                         <tr className="tr-expand-row">
                           <td colSpan={4}>
-                            <div className="tr-expand-inner"><ProductionDetail sold={sold} recruited={recruited} premium={premium} /></div>
+                            <div className="tr-expand-inner"><ProductionDetail sold={sold} recruited={recruited} joined={joined} premium={premium} /></div>
                           </td>
                         </tr>
                       )}
