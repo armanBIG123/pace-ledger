@@ -3,10 +3,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { Download, FileText, Pencil, Plus, Trash2 } from 'lucide-react';
 import { addImportantLink, deleteDocument, deleteImportantLink, fetchDocuments, fetchImportantLinks, formatFileSize, getDocumentDownloadUrl, updateDocumentTitle, updateImportantLink, uploadDocument } from '../documents.js';
 import { SkeletonCards } from '../components/ui.jsx';
+import { isAdmin } from '../lib/roles.js';
 
 // ---------------------------------------------------------------------
 // documents — shared PDF library, open to everyone; upload/delete is
-// super_admin only
+// super admins and Super Managers only
 // ---------------------------------------------------------------------
 // Clickable link library — same super-admin-manages, everyone-views model
 // as PDF/PPTX Documents, just title+URL instead of a file.
@@ -81,7 +82,7 @@ export function ImportantLinksSection({ user }) {
     <>
       <div className="tr-row-head">
         <h2 className="tr-h2">Important Links</h2>
-        {user.role === 'super_admin' && (
+        {isAdmin(user) && (
           <button className="tr-btn tr-btn-brass" onClick={() => setShowAdd(v => !v)}>
             <Plus size={16} /> {showAdd ? 'Close' : 'Add link'}
           </button>
@@ -122,7 +123,7 @@ export function ImportantLinksSection({ user }) {
                 ) : (
                   <>
                     <a href={link.url} target="_blank" rel="noopener noreferrer" className="tr-links-anchor">{link.title}</a>
-                    {user.role === 'super_admin' && (
+                    {isAdmin(user) && (
                       <div className="tr-links-actions">
                         <button type="button" className="tr-icon-btn" onClick={() => startEdit(link)} title="Edit link"><Pencil size={14} /></button>
                         <button type="button" className="tr-icon-btn" onClick={() => handleDelete(link)} title="Remove link"><Trash2 size={14} /></button>
@@ -177,7 +178,7 @@ export function DocumentsBody({ user }) {
     if (!title.trim()) { setError('Give the document a title.'); return; }
     setUploading(true);
     setError('');
-    const res = await uploadDocument(file, title, user.id, user.displayName, view);
+    const res = await uploadDocument(file, title, user.id, user.displayName, view, user.writerSystemShort);
     setUploading(false);
     if (!res.ok) { setError(res.error || 'Upload failed. Try again.'); return; }
     setDocuments(prev => [res.record, ...prev]);
@@ -244,7 +245,7 @@ export function DocumentsBody({ user }) {
         <>
         <div className="tr-row-head">
           <h2 className="tr-h2"><FileText size={18} /> {view === 'pdf' ? 'PDF Documents' : 'PPTX Documents'}</h2>
-          {user.role === 'super_admin' && (
+          {isAdmin(user) && (
             <button className="tr-btn tr-btn-brass" onClick={() => setShowUpload(v => !v)}>
               <Plus size={16} /> {showUpload ? 'Close' : 'Upload document'}
             </button>
@@ -304,7 +305,7 @@ export function DocumentsBody({ user }) {
                     <button type="button" className="tr-btn tr-btn-sm tr-btn-ghost" onClick={() => handleDownload(doc)} disabled={downloadingId === doc.id}>
                       <Download size={13} /> {downloadingId === doc.id ? 'Preparing…' : 'Download'}
                     </button>
-                    {user.role === 'super_admin' && (
+                    {isAdmin(user) && (
                       <>
                         <button type="button" className="tr-icon-btn" onClick={() => startRename(doc)} title="Rename document"><Pencil size={14} /></button>
                         <button type="button" className="tr-icon-btn" onClick={() => handleDelete(doc)} title="Delete document"><Trash2 size={14} /></button>

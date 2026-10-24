@@ -11,6 +11,7 @@ import { connectGoogleCalendar, disconnectGoogleCalendar, fetchGoogleConnectionS
 import { Modal, openPicker, PageHead, RefreshButton, SkeletonCalendar, useIsPhone } from '../components/ui.jsx';
 import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../components/appointmentPanel.jsx';
 import { GoogleCalendarConnect } from '../components/integrations.jsx';
+import { isAdmin } from '../lib/roles.js';
 
 // ---------------------------------------------------------------------
 // trainings — org-wide announcements, visible to everyone regardless of
@@ -256,7 +257,7 @@ export function CalendarDay({ cell, appts, googleEvents, trainings, scheduleBloc
 function CalendarItemInfo({ item, user, onClose, onDelete }) {
   const t = item.data;
   const training = item.kind === 'training';
-  const canDelete = training ? user.role === 'super_admin' : (user.id === t.user_id || user.role === 'super_admin');
+  const canDelete = training ? isAdmin(user) : (user.id === t.user_id || isAdmin(user));
   const when = training
     ? `${fmtDisplayDate(trainingLocalDate(t))} · ${fmtTime(trainingLocalTimeKey(t))} – ${trainingEndClock(t)}`
     : `${fmtDisplayDate(t.block_date)} · ${fmtTime(t.start_time.slice(0, 5))} – ${fmtTime(t.end_time.slice(0, 5))}`;
@@ -434,19 +435,19 @@ export function CalendarBody({ user, onLogAppointment }) {
           forms open under the heading only when you use them, so the month
           isn't pushed down the page. */}
       <PageHead title="Calendar" sub="Your appointments, team trainings and Google events in one place.">
-        {user.role === 'super_admin' ? (
+        {isAdmin(user) ? (
           <button type="button" className={`tr-btn tr-btn-sm ${posting === 'training' ? 'tr-btn-brass' : 'tr-btn-ghost'}`} aria-expanded={posting === 'training'} onClick={() => setPosting(p => (p === 'training' ? null : 'training'))}>
             <GraduationCap size={14} aria-hidden="true" /> New training
           </button>
         ) : null}
-        {user.role === 'manager' || user.role === 'super_admin' ? (
+        {user.role === 'manager' || isAdmin(user) ? (
           <button type="button" className={`tr-btn tr-btn-sm ${posting === 'block' ? 'tr-btn-brass' : 'tr-btn-ghost'}`} aria-expanded={posting === 'block'} onClick={() => setPosting(p => (p === 'block' ? null : 'block'))}>
             <Ban size={14} aria-hidden="true" /> Block out time
           </button>
         ) : null}
       </PageHead>
-      {posting === 'training' && user.role === 'super_admin' ? <TrainingPostCard user={user} onClose={() => setPosting(null)} onPosted={t => setTrainings(prev => [...prev, t])} /> : null}
-      {posting === 'block' && (user.role === 'manager' || user.role === 'super_admin') ? <SchedulePostCard user={user} onClose={() => setPosting(null)} onPosted={b => setScheduleBlocks(prev => [...prev, b])} /> : null}
+      {posting === 'training' && isAdmin(user) ? <TrainingPostCard user={user} onClose={() => setPosting(null)} onPosted={t => setTrainings(prev => [...prev, t])} /> : null}
+      {posting === 'block' && (user.role === 'manager' || isAdmin(user)) ? <SchedulePostCard user={user} onClose={() => setPosting(null)} onPosted={b => setScheduleBlocks(prev => [...prev, b])} /> : null}
       <GoogleCalendarConnect status={googleStatus} connecting={googleConnecting} onConnect={handleConnect} onDisconnect={handleDisconnect} />
       {/* Month / List and ‹ month › stay together on one line; the rest
           wraps under them on a phone. */}
@@ -590,7 +591,7 @@ export function CalendarBody({ user, onLogAppointment }) {
                 {t.zoom_url && <div><a href={t.zoom_url} target="_blank" rel="noopener noreferrer" className="tr-note tr-link">Join Zoom</a></div>}
                 {t.notes && <div className="tr-note">{t.notes}</div>}
                 <div className="tr-note">Posted by {t.created_by_name}</div>
-                {user.role === 'super_admin' && (
+                {isAdmin(user) && (
                   <button type="button" className="tr-icon-btn" style={{ marginTop: 4 }} onClick={() => handleDeleteTraining(t)} title="Remove training"><Trash2 size={13} /></button>
                 )}
               </div>
@@ -599,7 +600,7 @@ export function CalendarBody({ user, onLogAppointment }) {
               <div key={b.id} className="tr-note-item tr-note-item-unavailable">
                 <div className="tr-note-meta"><Ban size={12} /> {fmtTime(b.start_time.slice(0, 5))}–{fmtTime(b.end_time.slice(0, 5))} · Unavailable{b.recurring_group_id ? ' · Weekly' : ''}</div>
                 <div><strong>{b.user_name || 'Someone'}</strong>{b.label ? ` — ${b.label}` : ''}</div>
-                {(user.id === b.user_id || user.role === 'super_admin') && (
+                {(user.id === b.user_id || isAdmin(user)) && (
                   <button type="button" className="tr-icon-btn" style={{ marginTop: 4 }} onClick={() => handleDeleteScheduleBlock(b)} title="Remove blocked time"><Trash2 size={13} /></button>
                 )}
               </div>

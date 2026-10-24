@@ -13,6 +13,7 @@ import { personInitials } from '../lib/format.js';
 import { Avatar, useAvatars } from '../components/avatar.jsx';
 import { SkelBlock } from '../components/ui.jsx';
 import { AnnText, ConfirmRow } from '../components/announcements.jsx';
+import { isAdmin as isAdminRole } from '../lib/roles.js';
 
 export const MEGAPHONE_ABOUT = 'Announcements from super admins. Everyone can read them here; only super admins post.';
 const COLORS = ['#2D68A8', '#6B51A0', '#2E7D5B', '#A0522D', '#8E6B1F', '#24548A', '#7A3E5C'];
@@ -136,7 +137,7 @@ function WhoConfirmed({ a, people, confs, avatars, open, onToggle }) {
 
 export function MegaPhoneRoom({ user, isPhone, onBack }) {
   const state = useAnnouncements(user);
-  const isAdmin = user.role === 'super_admin';
+  const isAdmin = isAdminRole(user);
   const avatars = useAvatars();
   const [composing, setComposing] = useState(null); // null | 'new' | an announcement
   const [people, setPeople] = useState(null);

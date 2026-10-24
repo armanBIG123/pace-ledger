@@ -16,6 +16,7 @@ import { PageHead, RefreshButton, SkelBlock } from '../../components/ui.jsx';
 import { buildDailyChecklist, DailyChecklist } from './DailyChecklist.jsx';
 import { EmailButton } from '../../components/email.jsx';
 import { AnnouncementTeam } from '../../components/announcements.jsx';
+import { isAdmin as isAdminRole } from '../../lib/roles.js';
 
 const DAY = 864e5;
 const daysSince = iso => (iso ? Math.floor((Date.now() - new Date(iso).getTime()) / DAY) : null);
@@ -31,7 +32,7 @@ function paceFor(list, weekMonday) {
 // to check: people, this and last week's appointments, recent sales,
 // promotion progress, licensing and First 30 days rows.
 export function buildTeamOverview({ user, people, thisWeek, lastWeek, sold, progress, licensingRows, onboardingRows, now = new Date() }) {
-  const isAdmin = user.role === 'super_admin';
+  const isAdmin = isAdminRole(user);
   const children = buildChildrenMap(people);
   const teamIds = new Set(isAdmin ? people.map(p => p.id) : downlineIds(user.id, children));
   teamIds.delete(user.id);

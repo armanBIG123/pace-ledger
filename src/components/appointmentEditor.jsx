@@ -16,6 +16,7 @@ import { appointmentEdited } from './appointmentPanel.jsx';
 import { appointmentTexts, CallButton, TextButton } from './contact.jsx';
 import { FollowUpModal } from './followUpModal.jsx';
 import { Modal, StatusChip, TypeBadge, useIsPhone } from './ui.jsx';
+import { isAdmin } from '../lib/roles.js';
 
 const firstName = n => String(n || '').trim().split(/\s+/)[0] || '';
 
@@ -37,7 +38,7 @@ export function AppointmentEditorBody({ user, appointment, onClose, onDone, onTo
     return () => { alive = false; };
   }, [mine]);
   const booker = !mine && people ? people.find(p => p.id === appointment.userId) : null;
-  const canChange = !mine && (user.role === 'super_admin' || (!!booker && booker.manager_id === user.id));
+  const canChange = !mine && (isAdmin(user) || (!!booker && booker.manager_id === user.id));
   if (!mine && !editing) {
     return <AppointmentDetails user={user} appt={appointment} people={people} onClose={onClose} onEdit={canChange ? () => setEditing(true) : null} />;
   }
@@ -131,7 +132,7 @@ function AppointmentDetails({ user, appt, people, onClose, onEdit }) {
       ) : null}
       <p className="tr-apptinfo-note">
         {onEdit
-          ? `${firstName(bookedBy) || 'They'} booked it. As ${user.role === 'super_admin' ? 'a super admin' : 'who they report to'}, you can change the time and the details; how it went stays theirs to log.`
+          ? `${firstName(bookedBy) || 'They'} booked it. As ${isAdmin(user) ? (user.role === 'super_admin' ? 'a super admin' : 'a Super Manager') : 'who they report to'}, you can change the time and the details; how it went stays theirs to log.`
           : bookedBy ? `${firstName(bookedBy)} booked it, so only they (and who they report to) can change it.` : 'Only whoever booked it can change it.'}
       </p>
       <div className="tr-form-actions">

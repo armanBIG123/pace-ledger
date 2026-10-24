@@ -10,6 +10,10 @@
 //   they can remove it or keep it (Chat -> Reports). Only the person who
 //   reported it can ask, and only once per report.
 //
+// Solar systems (migration-solar-systems.sql): in a partner's solar system
+// (e.g. Big Huge Business), "the super admins" above means that solar
+// system's Super Managers (or the super admins, if it has none yet).
+//
 // Uses the same Resend setup as submit-promotion:
 //   RESEND_API_KEY      from resend.com -> API Keys
 //   INVITE_FROM_EMAIL   e.g. "PaceLedger <invites@big-pace-ledger.com>"
@@ -108,6 +112,21 @@ Deno.serve(async (req: Request) => {
       const { data } = await admin.from('profiles').select('id, display_name, email, role, manager_id').eq('role', 'super_admin');
       return ((data || []) as Person[]).filter(p => p.id !== except);
     };
+    // Who looks after this person's solar system: its Super Managers in a
+    // partner's solar system, otherwise the super admins.
+    const leadersFor = async (personId: string, except: string) => {
+      const { data: me } = await admin.from('profiles').select('*').eq('id', personId).maybeSingle();
+      if (me?.solar_system_id) {
+        const { data: sys } = await admin.from('solar_systems').select('short_name').eq('id', me.solar_system_id).maybeSingle();
+        if (sys && sys.short_name !== 'BIG') {
+          const { data } = await admin.from('profiles').select('id, display_name, email, role, manager_id')
+            .eq('solar_system_id', me.solar_system_id).eq('role', 'super_manager');
+          const leads = ((data || []) as Person[]).filter(p => p.id !== except);
+          if (leads.length) return leads;
+        }
+      }
+      return superAdmins(except);
+    };
     const configured = RESEND_API_KEY && INVITE_FROM_EMAIL;
 
     // Urgent help ---------------------------------------------------------
@@ -134,7 +153,7 @@ Deno.serve(async (req: Request) => {
           }
         }
       }
-      const recipients = (chain.length ? chain : await superAdmins(userId)).filter(p => p.id !== userId);
+      const recipients = (chain.length ? chain : await leadersFor(userId, userId)).filter(p => p.id !== userId);
       if (!recipients.length) return json({ ok: true, emailed: false, reason: 'no_one' });
       if (!configured) return json({ ok: true, emailed: false, error: 'email_not_configured' });
 
@@ -157,7 +176,7 @@ Deno.serve(async (req: Request) => {
       const facts: [string, string][] = [['From', `${name}${posterEmail ? `, ${posterEmail}` : ''}`], ['Posted', when(msg.created_at)]];
       const note = chain.length
         ? `You're getting this because you lead ${firstName(name)} in PaceLedger. Reply to this email to reach ${firstName(name)} directly, or answer in Chat so the whole team sees it.`
-        : `${firstName(name)} has no manager set in PaceLedger, so this went to the super admins. Reply to reach ${firstName(name)} directly.`;
+        : `${firstName(name)} has no manager set in PaceLedger, so this went to the people who run their team's PaceLedger. Reply to reach ${firstName(name)} directly.`;
       const html = page('Urgent help in PaceLedger Chat', `${name} needs a hand`, msg.body, facts, note, link, 'Open Urgent help');
       const text = [`${name} posted in Urgent help (PaceLedger Chat):`, '', msg.body, '', ...facts.map(([k, v]) => `${k}: ${v}`), '', note, link].join('\n');
       const ok = emails.length > 0 && await send(emails, subject, html, text, posterEmail || undefined);
@@ -185,7 +204,7 @@ Deno.serve(async (req: Request) => {
         .eq('id', report.id).is('emailed_at', null).select('id');
       if (!claimed || !claimed.length) return json({ ok: true, emailed: true, already: true });
 
-      const admins = await superAdmins('');
+      const admins = await leadersFor(report.message_author || userId, '');
       const emails = (await Promise.all(admins.map(emailOf))).filter(Boolean) as string[];
       const { data: msg } = await admin.from('chat_messages').select('channel, created_at').eq('id', report.message_id).maybeSingle();
       const [author, reporter] = await Promise.all([people(report.message_author ? [report.message_author] : []), people([userId])]);

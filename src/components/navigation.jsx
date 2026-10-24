@@ -29,6 +29,8 @@ export const TEAM_TABS = [
 ];
 
 export const ADMIN_TEAM_TABS = [...TEAM_TABS, { id: 'profiles', label: 'Profiles', short: 'Profiles', Icon: BookUser }, { id: 'clientforms', label: 'Client Forms', short: 'Forms', Icon: ClipboardCheck }, { id: 'users', label: 'Manage Team', short: 'Manage', Icon: UserCog }];
+// Super Managers: the same, minus Profiles (the Galaxy's partner records).
+export const SUPER_MANAGER_TEAM_TABS = ADMIN_TEAM_TABS.filter(t => t.id !== 'profiles');
 
 // Which tabs fit in the top strip: the first ones in order, always
 // including the one you're on, leaving room for "More" if any don't fit.

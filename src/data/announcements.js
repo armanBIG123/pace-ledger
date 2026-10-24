@@ -128,7 +128,7 @@ export async function deleteAnnouncement(id) {
 // ---- Who it's for ----------------------------------------------------------------
 // A leader: a manager, a super admin, or anyone with someone reporting to them.
 export function isLeaderPerson(p, people) {
-  return p.role === 'manager' || p.role === 'super_admin' || people.some(x => x.manager_id === p.id);
+  return p.role === 'manager' || p.role === 'super_manager' || p.role === 'super_admin' || people.some(x => x.manager_id === p.id);
 }
 // Everyone who should confirm it (not whoever posted it).
 export function audienceOf(a, people) {

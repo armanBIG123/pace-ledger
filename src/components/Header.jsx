@@ -10,6 +10,7 @@ import { fetchMyLicensing, updateMyProfile } from '../data/team.js';
 import { avatarUrl, removeAllMyAvatarFiles } from '../data/avatars.js';
 import { InviteShare } from './invites.jsx';
 import { ProfilePhoto } from './profilePhoto.jsx';
+import { roleLabel } from '../lib/roles.js';
 
 // True when the top bar's row is wider than the screen (only with very
 // large phone text): then the PaceLedger wordmark steps aside (the shield
@@ -67,7 +68,7 @@ export function Header({ user, nav, search, onNew, chat }) {
             {user.avatarPath ? <img className="tr-header-avatar" src={avatarUrl(user.avatarPath)} alt="" aria-hidden="true" /> : null}
             <span className="tr-header-name">{user.displayName}</span>
             <span className="tr-header-firstname">{(user.displayName || '').trim().split(/\s+/)[0]}</span>
-            <span className="tr-header-role">{user.role === 'super_admin' ? 'Admin' : user.role}</span>
+            <span className="tr-header-role">{roleLabel(user.role)}</span>
           </button>
           <button className="tr-icon-btn" onClick={signOut} title="Log out" aria-label="Log out"><LogOut size={16} /></button>
         </div>
@@ -288,7 +289,8 @@ export function AccountSheet({ user, focusName = false, onClose }) {
         <ProfileForm user={user} focusName={focusName} />
         <dl className="tr-account-list">
           <div><dt>Email</dt><dd>{user.email || '—'}</dd></div>
-          <div><dt>Role</dt><dd style={{ textTransform: 'capitalize' }}>{user.role === 'super_admin' ? 'Admin' : user.role}</dd></div>
+          <div><dt>Role</dt><dd>{roleLabel(user.role)}</dd></div>
+          {user.solarSystemName ? <div><dt>Solar system</dt><dd>{user.solarSystemName}</dd></div> : null}
         </dl>
         <div className="tr-account-links">
           <a href={`${PUBLIC_SITE_URL}/privacy-policy.html`} target="_blank" rel="noopener noreferrer">Privacy policy</a>

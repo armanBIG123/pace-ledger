@@ -13,6 +13,7 @@ import { fetchHierarchyPeople, fetchRecentSoldAppointments, promotionSubjects } 
 import { RefreshButton, SkeletonTable, StatusBadge, TitleInfo, WeekNav } from '../../components/ui.jsx';
 import { MilestoneCard } from './MilestoneCard.jsx';
 import { Avatar, useAvatars } from '../../components/avatar.jsx';
+import { isAdmin as isAdminRole, roleLabel } from '../../lib/roles.js';
 
 // Solar system view of the org chart: the person in focus is the centre, the
 // people who report to them orbit around them. Everyone is drawn as their
@@ -280,7 +281,7 @@ export function OrgChartBody({ user, onOpenPromotion, initialIntent, onIntentCon
   const [solarFocus, setSolarFocus] = useState(null);
   const [pendingPerson, setPendingPerson] = useState(null); // from search
   const [selectRequest, setSelectRequest] = useState(null);
-  const isAdmin = user.role === 'super_admin';
+  const isAdmin = isAdminRole(user);
   useEffect(() => {
     if (!initialIntent) return;
     if (typeof initialIntent === 'object' && initialIntent.person) setPendingPerson(initialIntent.person);
@@ -425,7 +426,7 @@ export function OrgChartBody({ user, onOpenPromotion, initialIntent, onIntentCon
             <div className="tr-org-name">
               <strong>{person.display_name}</strong>{person.id === user.id ? <span className="tr-org-you">you</span> : null}
               {person.hierarchy_tier ? <span className="tr-org-tier" title={hierarchyTierLabel(person.hierarchy_tier)}>{person.hierarchy_tier}</span> : null}
-              {person.role === 'manager' ? <span className="tr-org-role">Manager</span> : person.role === 'super_admin' ? <span className="tr-org-role">Admin</span> : null}
+              {person.role !== 'advisor' ? <span className="tr-org-role">{roleLabel(person.role)}</span> : null}
               {licensing.get(person.id) && !licensing.get(person.id).licensed && person.role !== 'super_admin' ? (
                 <span className="tr-org-lic" title={`Next: ${licensing.get(person.id).next.title}`}>Licensing {licensing.get(person.id).doneCount}/{licensing.get(person.id).total}</span>
               ) : null}

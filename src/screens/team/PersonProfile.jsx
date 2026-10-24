@@ -9,6 +9,7 @@ import { personInitials } from '../../lib/format.js';
 import { entityProgress, PERSON_STEP_TEXT, personProgress, personStepDetail } from '../../lib/profiles.js';
 import { Avatar } from '../../components/avatar.jsx';
 import { FlagBar, FlagDialog, LagBadge, NotesCard, PersonDots, stampDate } from './profileParts.jsx';
+import { roleLabel } from '../../lib/roles.js';
 
 const PERSON_REASONS = ['Not responding', 'Waiting on the exam', 'Waiting on InsuraCloud', 'Waiting on the carrier', 'Needs help from their upline'];
 // The editable fields behind the 8 steps, in order.
@@ -83,7 +84,7 @@ export function PersonProfile({ person, progress, flag, people, entities, checks
           <div className="tr-pf-detail-title">
             <h2 className="tr-h2">{person.display_name}</h2>
             <p className="tr-pf-detail-sub">
-              {[hierarchyTierLabel(person.hierarchy_tier) || (person.role === 'super_admin' ? 'Admin' : person.role === 'manager' ? 'Manager' : 'Advisor'),
+              {[hierarchyTierLabel(person.hierarchy_tier) || roleLabel(person.role),
                 manager ? `reports to ${manager.display_name}` : '', person.created_at ? `joined ${stampDate(person.created_at)}` : ''].filter(Boolean).join(' · ')}
             </p>
           </div>

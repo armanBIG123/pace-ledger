@@ -4,6 +4,7 @@ import { supabase } from '../supabaseClient.js';
 import { buildChildrenMap, computeDownline, computeReadiness, downlineIds } from '../hierarchy.js';
 import { apptStartMs, fmtDate } from '../lib/dates.js';
 import { rowToRecord } from './appointments.js';
+import { isAdmin } from '../lib/roles.js';
 
 // Tier definitions, downline/upline traversal, and the tier-progress
 // engine (HIERARCHY_TIERS, computeTierProgress, computeDownline,
@@ -70,7 +71,7 @@ export async function fetchTeamAppointmentsImOnToday(userId) {
 // Who the viewer can see promotion progress for: admins see everyone;
 // everyone else sees themselves and their downline.
 export function promotionSubjects(user, people) {
-  if (user.role === 'super_admin') return people.map(p => p.id);
+  if (isAdmin(user)) return people.map(p => p.id);
   return [user.id, ...downlineIds(user.id, buildChildrenMap(people))];
 }
 
@@ -93,7 +94,7 @@ export async function approvePromotion(admin, member, nextTier) {
 export async function fetchTeamMembers(viewer) {
   const { data, error } = await selectAll(o => supabase.from('profiles').select('*', o).order('display_name').order('id'));
   if (error) { console.error(error); return []; }
-  if (viewer.role === 'super_admin') return data.filter(p => ['advisor', 'manager', 'super_admin'].includes(p.role));
+  if (isAdmin(viewer)) return data.filter(p => ['advisor', 'manager', 'super_manager', 'super_admin'].includes(p.role));
   // Everyone else (managers and advisors who lead people) sees their whole
   // downline, at any depth. People who don't report to the viewer directly
   // carry the name of who they do report to, so the structure stays clear.
@@ -202,7 +203,7 @@ export async function deleteUserProfile(id) {
     const json = await res.json().catch(() => ({}));
     if (res.ok && json.deleted) return null;
     if (json.error === 'last_admin') return "That's the only admin left. Make someone else an admin first.";
-    if (json.error === 'not_allowed') return 'Only super admins can delete accounts.';
+    if (json.error === 'not_allowed') return "You can't delete this account.";
     return "The account couldn't be deleted. Check your connection and try again.";
   } catch {
     return "The account couldn't be deleted. Check your connection and try again.";

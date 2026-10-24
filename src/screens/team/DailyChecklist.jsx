@@ -13,6 +13,7 @@ import { ProgressRing } from '../../components/ui.jsx';
 
 const CHECK_LIMIT = 4;
 import { EmailButton, webLinkProps } from '../../components/email.jsx';
+import { isAdmin as isAdminRole } from '../../lib/roles.js';
 
 const DAY = 864e5;
 const firstName = name => (name || '').trim().split(/\s+/)[0] || '';
@@ -22,7 +23,7 @@ const MAX_SUGGESTED = 8;
 // check. `signals` comes from buildTeamOverview; `fieldToday` is today's team
 // appointments the leader is presenting or training on.
 export function buildDailyChecklist({ user, signals, teamSize, fieldToday = [] }) {
-  const isAdmin = user.role === 'super_admin';
+  const isAdmin = isAdminRole(user);
   const sign = `\n\n${user.displayName || ''}`;
   const items = [];
   // One task per person a day (the most important one), so the list covers

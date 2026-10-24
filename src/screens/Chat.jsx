@@ -14,6 +14,7 @@ import { useAnnouncements, waitingFor } from '../data/announcements.js';
 import { Modal, MoreMenu, SkelBlock, useIsPhone } from '../components/ui.jsx';
 import { Avatar, useAvatars } from '../components/avatar.jsx';
 import { MEGAPHONE_ABOUT, MegaPhoneRoom } from './MegaPhone.jsx';
+import { isAdmin as isAdminRole } from '../lib/roles.js';
 
 const ICONS = { megaphone: Megaphone, general: Hash, work: Briefcase, urgent: LifeBuoy, reports: Flag };
 // Rooms that aren't conversations (no messages to load or mark read).
@@ -225,7 +226,7 @@ function Reports({ people, onChanged }) {
 
 export function ChatBody({ user, initialChannel, onIntentConsumed }) {
   const isPhone = useIsPhone();
-  const isAdmin = user.role === 'super_admin';
+  const isAdmin = isAdminRole(user);
   const startChannel = ['megaphone', 'general', 'work', 'urgent'].includes(initialChannel) || (initialChannel === 'reports' && isAdmin) ? initialChannel : 'general';
   const [accepted, setAccepted] = useState(null); // null = checking
   const [agreeBusy, setAgreeBusy] = useState(false);
@@ -456,7 +457,7 @@ export function ChatBody({ user, initialChannel, onIntentConsumed }) {
   // MegaPhone counts the announcements you haven't confirmed yet.
   const count = k => (k === 'megaphone' ? waitingFor(announcements, user).length : unread ? unread[k] || 0 : 0);
   const name = id => (people.get(id) || {}).display_name || 'Someone';
-  const roleTag = id => { const r = (people.get(id) || {}).role; return r === 'super_admin' ? 'Admin' : r === 'manager' ? 'Manager' : null; };
+  const roleTag = id => { const r = (people.get(id) || {}).role; return r === 'super_admin' ? 'Admin' : r === 'super_manager' ? 'Super Manager' : r === 'manager' ? 'Manager' : null; };
 
   const side = (
     <aside className="tr-chat-side" aria-label="Chats">
