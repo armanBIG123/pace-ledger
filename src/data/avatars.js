@@ -3,6 +3,7 @@
 // at the current one. Anyone signed in sees them next to names.
 import { selectAll } from './paged.js';
 import { supabase } from '../supabaseClient.js';
+import { systemScope } from '../lib/systemScope.js';
 
 export const AVATAR_BUCKET = 'avatars';
 
@@ -16,11 +17,11 @@ export function avatarUrl(path) {
 const SHARED_TTL_MS = 60000;
 let shared = null;
 export function fetchAvatarsShared() {
-  if (shared && Date.now() - shared.at < SHARED_TTL_MS) return shared.promise;
+  if (shared && Date.now() - shared.at < SHARED_TTL_MS && shared.scope === systemScope()) return shared.promise;
   const promise = Promise.resolve(selectAll(o => supabase.from('profiles').select('id, avatar_path', o).not('avatar_path', 'is', null).order('id')))
     .then(({ data, error }) => (error ? new Map() : new Map((data || []).filter(r => r.avatar_path).map(r => [r.id, avatarUrl(r.avatar_path)]))))
     .catch(() => new Map());
-  shared = { at: Date.now(), promise };
+  shared = { at: Date.now(), scope: systemScope(), promise };
   return promise;
 }
 function avatarsChanged() {

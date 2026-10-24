@@ -1,9 +1,10 @@
 // Manage Team (super admins, and Super Managers for their own solar
 // system): roles, reporting lines, tiers, deleting accounts and the
-// activity log. Super admins also move people between solar systems and
-// make sign-up links for a solar system's Super Manager.
+// activity log. Super admins get a tab for each solar system, can move
+// people between them, and make sign-up links for a solar system's Super
+// Manager.
 import { useCallback, useEffect, useState } from 'react';
-import { Download, Trash2, UserPlus } from 'lucide-react';
+import { ArrowRightLeft, Download, Trash2, UserPlus } from 'lucide-react';
 import { computeDownline, computeUpline, HIERARCHY_TIERS, hierarchyTierLabel, isLicensed } from '../../hierarchy.js';
 import { joinedDate, todayStr } from '../../lib/dates.js';
 import { downloadCSV } from '../../lib/format.js';
@@ -12,24 +13,37 @@ import { SkeletonRows, SkeletonTable } from '../../components/ui.jsx';
 import { InviteShare } from '../../components/invites.jsx';
 import { createLeaderInvite, moveToSystem } from '../../data/solarSystems.js';
 import { isGalaxyAdmin, roleLabel } from '../../lib/roles.js';
+import { useSystemTabs } from '../../lib/systemScope.js';
+import { SystemTabs } from '../../components/systemTabs.jsx';
 
 export function ManageUsersView({ user = null, currentUserId, currentUserName }) {
   const galaxy = isGalaxyAdmin(user);
   const systems = (user && user.solarSystems) || [];
-  const showSystems = galaxy && systems.length > 1;
+  const tabs = useSystemTabs(user);
+  const tabSystem = tabs.systems.find(x => x.id === tabs.current) || null;
   const systemName = id => (systems.find(x => x.id === id) || {}).short_name || '';
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState(null);
+  const [movingId, setMovingId] = useState(null);
   const [error, setError] = useState('');
 
+  // Super admins: only the solar system whose tab is open.
   const refresh = useCallback(async () => {
     setLoading(true);
-    setUsers(await fetchAllUsers());
+    const all = await fetchAllUsers();
+    setUsers(tabSystem ? all.filter(u => u.solar_system_id === tabSystem.id) : all);
     setLoading(false);
-  }, []);
+  }, [tabSystem && tabSystem.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => { refresh(); }, [refresh]);
+  // The "move to" list closes when the page scrolls.
+  useEffect(() => {
+    if (!movingId) return undefined;
+    const close = () => setMovingId(null);
+    window.addEventListener('scroll', close, { capture: true, once: true });
+    return () => window.removeEventListener('scroll', close, { capture: true });
+  }, [movingId]);
 
   // Anyone can lead people now, so anyone can be picked — except the person
   // themselves and anyone already under them (that would make a loop; the
@@ -51,7 +65,7 @@ export function ManageUsersView({ user = null, currentUserId, currentUserName })
   }
 
   function handleExportRoster() {
-    const rows = [['Name', 'Email', 'Role', 'Hierarchy Tier', 'Reports To', 'Top-Level Team', 'Licensed', 'Member Since', ...(showSystems ? ['Solar System'] : [])]];
+    const rows = [['Name', 'Email', 'Role', 'Hierarchy Tier', 'Reports To', 'Top-Level Team', 'Licensed', 'Member Since']];
     users.forEach(u => {
       const reportsTo = u.manager_id ? (users.find(m => m.id === u.manager_id)?.display_name || '') : '';
       // The root of the upline chain — whichever top-level manager or
@@ -69,10 +83,9 @@ export function ManageUsersView({ user = null, currentUserId, currentUserName })
         topLevelTeam,
         isLicensed(u) ? 'Yes' : 'No',
         u.created_at ? new Date(u.created_at).toLocaleDateString('en-US') : '',
-        ...(showSystems ? [systemName(u.solar_system_id)] : []),
       ]);
     });
-    downloadCSV(`team-roster-${todayStr()}.csv`, rows);
+    downloadCSV(`team-roster-${tabSystem ? `${tabSystem.short_name}-` : ''}${todayStr()}.csv`, rows);
   }
 
   async function handleChange(id, newRole) {
@@ -110,6 +123,7 @@ export function ManageUsersView({ user = null, currentUserId, currentUserName })
   }
 
   async function handleSystemChange(id, systemId) {
+    setMovingId(null);
     const target = users.find(u => u.id === id);
     const team = computeDownline(id, users).filter(p => p.id !== id).length;
     const to = systems.find(x => x.id === systemId);
@@ -160,13 +174,16 @@ export function ManageUsersView({ user = null, currentUserId, currentUserName })
         <Download size={14} /> Export CSV
       </button>
     </div>
-    {showSystems ? <LeaderInviteCard user={user} systems={systems} /> : null}
+    <SystemTabs tabs={tabs} />
+    {tabs.other && tabSystem ? <LeaderInviteCard key={`invite-${tabSystem.id}`} user={user} system={tabSystem} hasLeader={users.some(u => u.role === 'super_manager')} /> : null}
     <div className="tr-card tr-summary-card">
       {error && <div className="tr-error" style={{ margin: 16 }}>{error}</div>}
-      {loading ? <SkeletonTable rows={6} cols={5} /> : (
+      {loading ? <SkeletonTable rows={6} cols={5} /> : users.length === 0 ? (
+        <p className="tr-empty" style={{ margin: 16 }}>No one in {tabSystem ? tabSystem.name : 'the team'} yet.{tabs.other ? ' Invite its Super Manager to start.' : ''}</p>
+      ) : (
         <div className="tr-table-wrap">
           <table className="tr-table tr-table-summary tr-table-stack tr-manage-table">
-            <thead><tr><th>Name</th><th>Email</th>{showSystems ? <th>Solar system</th> : null}<th>Role</th><th>Reports To</th><th>Tier</th><th></th></tr></thead>
+            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Reports To</th><th>Tier</th><th></th></tr></thead>
             <tbody>
               {users.map(u => (
                 <tr key={u.id}>
@@ -175,13 +192,6 @@ export function ManageUsersView({ user = null, currentUserId, currentUserName })
                     <div className="tr-tenure">Joined {joinedDate(u.created_at)}</div>
                   </td>
                   <td className="tr-mt-email">{u.email || '—'}</td>
-                  {showSystems ? (
-                    <td className="tr-mt-system" data-label="Solar system">
-                      <select value={u.solar_system_id || ''} disabled={savingId === u.id || u.id === currentUserId} onChange={e => handleSystemChange(u.id, e.target.value)} aria-label={`Solar system for ${u.display_name}`}>
-                        {systems.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
-                      </select>
-                    </td>
-                  ) : null}
                   <td className="tr-mt-role" data-label="Role">
                     <select value={u.role} disabled={savingId === u.id || !canEditRole(u)} onChange={e => handleChange(u.id, e.target.value)} aria-label={`Role for ${u.display_name}`}>
                       <option value="advisor">Advisor</option>
@@ -204,6 +214,34 @@ export function ManageUsersView({ user = null, currentUserId, currentUserName })
                     </select>
                   </td>
                   <td className="tr-mt-del">
+                    {tabSystem && u.id !== currentUserId ? (() => {
+                      // Two solar systems: straight to "Move them to the other
+                      // one?". More: a short list to pick from.
+                      const others = tabs.systems.filter(x => x.id !== tabSystem.id);
+                      const only = others.length === 1 ? others[0] : null;
+                      return (
+                        <span className="tr-mt-move">
+                          <button className="tr-icon-btn" disabled={savingId === u.id}
+                            onClick={e => {
+                              if (only) { handleSystemChange(u.id, only.id); return; }
+                              const r = e.currentTarget.getBoundingClientRect();
+                              setMovingId(movingId && movingId.id === u.id ? null : { id: u.id, top: r.bottom + 4, right: Math.max(8, window.innerWidth - r.right) });
+                            }}
+                            title={only ? `Move to ${only.name}` : 'Move to another solar system'} aria-label={`Move ${u.display_name} to ${only ? only.name : 'another solar system'}`}>
+                            <ArrowRightLeft size={14} />
+                          </button>
+                          {movingId && movingId.id === u.id ? (
+                            <span className="tr-mt-move-menu" role="menu" style={{ top: movingId.top, right: movingId.right }}>
+                              <span>Move {u.display_name.split(' ')[0]}{computeDownline(u.id, users).length > 1 ? ' and their team' : ''} to</span>
+                              {others.map(x => (
+                                <button key={x.id} type="button" role="menuitem" onClick={() => handleSystemChange(u.id, x.id)}>{x.name}</button>
+                              ))}
+                              <button type="button" role="menuitem" onClick={() => setMovingId(null)}>Cancel</button>
+                            </span>
+                          ) : null}
+                        </span>
+                      );
+                    })() : null}
                     {u.id !== currentUserId && (galaxy || u.role === 'advisor' || u.role === 'manager') && (
                       <button className="tr-icon-btn" onClick={() => handleDelete(u.id, u.display_name)} disabled={savingId === u.id} title="Delete account" aria-label={`Delete ${u.display_name}'s account`}>
                         <Trash2 size={14} />
@@ -217,7 +255,7 @@ export function ManageUsersView({ user = null, currentUserId, currentUserName })
         </div>
       )}
     </div>
-    <AuditLogView />
+    <AuditLogView key={`log-${tabs.current || 'own'}`} />
     </>
   );
 }
@@ -259,23 +297,20 @@ export function AuditLogView() {
   );
 }
 
-// Super admins: a sign-up link for someone to lead a solar system. They
-// join it as its Super Manager, reporting to no one, and everyone they
-// invite after that joins it too.
-function LeaderInviteCard({ user, systems }) {
-  const choices = systems.filter(x => x.short_name !== 'BIG');
+// Super admins, on another solar system's tab: a sign-up link for someone
+// to lead it. They join as its Super Manager, reporting to no one, and
+// everyone they invite after that joins it too.
+function LeaderInviteCard({ user, system, hasLeader }) {
   const [open, setOpen] = useState(false);
-  const [systemId, setSystemId] = useState((choices[0] || systems[0] || {}).id || '');
   const [name, setName] = useState('');
   const [invite, setInvite] = useState(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
-  const sys = systems.find(x => x.id === systemId);
   async function make(e) {
     e.preventDefault();
     if (!name.trim()) { setErr('Enter their name.'); return; }
     setBusy(true); setErr('');
-    const res = await createLeaderInvite({ creatorId: user.id, systemId, name });
+    const res = await createLeaderInvite({ creatorId: user.id, systemId: system.id, name });
     setBusy(false);
     if (!res.ok) { setErr("Couldn't make the link. Try again."); return; }
     setInvite(res.invite);
@@ -284,8 +319,8 @@ function LeaderInviteCard({ user, systems }) {
     return (
       <div className="tr-card tr-leader-invite tr-leader-invite-closed">
         <div>
-          <strong>Starting a new solar system?</strong>
-          <p className="tr-empty" style={{ margin: '2px 0 0' }}>Send its leader a link. They join as its Super Manager, and everyone they invite joins it too.</p>
+          <strong>{hasLeader ? `Invite another Super Manager for ${system.short_name}` : `${system.name} needs its Super Manager`}</strong>
+          <p className="tr-empty" style={{ margin: '2px 0 0' }}>Send them a link. They join as {system.name}'s Super Manager, and everyone they invite joins {system.short_name} too.</p>
         </div>
         <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setOpen(true)}><UserPlus size={14} /> Invite a Super Manager</button>
       </div>
@@ -293,21 +328,16 @@ function LeaderInviteCard({ user, systems }) {
   }
   return (
     <div className="tr-card tr-leader-invite">
-      <h3 className="tr-h3" style={{ margin: 0 }}>Invite a Super Manager</h3>
+      <h3 className="tr-h3" style={{ margin: 0 }}>Invite a Super Manager for {system.name}</h3>
       {invite ? (
         <>
-          <p className="tr-empty" style={{ margin: '6px 0 10px' }}>{name.trim().split(' ')[0]}'s link to lead {sys ? sys.name : 'the solar system'}. It works once and expires in 30 days.</p>
-          <InviteShare invite={invite} recruitName={name} leads={sys ? sys.name : ''} />
+          <p className="tr-empty" style={{ margin: '6px 0 10px' }}>{name.trim().split(' ')[0]}'s link to lead {system.name}. It works once and expires in 30 days.</p>
+          <InviteShare invite={invite} recruitName={name} leads={system.name} />
           <button type="button" className="tr-link-btn" style={{ marginTop: 10 }} onClick={() => { setInvite(null); setName(''); }}>Invite another</button>
         </>
       ) : (
         <form onSubmit={make} className="tr-leader-invite-form">
           <label className="tr-field"><span>Their name</span><input value={name} onChange={e => setName(e.target.value)} placeholder="First and last name" /></label>
-          <label className="tr-field"><span>To lead</span>
-            <select value={systemId} onChange={e => setSystemId(e.target.value)}>
-              {systems.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
-            </select>
-          </label>
           {err ? <div className="tr-error">{err}</div> : null}
           <div className="tr-form-actions">
             <button type="button" className="tr-btn tr-btn-ghost" onClick={() => setOpen(false)}>Cancel</button>
