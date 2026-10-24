@@ -1,15 +1,18 @@
 // Today → Team wins and This week's top 3. Wins post themselves (sales,
-// first sales, recruits, new teammates, licenses, promotions) and anyone
-// can high-five them. The top 3 covers the whole agency for the week.
-import React, { useCallback, useEffect, useState } from 'react';
-import { Award, DollarSign, GraduationCap, Sparkles, Star, Trophy, UserPlus, X } from 'lucide-react';
-import { addHighFive, fetchNewHighFives, fetchReactions, fetchWeeklyTop3, fetchWins, HIGH_FIVES, removeHighFive } from '../data/wins.js';
+// first sales, recruits, new teammates, licenses, promotions, 33 in a week,
+// policies issued, exams passed, last week's winners) and anyone can
+// high-five them. New wins and high-fives show up live. The top 3 covers
+// the whole agency for the week.
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Award, BadgeCheck, DollarSign, GraduationCap, ShieldCheck, Sparkles, Star, Target, Trophy, UserPlus, X } from 'lucide-react';
+import { addHighFive, fetchNewHighFives, fetchReactions, fetchWeeklyTop3, fetchWins, HIGH_FIVES, postDueWins, removeHighFive, subscribeWins } from '../data/wins.js';
 import { fetchOrgDirectoryShared } from '../data/team.js';
 import { tierInfo } from '../lib/milestones.js';
 import { addDays, fmtDate, parseDate, todayStr, weekStartOf } from '../lib/dates.js';
+import { Modal } from './ui.jsx';
 
 const PAGE = 8;
-const KIND_ICON = { sale: DollarSign, first_sale: Star, recruit: UserPlus, joined: Sparkles, licensed: GraduationCap, promotion: Award };
+const KIND_ICON = { sale: DollarSign, first_sale: Star, recruit: UserPlus, joined: Sparkles, licensed: GraduationCap, promotion: Award, pace: Target, issued: ShieldCheck, exam: BadgeCheck, winners: Trophy };
 const first = name => (name || '').trim().split(/\s+/)[0] || 'Someone';
 
 function ago(iso) {
@@ -49,8 +52,80 @@ export function winText(w, nameOf, meId) {
       const t = tierInfo(w.detail && w.detail.tier);
       return <><strong>{who}</strong> {you ? 'were' : 'was'} promoted to {t ? t.name : 'a new level'}</>;
     }
+    case 'pace': {
+      const wk = w.detail && w.detail.week_of;
+      const when = !wk || wk === weekStartOf(todayStr()) ? 'this week' : 'last week';
+      return <><strong>{who}</strong> hit 33 appointments {when}!</>;
+    }
+    case 'issued': return <><strong>{who}</strong> got a policy issued</>;
+    case 'exam': {
+      const st = w.detail && w.detail.state;
+      return <><strong>{who}</strong> passed the {st ? `${st} ` : ''}licensing exam</>;
+    }
+    case 'winners': return <WinnersText w={w} meId={meId} />;
     default: return <><strong>{who}</strong> had a win</>;
   }
+}
+
+// Last week's winners: #1 for appointments set, sales and recruits (ties
+// share it).
+const WINNER_ROWS = [['pace', 'Appointments'], ['sales', 'Sales'], ['recruits', 'Recruits']];
+function WinnersText({ w, meId }) {
+  const d = w.detail || {};
+  const day = s => (s ? parseDate(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '');
+  const last = d.week_start === fmtDate(addDays(parseDate(weekStartOf(todayStr())), -7));
+  return (
+    <>
+      <strong>{last ? "Last week's winners" : 'Winners'}</strong> <span className="tr-win-week">{day(d.week_start)} – {day(d.week_end)}</span>
+      <ul className="tr-win-winners">
+        {WINNER_ROWS.filter(([k]) => (d[k] || []).length).map(([k, label]) => (
+          <li key={k}>
+            <span aria-hidden="true">🥇</span>
+            <span className="tr-win-winners-what">{label}</span>
+            <span className="tr-win-winners-who">{d[k].map(x => (x.user_id === meId ? 'You' : x.name)).join(', ')} · {d[k][0].n}</span>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+// Who reacted to a win: "Tasha, Derrick and 3 others" (you first). Tapping
+// it lists everyone and what they sent.
+function reactorNames(rx, meId, nameOf) {
+  const order = [];
+  [...rx].sort((a, b) => (a.created_at < b.created_at ? 1 : -1)).forEach(r => { if (!order.includes(r.user_id)) order.push(r.user_id); });
+  const ids = order.includes(meId) ? [meId, ...order.filter(id => id !== meId)] : order;
+  return ids.map(id => ({ id, name: id === meId ? 'You' : nameOf(id) || 'Someone' }));
+}
+function ReactorsLine({ rx, meId, nameOf, onOpen }) {
+  const people = reactorNames(rx, meId, nameOf);
+  if (!people.length) return null;
+  const firsts = people.map(p => (p.id === meId ? 'You' : first(p.name)));
+  const text = firsts.length <= 2 ? firsts.join(' and ') : `${firsts[0]}, ${firsts[1]} and ${firsts.length - 2} other${firsts.length - 2 === 1 ? '' : 's'}`;
+  return <button type="button" className="tr-win-who" onClick={onOpen} aria-haspopup="dialog">{text}</button>;
+}
+function ReactorsWindow({ win, rx, meId, nameOf, onClose }) {
+  const people = reactorNames(rx, meId, nameOf);
+  return (
+    <Modal onClose={onClose} className="tr-reactors-modal" labelledBy="tr-reactors-title">
+      <div className="tr-row-head">
+        <h3 className="tr-h3" id="tr-reactors-title" style={{ margin: 0 }}>High-fives</h3>
+        <button type="button" className="tr-icon-btn" onClick={onClose} aria-label="Close"><X size={16} /></button>
+      </div>
+      <p className="tr-reactors-win">{winText(win, nameOf, meId)}</p>
+      <ul className="tr-reactors-list">
+        {people.map(p => (
+          <li key={p.id}>
+            <span className="tr-reactors-name">{p.name}</span>
+            <span className="tr-reactors-emoji" aria-label={HIGH_FIVES.filter(h => rx.some(r => r.user_id === p.id && r.emoji === h.key)).map(h => h.label).join(', ')}>
+              {HIGH_FIVES.filter(h => rx.some(r => r.user_id === p.id && r.emoji === h.key)).map(h => h.emoji).join(' ')}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </Modal>
+  );
 }
 
 // "Tasha", "Tasha and Derrick", "Tasha, Derrick and 3 others"
@@ -61,7 +136,7 @@ function whoList(names) {
   return <><strong>{names[0]}</strong>, <strong>{names[1]}</strong> and {rest} other{rest === 1 ? '' : 's'}</>;
 }
 
-const KIND_WORD = { sale: 'sale', first_sale: 'first sale', recruit: 'recruit', joined: 'welcome', licensed: 'license', promotion: 'promotion' };
+const KIND_WORD = { sale: 'sale', first_sale: 'first sale', recruit: 'recruit', joined: 'welcome', licensed: 'license', promotion: 'promotion', pace: 'week of 33', issued: 'issued policy', exam: 'exam pass' };
 
 // compact: Today's side column (3 wins, then "See all", and the top 3
 // lists in full).
@@ -76,6 +151,12 @@ export function TeamWinsSection({ user, compact = false }) {
   const [top3, setTop3] = useState(null);
   const [limit, setLimit] = useState(first0);
   const [note, setNote] = useState(null);
+  // Six reactions once the database update is in; three until then.
+  const [extended, setExtended] = useState(true);
+  const [whoFor, setWhoFor] = useState(null); // the win whose high-fives are open
+  const [fresh, setFresh] = useState(() => new Set()); // wins that just arrived live
+  const winsRef = useRef(null);
+  winsRef.current = wins;
   const seenKey = `pl_highfives_seen:${user.id}`;
   const weekStart = weekStartOf(todayStr());
 
@@ -90,6 +171,7 @@ export function TeamWinsSection({ user, compact = false }) {
     return () => { alive = false; };
   }, [weekStart]);
   const load = useCallback(async (n) => {
+    setExtended(await postDueWins());
     const w = await fetchWins(n + 1);
     if (w.unavailable) { setWins(false); return; }
     setWins(w.rows);
@@ -103,6 +185,38 @@ export function TeamWinsSection({ user, compact = false }) {
     const t = setTimeout(() => load(limit), wait);
     return () => clearTimeout(t);
   }, [load, limit]);
+
+  // Live: new wins slide in at the top, high-fives update as they're given,
+  // and "Tasha high-fived your sale" shows the moment it happens.
+  useEffect(() => {
+    let top3Timer = null;
+    const stop = subscribeWins({
+      onWin: (type, row) => {
+        if (type === 'DELETE') { setWins(prev => (Array.isArray(prev) ? prev.filter(w => w.id !== row.id) : prev)); return; }
+        if (type !== 'INSERT') return;
+        setWins(prev => (Array.isArray(prev) && !prev.some(w => w.id === row.id)
+          ? [row, ...prev].sort((a, b) => (a.occurred_at < b.occurred_at ? 1 : -1)) : prev));
+        setFresh(prev => new Set(prev).add(row.id));
+        setTimeout(() => setFresh(prev => { const next = new Set(prev); next.delete(row.id); return next; }), 2500);
+        clearTimeout(top3Timer);
+        top3Timer = setTimeout(() => fetchWeeklyTop3(weekStart).then(t => { if (t) setTop3(t); }), 1200);
+      },
+      onReaction: (type, row) => {
+        const same = r => r.win_id === row.win_id && r.user_id === row.user_id && r.emoji === row.emoji;
+        if (type === 'DELETE') { setReactions(prev => prev.filter(r => !same(r))); return; }
+        if (type !== 'INSERT') return;
+        setReactions(prev => (prev.some(same) ? prev : [...prev, row]));
+        const win = (winsRef.current || []).find(w => w.id === row.win_id);
+        if (win && win.user_id === user.id && row.user_id !== user.id) {
+          setNote(prev => (prev && prev.live && prev.winId === win.id
+            ? { ...prev, people: prev.people.includes(row.user_id) ? prev.people : [row.user_id, ...prev.people] }
+            : { people: [row.user_id], what: `your ${KIND_WORD[win.kind] || 'win'}`, live: true, winId: win.id }));
+          try { localStorage.setItem(seenKey, new Date().toISOString()); } catch { /* ignore */ }
+        }
+      },
+    });
+    return () => { clearTimeout(top3Timer); stop(); };
+  }, [user.id, weekStart]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // "Tasha and 3 others high-fived your sale", once per new batch.
   useEffect(() => {
@@ -161,24 +275,27 @@ export function TeamWinsSection({ user, compact = false }) {
                 const Icon = KIND_ICON[w.kind] || Award;
                 const rx = reactions.filter(r => r.win_id === w.id);
                 return (
-                  <li key={w.id} className={`tr-win tr-win-${w.kind} ${w.user_id === user.id ? 'tr-win-mine' : ''}`}>
+                  <li key={w.id} className={`tr-win tr-win-${w.kind} ${w.user_id === user.id ? 'tr-win-mine' : ''} ${fresh.has(w.id) ? 'tr-win-fresh' : ''}`}>
                     <span className="tr-win-icon" aria-hidden="true"><Icon size={15} /></span>
                     <div className="tr-win-main">
                       <div className="tr-win-text">{winText(w, nameOf, user.id)}</div>
                       <div className="tr-win-meta">
-                        <span>{ago(w.occurred_at)}</span>
                         <span className="tr-win-hf" role="group" aria-label="High-fives">
-                          {HIGH_FIVES.map(h => {
+                          {(extended ? HIGH_FIVES : HIGH_FIVES.slice(0, 3)).map(h => {
                             const these = rx.filter(r => r.emoji === h.key);
                             const mine = these.some(r => r.user_id === user.id);
                             const who = these.map(r => (r.user_id === user.id ? 'You' : first(nameOf(r.user_id)))).join(', ');
                             return (
-                              <button key={h.key} type="button" className={`tr-hf ${mine ? 'tr-hf-on' : ''}`} aria-pressed={mine}
+                              <button key={h.key} type="button" className={`tr-hf ${mine ? 'tr-hf-on' : ''} ${these.length ? '' : 'tr-hf-empty'}`} aria-pressed={mine}
                                 title={who ? `${h.label}: ${who}` : h.label} aria-label={`${h.label}${these.length ? `, ${these.length}` : ''}`} onClick={() => toggle(w, h.key)}>
                                 <span aria-hidden="true">{h.emoji}</span>{these.length ? <span className="tr-hf-n">{these.length}</span> : null}
                               </button>
                             );
                           })}
+                        </span>
+                        <span className="tr-win-when">
+                          <span>{ago(w.occurred_at)}</span>
+                          {rx.length ? <><span className="tr-win-dot" aria-hidden="true">·</span><ReactorsLine rx={rx} meId={user.id} nameOf={nameOf} onOpen={() => setWhoFor(w.id)} /></> : null}
                         </span>
                       </div>
                     </div>
@@ -188,6 +305,9 @@ export function TeamWinsSection({ user, compact = false }) {
             </ul>
           )}
           {more && <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm tr-wins-more" onClick={() => setLimit(l => l + PAGE * 2)}>{limit === first0 && compact ? 'See all wins' : 'Show more'}</button>}
+          {whoFor && (wins || []).some(w => w.id === whoFor) && (
+            <ReactorsWindow win={wins.find(w => w.id === whoFor)} rx={reactions.filter(r => r.win_id === whoFor)} meId={user.id} nameOf={nameOf} onClose={() => setWhoFor(null)} />
+          )}
         </section>
       )}
 

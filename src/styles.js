@@ -1867,12 +1867,33 @@ export const CSS = `
 .tr-win-licensed .tr-win-icon { background: rgba(46,125,91,0.12); color: var(--green); }
 .tr-win-main { flex: 1; min-width: 0; }
 .tr-win-text { font-size: 14px; color: var(--ink); line-height: 1.4; }
-.tr-win-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 5px; font-size: 12px; color: var(--slate-light); }
-.tr-win-hf { display: inline-flex; gap: 6px; }
-.tr-hf { display: inline-flex; align-items: center; gap: 4px; min-width: 38px; height: 28px; padding: 0 9px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--card); font-family: inherit; font-size: 14px; line-height: 1; cursor: pointer; transition: border-color .15s, background .15s, transform .1s; }
+.tr-win-meta { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; margin-top: 7px; font-size: 12px; color: var(--slate-light); }
+.tr-win-hf { display: flex; flex-wrap: wrap; gap: 4px; }
+.tr-win-when { display: flex; flex-wrap: wrap; align-items: center; min-height: 18px; }
+.tr-win-dot { margin: 0 6px; }
+.tr-win-who { padding: 2px 0; border: 0; background: none; font: inherit; font-size: 12px; color: var(--slate); text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 3px; cursor: pointer; }
+.tr-win-who:hover { color: var(--ink); text-decoration-color: currentColor; }
+.tr-win-pace .tr-win-icon, .tr-win-winners .tr-win-icon { background: var(--brass-tint); color: var(--brass-dark); }
+.tr-win-issued .tr-win-icon, .tr-win-exam .tr-win-icon { background: rgba(46,125,91,0.12); color: var(--green); }
+.tr-win-week { font-size: 12.5px; color: var(--slate-light); margin-left: 2px; }
+ul.tr-win-winners { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+ul.tr-win-winners li { display: grid; grid-template-columns: auto 88px 1fr; align-items: baseline; column-gap: 7px; font-size: 13.5px; }
+.tr-win-winners-what { color: var(--slate); }
+.tr-win-winners-who { font-weight: 600; color: var(--ink); }
+.tr-win-fresh { animation: tr-win-in 2.4s ease-out; border-radius: 8px; }
+@keyframes tr-win-in { from { background: var(--brass-tint); } to { background: transparent; } }
+@media (prefers-reduced-motion: reduce) { .tr-win-fresh { animation: none; } }
+.tr-reactors-modal { max-width: 380px; }
+.tr-reactors-win { margin: 6px 0 10px; font-size: 13.5px; color: var(--slate); line-height: 1.4; }
+.tr-reactors-list { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow-y: auto; }
+.tr-reactors-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--line); font-size: 14px; color: var(--ink); }
+.tr-reactors-emoji { font-size: 16px; letter-spacing: 2px; white-space: nowrap; }
+.tr-hf { display: inline-flex; align-items: center; gap: 3px; min-width: 36px; height: 28px; padding: 0 8px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--card); font-family: inherit; font-size: 14px; line-height: 1; cursor: pointer; transition: border-color .15s, background .15s, transform .1s; }
 .tr-hf:hover { border-color: var(--brass); }
 .tr-hf:active { transform: scale(0.94); }
 .tr-hf-on { background: var(--brass-tint); border-color: var(--brass); }
+.tr-hf-empty { border-color: transparent; background: transparent; min-width: 32px; padding: 0 6px; justify-content: center; }
+.tr-hf-empty:hover { background: var(--card); border-color: var(--line-strong); }
 .tr-hf-n { font-size: 12px; font-weight: 700; color: var(--slate); font-variant-numeric: tabular-nums; }
 .tr-wins-more { margin-top: 6px; }
 .tr-top3-group { padding: 10px 0; border-top: 1px solid var(--line); }
@@ -2574,7 +2595,9 @@ a.tr-intake-way, a.tr-intake-way:visited { color: var(--ink); }
   .tr-seg button { min-height: 38px; padding-left: 14px; padding-right: 14px; }
   .tr-groupswitch button { min-height: 36px; }
   .tr-pf-chip, .tr-pill-btn, .tr-chip-toggle { min-height: 40px; }
-  .tr-hf { height: 36px; }
+  .tr-hf { height: 36px; min-width: 36px; padding: 0 7px; }
+  .tr-hf-empty { min-width: 32px; padding: 0 5px; }
+  .tr-win-who { min-height: 32px; display: inline-flex; align-items: center; }
   .tr-header-account { min-height: 44px; }
   .tr-info-btn, .tr-org-toggle { width: 36px; height: 36px; }
   .tr-check-box { width: 30px; height: 30px; }

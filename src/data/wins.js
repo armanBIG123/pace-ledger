@@ -1,14 +1,52 @@
 // Team wins (posted automatically by the database), high-fives and the
-// weekly top 3. See migration-wins.sql.
+// weekly top 3. See migration-wins.sql and migration-wins-more.sql.
 import { supabase } from '../supabaseClient.js';
 
 const missing = error => !!error && (error.code === '42P01' || error.code === 'PGRST205' || error.code === 'PGRST202' || error.code === '42883' || /does not exist|could not find/i.test(error.message || ''));
 
+// The first three work everywhere; the last three need
+// migration-wins-more.sql (see postDueWins).
 export const HIGH_FIVES = [
   { key: 'clap', emoji: '👏', label: 'Clap' },
   { key: 'fire', emoji: '🔥', label: 'Fire' },
   { key: 'muscle', emoji: '💪', label: 'Strong' },
+  { key: 'party', emoji: '🎉', label: 'Party' },
+  { key: 'raise', emoji: '🙌', label: 'Hands up' },
+  { key: 'hundred', emoji: '💯', label: '100' },
 ];
+
+// Posts what's due when Team wins opens (a policy whose effective date has
+// arrived, last week's winners). Once per session. Resolves to true when
+// the database update is in (six reactions, the new kinds of win), false
+// if not yet.
+let dueAsked = null;
+export function postDueWins() {
+  if (!dueAsked) {
+    dueAsked = supabase.rpc('post_due_wins').then(({ error }) => {
+      if (error) {
+        if (missing(error)) return false;
+        console.error(error);
+        dueAsked = null; // offline etc.: ask again next time
+        return true;
+      }
+      return true;
+    });
+  }
+  return dueAsked;
+}
+
+// Live: onWin(type, row) for new or removed wins, onReaction(type, row) for
+// high-fives given or taken back (type: 'INSERT' | 'DELETE'). Returns a
+// function that stops it.
+export function subscribeWins({ onWin, onReaction }) {
+  if (!supabase.channel) return () => {};
+  const row = p => (p.eventType === 'DELETE' ? p.old : p.new) || {};
+  const ch = supabase.channel(`wins-${Math.random().toString(36).slice(2)}`)
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'wins' }, p => { if (p && row(p).id) onWin(p.eventType, row(p)); })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'win_reactions' }, p => { if (p && row(p).win_id) onReaction(p.eventType, row(p)); })
+    .subscribe();
+  return () => { try { supabase.removeChannel(ch); } catch { /* already closed */ } };
+}
 
 // The newest wins across the agency.
 export async function fetchWins(limit = 12) {
