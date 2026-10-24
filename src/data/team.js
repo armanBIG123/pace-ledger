@@ -5,6 +5,7 @@ import { buildChildrenMap, computeDownline, computeReadiness, downlineIds } from
 import { apptStartMs, fmtDate } from '../lib/dates.js';
 import { rowToRecord } from './appointments.js';
 import { isAdmin } from '../lib/roles.js';
+import { systemScope } from '../lib/systemScope.js';
 
 // Tier definitions, downline/upline traversal, and the tier-progress
 // engine (HIERARCHY_TIERS, computeTierProgress, computeDownline,
@@ -13,10 +14,12 @@ import { isAdmin } from '../lib/roles.js';
 
 // Everyone's place in the hierarchy, with the fields tier progress needs.
 // (org_directory has no tiers, so tier-count requirements need this.)
+const PEOPLE_COLS = 'id, display_name, email, manager_id, role, hierarchy_tier, hierarchy_tier_changed_at, created_at, npn, fg_writing_number, licensed_at';
 export async function fetchHierarchyPeople() {
-  const { data, error } = await selectAll(o => supabase.from('profiles')
-    .select('id, display_name, email, manager_id, role, hierarchy_tier, hierarchy_tier_changed_at, created_at, npn, fg_writing_number, licensed_at', o)
-    .order('display_name').order('id'));
+  const load = cols => selectAll(o => supabase.from('profiles').select(cols, o).order('display_name').order('id'));
+  let { data, error } = await load(`${PEOPLE_COLS}, solar_system_id`);
+  // Before migration-solar-systems.sql there's no solar_system_id.
+  if (error && error.code === '42703') ({ data, error } = await load(PEOPLE_COLS));
   if (error) { console.error(error); return []; }
   return data;
 }
@@ -25,19 +28,21 @@ export async function fetchHierarchyPeople() {
 // minute, so opening Today doesn't ask for the same list several times.
 // Anything that changes a level or role clears it.
 const SHARED_TTL_MS = 60000;
+// (Kept apart per solar system tab: see lib/systemScope.js.)
 let sharedPeople = null;
+const fresh = e => e && Date.now() - e.at < SHARED_TTL_MS && e.scope === systemScope();
 export function fetchHierarchyPeopleShared() {
-  if (sharedPeople && Date.now() - sharedPeople.at < SHARED_TTL_MS) return sharedPeople.promise;
+  if (fresh(sharedPeople)) return sharedPeople.promise;
   const promise = fetchHierarchyPeople();
-  sharedPeople = { at: Date.now(), promise };
+  sharedPeople = { at: Date.now(), scope: systemScope(), promise };
   return promise;
 }
 // The agency-wide name list (org_directory), shared the same way.
 let sharedDirectory = null;
 export function fetchOrgDirectoryShared() {
-  if (sharedDirectory && Date.now() - sharedDirectory.at < SHARED_TTL_MS) return sharedDirectory.promise;
+  if (fresh(sharedDirectory)) return sharedDirectory.promise;
   const promise = fetchOrgDirectory();
-  sharedDirectory = { at: Date.now(), promise };
+  sharedDirectory = { at: Date.now(), scope: systemScope(), promise };
   return promise;
 }
 export function clearSharedPeople() { sharedPeople = null; sharedDirectory = null; }

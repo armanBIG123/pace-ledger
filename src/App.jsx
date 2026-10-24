@@ -180,15 +180,14 @@ export default function App() {
 
   const systems = profile._systems || [];
   const home = systems.find(s => s.id === profile.solar_system_id) || null;
-  const viewing = profile.role === 'super_admin' ? systems.find(s => s.id === profile.viewing_system_id) || null : home;
   const user = {
     id: session.user.id, email: session.user.email || profile.email || '', displayName: profile.display_name, role: profile.role,
     hierarchyTier: profile.hierarchy_tier, managerId: profile.manager_id, createdAt: profile.created_at, isLeader: !!profile._leads,
     avatarPath: profile.avatar_path || '',
-    // Solar systems: theirs, the one a super admin is looking at (null: all),
-    // and where their new posts and uploads go.
-    solarSystemId: profile.solar_system_id || null, solarSystemName: systems.length > 1 || (home && home.short_name !== 'BIG') ? (home && home.name) || '' : '',
-    viewingSystemId: viewing ? viewing.id : null, writerSystemShort: (viewing || home || {}).short_name || '',
+    // Solar systems: theirs (where their new posts and uploads go), and
+    // for super admins every one, for the Org Chart and Manage Team tabs.
+    solarSystemId: profile.solar_system_id || null, solarSystemName: (home && home.name) || '',
+    writerSystemShort: (home || {}).short_name || '',
     solarSystems: systems,
   };
   return (

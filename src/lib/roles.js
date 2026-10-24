@@ -1,7 +1,8 @@
 // Roles and solar systems (see migration-solar-systems.sql).
 //
-// super_admin    The whole Galaxy (every solar system). Can look at one
-//                solar system at a time from the header.
+// super_admin    The whole Galaxy. Everywhere they see their own solar
+//                system; Org Chart and Manage Team have a tab for each
+//                one (lib/systemScope.js).
 // super_manager  Super-admin powers inside their own solar system only:
 //                not the Profiles tab, and can't make Super Managers or
 //                super admins.
