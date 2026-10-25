@@ -145,6 +145,9 @@ advertising, and the app contains no advertising.</p>
   <li>Times a manager blocks out on their calendar (and the reason they give)
   are seen by them, the people above them and super administrators. The
   people below them see only that they're unavailable then, not why.</li>
+  <li>If a manager sets presenting hours, people in their organization who
+  log an appointment with them see their open times: just the times that are
+  free, not what's booked or blocked out, or why.</li>
   <li>Super administrators can see data across the organization, for
   oversight. Only super administrators can see the notes and flags they keep
   about licensing and contracting, and the subsidiary agency records described
@@ -186,6 +189,14 @@ contacts, Drive, or any other Google data.</p>
   PaceLedger adds that appointment (title, time and Zoom link) to your Google
   Calendar too, so you know about the meeting you're hosting. Invitations are
   never sent from a manager's calendar.</li>
+  <li><strong>Presenting hours, only if you turn it on.</strong> If you set
+  presenting hours and tick "Leave out times I'm busy on Google Calendar",
+  then when someone in your organization looks at your open times, we check
+  your Google Calendar for times you're busy within those hours and leave
+  them out. We ask Google only for each event's start and end time, whether
+  it shows you as busy, and whether you declined it; we don't request, show or
+  store event titles, descriptions, locations or who's invited. Others see only the times you're
+  free, never your events. Untick the box to stop this at any time.</li>
 </ul>
 
 <h3>What we store, and for how long</h3>
@@ -220,6 +231,11 @@ gives us. We share it only as follows:</p>
   hosts the PaceLedger website, so calendar data passes through its network
   (encrypted) on its way to your screen; it doesn't store it. Both act on our
   behalf under their terms and may not use the data for anything else.</li>
+  <li><strong>People who book you to present, as open times only.</strong>
+  If you turn on the Google option for your presenting hours, the open times
+  others see in PaceLedger leave out the times you're busy on Google Calendar.
+  They see only which times are free, never your events or anything about
+  them.</li>
   <li><strong>People you choose to invite.</strong> When you add invitees to an
   appointment, Google sends them a calendar invitation from your calendar with
   the event's title, time and meeting link. Only the addresses you enter
@@ -228,7 +244,8 @@ gives us. We share it only as follows:</p>
   acquisition, with notice to you.</li>
 </ul>
 <p>We do <strong>not</strong> share Google user data with your managers or
-other PaceLedger users (Google Calendar events are shown only to you), with
+other PaceLedger users (Google Calendar events are shown only to you; the
+open times above show only when you're free), with
 Zoom, with our email provider, or with advertisers or data brokers, and we
 never sell it.</p>
 

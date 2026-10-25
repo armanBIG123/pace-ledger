@@ -1,6 +1,6 @@
 // Calendar: month and list views, trainings and manager availability.
 import { useCallback, useEffect, useState } from 'react';
-import { Ban, CalendarDays, ChevronLeft, ChevronRight, GraduationCap, Plus, Trash2, Video, X } from 'lucide-react';
+import { Ban, CalendarClock, CalendarDays, ChevronLeft, ChevronRight, GraduationCap, Plus, Trash2, Video, X } from 'lucide-react';
 import { isNativeApp, openInBrowserSheet, PUBLIC_SITE_URL } from '../native.js';
 import { createScheduleBlock, deleteScheduleBlock, deleteScheduleBlockSeries, fetchScheduleBlocksInRange } from '../schedule.js';
 import { addDays, addMinutesToTime, apptEndClock, apptLocalDate, apptLocalTimeKey, buildMonthGrid, detectTimezone, durationLabel, fmtApptDateTime, fmtDate, fmtDisplayDate, fmtTime, minutesBetweenTimes, monthStartOf, parseDate, shiftMonth, timezoneOptionsWithDetected, todayStr, trainingEndClock, trainingLocalDate, trainingLocalTimeKey } from '../lib/dates.js';
@@ -12,6 +12,8 @@ import { Modal, openPicker, PageHead, RefreshButton, SkeletonCalendar, useIsPhon
 import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../components/appointmentPanel.jsx';
 import { GoogleCalendarConnect } from '../components/integrations.jsx';
 import { isAdmin } from '../lib/roles.js';
+import { PresentingHoursCard } from '../components/presentingHours.jsx';
+import { fetchMyPresentingHours } from '../data/availability.js';
 
 // ---------------------------------------------------------------------
 // trainings — org-wide announcements, visible to everyone regardless of
@@ -316,6 +318,20 @@ export function CalendarBody({ user, onLogAppointment }) {
   const [trainings, setTrainings] = useState([]);
   const [scheduleBlocks, setScheduleBlocks] = useState([]);
   const [highlightTrainings, setHighlightTrainings] = useState(false);
+  // Presenting hours (leaders): whether you've set any, for the nudge, and
+  // the line shown once you save them.
+  const presents = seesTeam(user) || isAdmin(user);
+  const [hoursSet, setHoursSet] = useState(null); // null: not known yet
+  const [hoursNote, setHoursNote] = useState('');
+  const [nudgeHidden, setNudgeHidden] = useState(() => { try { return localStorage.getItem(`pl-hours-nudge-${user.id}`) === 'hidden'; } catch { return false; } });
+  useEffect(() => {
+    if (!presents) return;
+    fetchMyPresentingHours(user.id).then(r => setHoursSet(r.unavailable || r.error ? null : r.saved && r.hours.length > 0));
+  }, [user.id, presents]);
+  function hideNudge() {
+    setNudgeHidden(true);
+    try { localStorage.setItem(`pl-hours-nudge-${user.id}`, 'hidden'); } catch { /* private window */ }
+  }
   // 'all' | 'mine' | a specific person's userId — only meaningful for
   // managers/admins, who see more than just their own appointments here.
   const [personFilter, setPersonFilter] = useState('all');
@@ -440,6 +456,11 @@ export function CalendarBody({ user, onLogAppointment }) {
             <GraduationCap size={14} aria-hidden="true" /> New training
           </button>
         ) : null}
+        {presents ? (
+          <button type="button" className={`tr-btn tr-btn-sm ${posting === 'hours' ? 'tr-btn-brass' : 'tr-btn-ghost'}`} aria-expanded={posting === 'hours'} onClick={() => { setHoursNote(''); setPosting(p => (p === 'hours' ? null : 'hours')); }}>
+            <CalendarClock size={14} aria-hidden="true" /> Presenting hours
+          </button>
+        ) : null}
         {user.role === 'manager' || isAdmin(user) ? (
           <button type="button" className={`tr-btn tr-btn-sm ${posting === 'block' ? 'tr-btn-brass' : 'tr-btn-ghost'}`} aria-expanded={posting === 'block'} onClick={() => setPosting(p => (p === 'block' ? null : 'block'))}>
             <Ban size={14} aria-hidden="true" /> Block out time
@@ -448,6 +469,36 @@ export function CalendarBody({ user, onLogAppointment }) {
       </PageHead>
       {posting === 'training' && isAdmin(user) ? <TrainingPostCard user={user} onClose={() => setPosting(null)} onPosted={t => setTrainings(prev => [...prev, t])} /> : null}
       {posting === 'block' && (user.role === 'manager' || isAdmin(user)) ? <SchedulePostCard user={user} onClose={() => setPosting(null)} onPosted={b => setScheduleBlocks(prev => [...prev, b])} /> : null}
+      {posting === 'hours' && presents ? (
+        <PresentingHoursCard user={user} googleConnected={!!googleStatus.connected} onClose={() => setPosting(null)}
+          onSaved={({ settings, hours }) => {
+            setPosting(null);
+            setHoursSet(hours.length > 0);
+            setHoursNote(!hours.length ? 'Presenting hours cleared. Your team picks times by hand.'
+              : settings.accepting ? 'Presenting hours saved. Your team sees your open times when they log an appointment with you.'
+                : 'Saved. Your team is told you’re not taking new bookings right now.');
+          }} />
+      ) : null}
+      {hoursNote && posting !== 'hours' ? (
+        <div className="tr-card tr-ph-saved" role="status">
+          <CalendarClock size={16} aria-hidden="true" />
+          <span>{hoursNote}</span>
+          <button type="button" className="tr-icon-btn" aria-label="Dismiss" onClick={() => setHoursNote('')}><X size={16} /></button>
+        </div>
+      ) : null}
+      {presents && hoursSet === false && !nudgeHidden && posting !== 'hours' && !hoursNote ? (
+        <div className="tr-card tr-ph-nudge">
+          <CalendarClock size={18} aria-hidden="true" />
+          <div className="tr-ph-nudge-text">
+            <strong>Let your team book you to present</strong>
+            <span>Set the hours you present and they’ll see your open times when they log an appointment, so no more texting to find a time.</span>
+          </div>
+          <div className="tr-ph-nudge-acts">
+            <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={() => setPosting('hours')}>Set presenting hours</button>
+            <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={hideNudge}>Not now</button>
+          </div>
+        </div>
+      ) : null}
       <GoogleCalendarConnect status={googleStatus} connecting={googleConnecting} onConnect={handleConnect} onDisconnect={handleDisconnect} />
       {/* Month / List and ‹ month › stay together on one line; the rest
           wraps under them on a phone. */}

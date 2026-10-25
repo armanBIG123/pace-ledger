@@ -98,6 +98,20 @@ export const DEFAULT_APPT_MINUTES = 60;
 
 // Before migration-appointment-end-times.sql has run there's no
 // duration_minutes column yet: save without the length instead of failing.
+// The database refuses a booking that would put a presenter in two places
+// at once (migration-presenter-availability.sql), say when someone else
+// took the same open time a moment earlier.
+function busyCode(error) { return error && /presenter_busy/.test(error.message || '') ? 'presenter_busy' : ''; }
+function bookingError(error) {
+  if (!busyCode(error)) return (error && error.message) || "Couldn't save. Check your connection and try again.";
+  let when = '';
+  try {
+    const d = JSON.parse(error.details || '{}');
+    if (d.starts_at) when = ` at ${new Date(d.starts_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+  } catch { /* fine */ }
+  return `The presenter was just booked${when}, so that time isn't open anymore. Pick another time.`;
+}
+
 async function saveWithLength(payload, write) {
   invalidateAppointments();
   const res = await write(payload);
@@ -355,7 +369,7 @@ export async function insertAppointment(userId, form) {
     presentation_type: form.presentationType || null,
     presentation_type_secondary: form.presentationTypeSecondary || null,
   }, p => supabase.from('appointments').insert(p).select().single());
-  if (error) return { ok: false, error: error.message };
+  if (error) return { ok: false, error: bookingError(error), code: busyCode(error) };
   return { ok: true, record: rowToRecord(data) };
 }
 
@@ -405,7 +419,7 @@ export async function updateAppointment(id, form, isReschedule) {
     payload.follow_up_appointment_timezone = null;
   }
   const { data, error } = await saveWithLength(payload, p => supabase.from('appointments').update(p).eq('id', id).select().single());
-  if (error) return { ok: false, error: error.message };
+  if (error) return { ok: false, error: bookingError(error), code: busyCode(error) };
   return { ok: true, record: rowToRecord(data) };
 }
 
@@ -421,7 +435,8 @@ export async function updateTeamAppointment(id, form, isReschedule) {
   invalidateAppointments();
   if (error || !data) {
     const msg = (error && error.message) || '';
-    return { ok: false, error: /not_allowed/.test(msg) ? 'Only the person they report to, or a super admin, can change this appointment.' : "Couldn't save. Check your connection and try again." };
+    return { ok: false, code: busyCode(error), error: /not_allowed/.test(msg) ? 'Only the person they report to, or a super admin, can change this appointment.'
+      : busyCode(error) ? bookingError(error) : "Couldn't save. Check your connection and try again." };
   }
   return { ok: true, record: rowToRecord(data) };
 }

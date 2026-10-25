@@ -130,7 +130,7 @@ export function FollowUpModal({ appointment, onClose, onSave, saving, onReschedu
     setErr('');
     setMoving(true);
     const res = await rescheduleAppointment(appointment, { date: newDate, time: newTime, timezone: appointment.appointmentTimezone || detectTimezone() });
-    if (!res.ok) { setMoving(false); setErr("Couldn't move it. Check your connection and try again."); return; }
+    if (!res.ok) { setMoving(false); setErr(res.code === 'presenter_busy' ? res.error : "Couldn't move it. Check your connection and try again."); return; }
     let emailed = null;
     if (emailClient && appointment.clientEmail) {
       const r = await sendAppointmentInviteEmail(appointment.id, [appointment.clientEmail], true);
