@@ -6,7 +6,8 @@ import { rowToRecord } from '../data/appointments.js';
 
 // Phone app only: keeps a reminder 30 minutes before each upcoming
 // appointment, a "How did it go?" nudge about an hour after each of yours
-// that isn't logged, and a 9 AM catch-up (see syncAppointmentReminders).
+// that isn't logged, an 8:30 PM check-in for the day, and a 9 AM catch-up
+// (see syncAppointmentReminders).
 // Re-syncs on open, on return to the app, and whenever an appointment is
 // logged or changed. Tapping a nudge opens the log window for it.
 export function useAppointmentReminders(user) {
@@ -16,13 +17,18 @@ export function useAppointmentReminders(user) {
     const sync = async () => {
       if ((await reminderPermission()) !== 'granted') return;
       // Appointments I logged, am presenting, or am training on, from two
-      // days ago on (recent ones may still need an outcome).
-      const { data, error } = await supabase
-        .from('appointments').select('*')
-        .or(`user_id.eq.${user.id},presenter_id.eq.${user.id},trainee_id.eq.${user.id}`)
-        .gte('appointment_at', new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString());
+      // days ago on (recent ones may still need an outcome), and how many
+      // of mine from before that still need one (for the evening reminder).
+      const since = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+      const [{ data, error }, older] = await Promise.all([
+        supabase.from('appointments').select('*')
+          .or(`user_id.eq.${user.id},presenter_id.eq.${user.id},trainee_id.eq.${user.id}`)
+          .gte('appointment_at', since),
+        supabase.from('appointments').select('id', { count: 'exact', head: true })
+          .eq('user_id', user.id).is('follow_up_completed_at', null).lt('appointment_at', since),
+      ]);
       if (error || !alive) return; // offline etc.: keep the reminders already set
-      await syncAppointmentReminders((data || []).map(rowToRecord), user.id).catch(() => {});
+      await syncAppointmentReminders((data || []).map(rowToRecord), user.id, { olderUnlogged: older && !older.error ? older.count || 0 : 0 }).catch(() => {});
     };
     sync();
     const offResume = onAppResume(sync);

@@ -6,6 +6,7 @@ import { apptStartMs, fmtDate } from '../lib/dates.js';
 import { rowToRecord } from './appointments.js';
 import { isAdmin } from '../lib/roles.js';
 import { systemScope } from '../lib/systemScope.js';
+import { tidyName } from '../lib/names.js';
 
 // Tier definitions, downline/upline traversal, and the tier-progress
 // engine (HIERARCHY_TIERS, computeTierProgress, computeDownline,
@@ -153,7 +154,7 @@ export async function fetchMyLicensing(userId) {
 // show you as presenter or trainee.
 export async function updateMyProfile({ displayName, npn, fgWritingNumber }) {
   const { data, error } = await supabase.rpc('update_my_profile', {
-    p_display_name: displayName, p_npn: npn, p_fg_writing_number: fgWritingNumber,
+    p_display_name: tidyName(displayName), p_npn: npn, p_fg_writing_number: fgWritingNumber,
   });
   if (error) {
     const m = error.message || '';

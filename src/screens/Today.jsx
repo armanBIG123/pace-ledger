@@ -19,6 +19,7 @@ import { fetchGoogleConnectionStatus } from '../data/integrations.js';
 import { ProgressRing, SkelBlock } from '../components/ui.jsx';
 import { RemindersPrompt } from '../components/reminders.jsx';
 import { FollowUpModal } from '../components/followUpModal.jsx';
+import { LogAllSheet } from '../components/logAll.jsx';
 import { appointmentTexts, CallButton, prospectTexts, TextButton } from '../components/contact.jsx';
 import { isValidPhone } from '../lib/phone.js';
 import { AnnouncementToday } from '../components/announcements.jsx';
@@ -241,8 +242,13 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
   // A "How did it go?" phone reminder was tapped: open that appointment's
   // log window once Today has loaded.
   const [pendingLog, setPendingLog] = useState(null);
+  // "Log them all" (yours, or the ones you presented), from See all or the
+  // evening and morning phone reminders.
+  const [logAll, setLogAll] = useState(null);
+  const [pendingLogAll, setPendingLogAll] = useState(false);
   useEffect(() => {
     if (initialIntent && typeof initialIntent === 'object' && initialIntent.log) { setPendingLog(initialIntent.log); onIntentConsumed?.(); }
+    if (initialIntent && typeof initialIntent === 'object' && initialIntent.logAll) { setPendingLogAll(true); onIntentConsumed?.(); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialIntent]);
   const [modalSaving, setModalSaving] = useState(false);
@@ -339,6 +345,17 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
     else setFlash("That appointment isn't on your list anymore.");
     setPendingLog(null);
   }, [pendingLog, loading, appointments]);
+  useEffect(() => {
+    if (!pendingLogAll || loading) return;
+    setPendingLogAll(false);
+    if (appointments.some(x => isPastAppointment(x) && !x.followUpCompletedAt)) setLogAll('mine');
+    else setFlash('Everything is logged.');
+  }, [pendingLogAll, loading, appointments]);
+  // Something logged in the list: Today follows along.
+  function handleLogAllSaved(x, data, res) {
+    if (logAll === 'presented') setPresenting(prev => prev.map(y => (y.id === x.id ? { ...y, ...res.record } : y)));
+    else setAppointments(prev => applyFollowUpToList(prev, x.id, data, res.followUpTimezone, res.newAppt));
+  }
 
   // ---- First 30 days ------------------------------------------------
   const day = onboardingDay(user.createdAt);
@@ -559,7 +576,7 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
       title: <>Log how <strong>{toLog.length} appointments</strong> went</>,
       meta: `${names.join(', ')}${toLog.length > 2 ? ` and ${toLog.length - 2} more` : ''}`,
       action: { label: 'Log next', run: () => setModalTarget(toLog[0]) },
-      more: { label: 'See all', run: () => onNavigate('followup', 'nolog') },
+      more: { label: 'See all', run: () => setLogAll('mine') },
     });
   }
   // Appointments your team booked that you presented in the last few days:
@@ -580,7 +597,7 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
         ? `${fmtApptDateTime(x)}${x.setByName ? ` · booked by ${x.setByName}` : ''}`
         : `${presentedToLog.slice(0, 2).map(y => y.client).join(', ')}${presentedToLog.length > 2 ? ` and ${presentedToLog.length - 2} more` : ''}`,
       action: { label: presentedToLog.length === 1 ? 'Log' : 'Log next', run: () => setPresentedTarget(x) },
-      more: { label: 'See all', run: () => onNavigate('followup', 'presented') },
+      more: presentedToLog.length > 1 ? { label: 'See all', run: () => setLogAll('presented') } : { label: 'See all', run: () => onNavigate('followup', 'presented') },
     });
   }
   // Your appointments a presenter logged for you in the last three days.
@@ -1069,6 +1086,11 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
       )}
       {presentedTarget && (
         <FollowUpModal appointment={presentedTarget} presenter setByName={presentedTarget.setByName} saving={modalSaving} onClose={() => setPresentedTarget(null)} onSave={handlePresentedSave} />
+      )}
+      {logAll && (
+        <LogAllSheet user={user} presenter={logAll === 'presented'} items={logAll === 'presented' ? presentedToLog : toLog}
+          onClose={() => setLogAll(null)} onLogged={handleLogAllSaved}
+          onMoved={rec => setAppointments(prev => prev.map(x => (x.id === rec.id ? rec : x)))} />
       )}
     </div>
   );

@@ -1,6 +1,7 @@
 import { selectAll } from './data/paged.js';
 import { publicBaseUrl } from './native.js';
 import { supabase } from './supabaseClient.js';
+import { tidyName } from './lib/names.js';
 
 // ---------------------------------------------------------------------
 // Client Intake — a candidate is created when an advisor answers "Client
@@ -31,7 +32,7 @@ export async function createClientIntakeCandidate({ advisorId, advisorName, appo
   const token = generateToken();
   const { data, error } = await supabase.from('client_intake_candidates').insert({
     advisor_id: advisorId, advisor_name: advisorName || null,
-    source_appointment_id: appointmentId || null, client_name: clientName,
+    source_appointment_id: appointmentId || null, client_name: tidyName(clientName),
     token, status: 'pending',
   }).select().single();
   if (error) { console.error(error); return { ok: false, error: error.message }; }

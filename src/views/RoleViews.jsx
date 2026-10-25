@@ -109,11 +109,11 @@ function useViewNav() {
   }
   function pickTab(t) { setCameFrom(null); setTab(t); }
   // A tapped "How did it go?" phone reminder opens that appointment's log
-  // window on Today; the 9 AM catch-up opens Pipeline → Log outcome.
+  // window on Today; the evening and 9 AM ones open "Log them all" there.
   useEffect(() => {
     const open = e => {
       const d = (e && e.detail) || {};
-      if (d.list) go('followup', 'nolog');
+      if (d.list) go('overview', { logAll: true });
       else if (d.appointmentId) go('overview', { log: d.appointmentId });
     };
     window.addEventListener('paceledger:open-log', open);

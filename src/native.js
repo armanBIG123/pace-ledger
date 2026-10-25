@@ -137,17 +137,24 @@ export async function clearAppointmentReminders() {
 export const LOG_NUDGE_MINUTES = 60;
 const AFTER_END_MINUTES = 15;
 export const CATCH_UP_HOUR = 9;
+// The evening check-in: 8:30 PM.
+export const EVENING_HOUR = 20;
+export const EVENING_MINUTE = 30;
 
 // Replaces every reminder PaceLedger scheduled:
 // - one 30 minutes before each upcoming appointment (yours, or one you're
 //   presenting or training on), over the next two weeks;
 // - "How did it go with …?" about an hour after each of your own
 //   appointments that isn't logged yet starts (or once a longer one ends);
+// - at 8:30 PM, one for that day's appointments still waiting for an
+//   outcome (and how many older ones are too: olderUnlogged, the ones from
+//   before `appointments` starts);
 // - at 9 AM, one catch-up for any of yours still waiting for an outcome.
+// The evening and 9 AM ones open "Log them all".
 // It runs again whenever appointments change or the app comes back, so
 // logging something takes its nudges away. iOS keeps at most 64 pending;
 // this stays under that.
-export async function syncAppointmentReminders(appointments, userId = null) {
+export async function syncAppointmentReminders(appointments, userId = null, { olderUnlogged = 0 } = {}) {
   if ((await reminderPermission()) !== 'granted') return;
   const pending = await LocalNotifications.getPending();
   const ours = (pending.notifications || []).filter(n => n.extra && n.extra.source === 'paceledger-appt');
@@ -193,6 +200,30 @@ export async function syncAppointmentReminders(appointments, userId = null) {
         schedule: { at: new Date(at), allowWhileIdle: true },
         extra: { source: 'paceledger-appt', kind: 'log', appointmentId: a.id },
       }));
+
+    // The next 8:30 PM: that day's appointments whose time to log has come.
+    const evening = new Date(now);
+    evening.setHours(EVENING_HOUR, EVENING_MINUTE, 0, 0);
+    if (evening.getTime() <= now + 30 * 1000) evening.setDate(evening.getDate() + 1);
+    const eveningMs = evening.getTime();
+    const dayStart = new Date(evening);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayStartMs = dayStart.getTime();
+    const thatDay = unlogged
+      .filter(a => startOf(a) >= dayStartMs && nudgeAt(a) <= eveningMs)
+      .sort((x, y) => startOf(x) - startOf(y));
+    if (thatDay.length) {
+      const older = Math.max(0, Number(olderUnlogged) || 0) + unlogged.filter(a => startOf(a) < dayStartMs).length;
+      const n = thatDay.length;
+      const names = thatDay.slice(0, 2).map(a => a.client);
+      notifications.push({
+        id: notificationId('log:evening'),
+        title: n === 1 ? `How did it go with ${thatDay[0].client} today?` : `${n} of today's appointments need an outcome`,
+        body: `${n === 1 ? '' : `${names.join(' and ')}${n > 2 ? ` and ${n - 2} more` : ''}. `}${older ? `Plus ${older} older one${older === 1 ? '' : 's'}. ` : ''}Tap to log ${n + older === 1 ? 'it' : 'them all'} in one go.`,
+        schedule: { at: evening, allowWhileIdle: true },
+        extra: { source: 'paceledger-appt', kind: 'log-list' },
+      });
+    }
 
     // The next 9 AM: anything from the two days before it (past the time
     // its own nudge would come) that still has no outcome.
