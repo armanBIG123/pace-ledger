@@ -75,11 +75,16 @@ export function winText(w, nameOf, meId) {
 // Winners for a week: #1 for appointments set, sales and recruits (ties
 // share it). Last week's sit on top of the feed as a card (WinnersSpotlight);
 // older weeks read as one line.
-const WINNER_ROWS = [['pace', 'appointments set', 'appointment set'], ['sales', 'sales', 'sale'], ['recruits', 'recruits', 'recruit']];
+const WINNER_ROWS = [['pace', 'appointments set', 'appointment set', 'Most appointments set'], ['sales', 'sales', 'sale', 'Most sales'], ['recruits', 'recruits', 'recruit', 'Most recruits']];
 const lastWeekStart = () => fmtDate(addDays(parseDate(weekStartOf(todayStr())), -7));
 const shortDay = s => (s ? parseDate(s).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '');
 const andList = list => (list.length <= 1 ? list[0] || '' : `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`);
 const winnerNames = (rows, meId) => andList((rows || []).map(x => (x.user_id === meId ? 'You' : x.name)));
+// On the plaque, a tie reads "Tasha W. and You" so it fits on one line.
+const shortName = n => { const parts = (n || '').trim().split(/\s+/); return parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1][0]}.` : parts[0] || 'Someone'; };
+const plaqueNames = (rows, meId) => (rows.length === 1
+  ? (rows[0].user_id === meId ? 'You' : rows[0].name)
+  : andList(rows.map(x => (x.user_id === meId ? 'You' : shortName(x.name)))));
 function WinnersText({ w, meId }) {
   const d = w.detail || {};
   const parts = WINNER_ROWS.filter(([k]) => (d[k] || []).length).map(([k, many]) => `${winnerNames(d[k], meId)} (${many})`);
@@ -162,27 +167,42 @@ function WinFace({ w, nameOf, avatars }) {
   );
 }
 
-// Last week's winners, on top of the feed all week.
-function WinnersSpotlight({ w, rx, meId, nameOf, choices, onToggle, onWho }) {
+// Last week's winners, on top of the feed all week: a plaque with each
+// winner's face, what they won and their number.
+function WinnersSpotlight({ w, rx, meId, nameOf, avatars, choices, onToggle, onWho }) {
   const d = w.detail || {};
   const rows = WINNER_ROWS.filter(([k]) => (d[k] || []).length);
   return (
     <div className="tr-spot" aria-labelledby="tr-spot-title">
-      <div className="tr-spot-head">
-        <h4 id="tr-spot-title">Last week's winners</h4>
-        <span>{shortDay(d.week_start)} – {shortDay(d.week_end)}</span>
-      </div>
-      <ul className="tr-spot-list">
-        {rows.map(([k, many, one]) => (
-          <li key={k} className={d[k].some(x => x.user_id === meId) ? 'tr-spot-you' : ''}>
-            <span className="tr-spot-n">{d[k][0].n}</span>
-            <span className="tr-spot-who"><strong>{winnerNames(d[k], meId)}</strong><span>{d[k][0].n === 1 ? one : many}</span></span>
-          </li>
-        ))}
-      </ul>
-      <div className="tr-spot-foot">
-        {rx.length ? <ReactionSummary rx={rx} meId={meId} nameOf={nameOf} onOpen={onWho} /> : <span className="tr-spot-cheer">Give them a high-five</span>}
-        <ReactButton win={w} rx={rx} meId={meId} choices={choices} onToggle={onToggle} />
+      <div className="tr-spot-plate">
+        <div className="tr-spot-head">
+          <h4 id="tr-spot-title">Last week's winners</h4>
+          <span>{shortDay(d.week_start)} – {shortDay(d.week_end)}</span>
+        </div>
+        <ul className="tr-spot-list">
+          {rows.map(([k, many, one, title]) => {
+            const list = d[k];
+            const n = list[0].n;
+            return (
+              <li key={k} className={`${list.some(x => x.user_id === meId) ? 'tr-spot-you' : ''} ${list.length > 1 ? 'tr-spot-tie' : ''}`}>
+                <span className="tr-spot-faces" aria-hidden="true">
+                  {list.slice(0, 3).map(x => (
+                    <Avatar key={x.user_id} url={avatars.get(x.user_id)} className={`tr-spot-face ${x.user_id === meId ? 'tr-spot-face-you' : ''}`}>{personInitials(x.name || '?')}</Avatar>
+                  ))}
+                </span>
+                <span className="tr-spot-who">
+                  <strong title={list.length > 1 ? winnerNames(list, meId) : undefined}>{plaqueNames(list, meId)}</strong>
+                  <span>{title}{list.length > 1 ? ', tied' : ''}</span>
+                </span>
+                <span className="tr-spot-n" aria-label={`${n} ${n === 1 ? one : many}`}>{n}</span>
+              </li>
+            );
+          })}
+        </ul>
+        <div className="tr-spot-foot">
+          {rx.length ? <ReactionSummary rx={rx} meId={meId} nameOf={nameOf} onOpen={onWho} /> : <span className="tr-spot-cheer">Give them a high-five</span>}
+          <ReactButton win={w} rx={rx} meId={meId} choices={choices} onToggle={onToggle} />
+        </div>
       </div>
     </div>
   );
@@ -358,7 +378,9 @@ export function TeamWinsSection({ user, compact = false }) {
         <section className="tr-card tr-wins" aria-labelledby="tr-wins-title">
           <div className="tr-row-head">
             <h3 className="tr-h3" id="tr-wins-title" style={{ margin: 0 }}><Trophy size={16} aria-hidden="true" /> Team wins</h3>
-            {compact ? <span className="tr-wins-scope" title="Sales, recruits, licenses and promotions across the agency, as they happen">agency</span> : null}
+            {compact && more && limit === first0 ? (
+              <button type="button" className="tr-link-btn tr-wins-seeall" onClick={() => setLimit(l => l + PAGE * 2)}>See all</button>
+            ) : null}
           </div>
           {compact ? null : <p className="tr-wins-sub">Sales, recruits, licenses and promotions across the agency, as they happen. Give them a high-five.</p>}
           {note && (
@@ -368,7 +390,7 @@ export function TeamWinsSection({ user, compact = false }) {
             </div>
           )}
           {spot && (
-            <WinnersSpotlight w={spot} rx={reactions.filter(r => r.win_id === spot.id)} meId={user.id} nameOf={nameOf}
+            <WinnersSpotlight w={spot} rx={reactions.filter(r => r.win_id === spot.id)} meId={user.id} nameOf={nameOf} avatars={avatars}
               choices={choices} onToggle={toggle} onWho={() => setWhoFor(spot.id)} />
           )}
           {wins === null ? <p className="tr-empty">Loading…</p> : shown.length === 0 && !spot ? (
@@ -387,15 +409,15 @@ export function TeamWinsSection({ user, compact = false }) {
                       <div className="tr-win-meta">
                         <span className="tr-win-time">{ago(w.occurred_at)}</span>
                         <ReactionSummary rx={rx} meId={user.id} nameOf={nameOf} onOpen={() => setWhoFor(w.id)} />
+                        <ReactButton win={w} rx={rx} meId={user.id} choices={choices} onToggle={toggle} />
                       </div>
                     </div>
-                    <ReactButton win={w} rx={rx} meId={user.id} choices={choices} onToggle={toggle} />
                   </li>
                 );
               })}
             </ul>
           )}
-          {more && <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm tr-wins-more" onClick={() => setLimit(l => l + PAGE * 2)}>{limit === first0 && compact ? 'See all wins' : 'Show more'}</button>}
+          {more && !(compact && limit === first0) && <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm tr-wins-more" onClick={() => setLimit(l => l + PAGE * 2)}>Show more</button>}
           {whoFor && (wins || []).some(w => w.id === whoFor) && (
             <ReactorsWindow win={wins.find(w => w.id === whoFor)} rx={reactions.filter(r => r.win_id === whoFor)} meId={user.id} nameOf={nameOf} onClose={() => setWhoFor(null)} />
           )}
@@ -431,6 +453,7 @@ export function TeamWinsSection({ user, compact = false }) {
                   {top3[key].map((r, i) => (
                     <li key={r.user_id} className={r.user_id === user.id ? 'tr-top3-you' : ''}>
                       <span className="tr-top3-rank" aria-label={`Number ${i + 1}`}>{i + 1}</span>
+                      <Avatar url={avatars.get(r.user_id)} className="tr-top3-face">{personInitials(r.display_name || '?')}</Avatar>
                       <span className="tr-top3-name">{r.display_name}{r.user_id === user.id ? <span className="tr-org-you">you</span> : null}</span>
                       <span className="tr-top3-n">{r.n}</span>
                     </li>

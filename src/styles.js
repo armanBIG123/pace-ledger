@@ -1910,7 +1910,7 @@ export const CSS = `
 .tr-wins-sub { font-size: 12.5px; color: var(--slate-light); margin: 4px 0 10px; }
 .tr-wins-note { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 12px; margin-bottom: 10px; border-radius: var(--radius-sm); background: var(--brass-tint); color: var(--ink); font-size: 13.5px; }
 .tr-wins-list { list-style: none; margin: 0; padding: 0; }
-.tr-win { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; column-gap: 12px; align-items: start; padding: 12px 0; border-top: 1px solid var(--line); }
+.tr-win { display: grid; grid-template-columns: 36px minmax(0, 1fr); column-gap: 12px; align-items: start; padding: 12px 0; border-top: 1px solid var(--line); }
 .tr-win:first-child { border-top: none; }
 .tr-win-av { position: relative; width: 36px; height: 36px; }
 .tr-win-face { width: 36px; height: 36px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--paper-dim); color: var(--slate); font-size: 12.5px; font-weight: 600; object-fit: cover; }
@@ -1924,6 +1924,8 @@ img.tr-win-face { display: block; }
 .tr-win-main { min-width: 0; }
 .tr-win-text { font-size: 14px; color: var(--ink); line-height: 1.4; padding-top: 1px; }
 .tr-win-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-top: 3px; min-height: 20px; font-size: 12px; color: var(--slate-light); }
+.tr-win-meta .tr-react { margin-left: auto; }
+.tr-win-meta .tr-react-btn { width: 30px; height: 30px; font-size: 14px; }
 .tr-win-fresh { animation: tr-win-in 2.4s ease-out; border-radius: 8px; }
 @keyframes tr-win-in { from { background: var(--brass-tint); } to { background: transparent; } }
 @media (prefers-reduced-motion: reduce) { .tr-win-fresh { animation: none; } }
@@ -1937,7 +1939,7 @@ img.tr-win-face { display: block; }
 .tr-react { position: relative; align-self: center; }
 .tr-react-btn { width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--card); color: var(--slate-light); display: inline-flex; align-items: center; justify-content: center; font-size: 16px; line-height: 1; cursor: pointer; transition: border-color .15s, color .15s, background .15s; }
 .tr-react-btn:hover, .tr-react-btn[aria-expanded="true"] { border-color: var(--brass); color: var(--brass-dark); }
-.tr-react-btn-on { background: var(--brass-tint); border-color: var(--brass); }
+.tr-react-btn-on { background: var(--card); border-color: rgba(196,154,60,0.55); }
 .tr-react-tray { position: absolute; right: -4px; bottom: calc(100% + 6px); z-index: 30; display: flex; gap: 2px; padding: 4px; background: var(--card); border: 1px solid var(--line); border-radius: 999px; box-shadow: 0 12px 30px rgba(19,33,46,0.18); transform-origin: 90% 100%; animation: tr-tray-in .14s ease-out; }
 .tr-react-tray button { width: 38px; height: 38px; border-radius: 50%; border: 0; background: transparent; font-size: 20px; line-height: 1; cursor: pointer; transition: transform .1s, background .1s; }
 .tr-react-tray button:hover, .tr-react-tray button:focus-visible { transform: scale(1.15); background: var(--paper); }
@@ -1945,17 +1947,26 @@ img.tr-win-face { display: block; }
 @keyframes tr-tray-in { from { opacity: 0; transform: translateY(4px) scale(0.92); } to { opacity: 1; transform: none; } }
 @media (prefers-reduced-motion: reduce) { .tr-react-tray { animation: none; } .tr-react-tray button:hover, .tr-react-tray button:focus-visible { transform: none; } }
 /* Last week's winners: the one dark card on Today. */
-.tr-spot { margin: 12px 0 6px; padding: 16px 16px 10px; border-radius: 12px; background: var(--ink); color: #fff; }
-.tr-spot-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-.tr-spot-head h4 { margin: 0; font-family: 'Newsreader', serif; font-size: 19px; font-weight: 600; letter-spacing: -0.1px; color: #fff; }
+.tr-spot { margin: 12px 0 8px; padding: 5px; border-radius: 14px; background: var(--ink); color: #fff; }
+.tr-spot-plate { border: 1px solid rgba(196,154,60,0.42); border-radius: 10px; padding: 14px 14px 6px; }
+.tr-spot-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding-bottom: 10px; border-bottom: 1px solid rgba(196,154,60,0.28); }
+.tr-spot-head h4 { margin: 0; font-family: 'Newsreader', serif; font-size: 20px; font-weight: 600; letter-spacing: -0.1px; color: #fff; }
 .tr-spot-head > span { font-size: 12.5px; color: rgba(255,255,255,0.62); white-space: nowrap; }
-.tr-spot-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
-.tr-spot-list li { display: grid; grid-template-columns: 46px minmax(0, 1fr); align-items: center; }
-.tr-spot-n { font-family: 'Newsreader', serif; font-size: 30px; line-height: 1; font-weight: 600; color: var(--brass); font-variant-numeric: lining-nums tabular-nums; }
-.tr-spot-who strong { display: block; font-size: 14px; font-weight: 600; line-height: 1.3; color: #fff; }
-.tr-spot-who > span { display: block; font-size: 12px; color: rgba(255,255,255,0.62); }
+.tr-spot-list { list-style: none; margin: 0; padding: 0; }
+.tr-spot-list li { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; align-items: center; column-gap: 10px; padding: 10px 0; border-top: 1px solid rgba(255,255,255,0.07); }
+.tr-spot-list li:first-child { border-top: none; }
+.tr-spot-faces { display: inline-flex; align-items: center; }
+.tr-spot-face { width: 34px; height: 34px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: #2A3E52; color: #fff; font-size: 12px; font-weight: 600; object-fit: cover; box-shadow: 0 0 0 2px var(--ink); flex: none; }
+img.tr-spot-face { display: block; }
+.tr-spot-tie .tr-spot-face { width: 28px; height: 28px; font-size: 10.5px; }
+.tr-spot-face + .tr-spot-face { margin-left: -8px; }
+.tr-spot-face-you { box-shadow: 0 0 0 2px var(--ink), 0 0 0 3.5px var(--brass); }
+.tr-spot-who { min-width: 0; }
+.tr-spot-who strong { display: block; font-size: 14.5px; font-weight: 600; line-height: 1.25; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tr-spot-who > span { display: block; margin-top: 1px; font-size: 12px; color: rgba(255,255,255,0.6); }
 .tr-spot-you .tr-spot-who strong { color: #EED493; }
-.tr-spot-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.12); }
+.tr-spot-n { font-family: 'Newsreader', serif; font-size: 30px; line-height: 1; font-weight: 600; color: var(--brass); font-variant-numeric: lining-nums tabular-nums; text-align: right; min-width: 30px; }
+.tr-spot-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 2px; padding: 8px 0 4px; border-top: 1px solid rgba(196,154,60,0.28); }
 .tr-spot-cheer { font-size: 12.5px; color: rgba(255,255,255,0.62); }
 .tr-spot .tr-react-sum { color: rgba(255,255,255,0.85); }
 .tr-spot .tr-react-stack > span { background: rgba(255,255,255,0.14); box-shadow: 0 0 0 2px var(--ink); }
@@ -2005,6 +2016,9 @@ img.tr-win-face { display: block; }
 .tr-task-hide:hover { color: var(--ink); text-decoration: underline; }
 .tr-today-plan .tr-plan-sub { margin: 0; text-align: right; }
 .tr-wins-scope { font-size: 12.5px; color: var(--slate-light); white-space: nowrap; }
+.tr-wins-seeall { align-self: center; margin-top: 0; font-size: 13px; }
+.tr-top3-face { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex: none; background: var(--paper-dim); color: var(--slate); font-size: 10.5px; font-weight: 600; object-fit: cover; }
+img.tr-top3-face { display: block; }
 .tr-wins-compact .tr-wins-list { margin-top: 8px; }
 .tr-wins-compact .tr-top3 > .tr-row-head { margin-bottom: 6px; }
 .tr-wins-compact .tr-top3 > .tr-row-head + .tr-top3-group { border-top: none; padding-top: 4px; }
@@ -2668,6 +2682,7 @@ a.tr-intake-way, a.tr-intake-way:visited { color: var(--ink); }
   .tr-groupswitch button { min-height: 36px; }
   .tr-pf-chip, .tr-pill-btn, .tr-chip-toggle { min-height: 40px; }
   .tr-react-btn { width: 38px; height: 38px; }
+  .tr-win-meta .tr-react-btn { width: 36px; height: 36px; }
   .tr-react-tray button { width: 40px; height: 40px; }
   .tr-react-sum { min-height: 32px; }
   .tr-header-account { min-height: 44px; }
