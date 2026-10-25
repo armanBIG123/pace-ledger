@@ -4,6 +4,7 @@
 // new person joins (the person who made it is their direct upline).
 // ---------------------------------------------------------------------
 import { supabase } from './supabaseClient.js';
+import { tidyName } from './lib/names.js';
 import { publicBaseUrl } from './native.js';
 
 export function buildInviteLink(token) {
@@ -33,7 +34,7 @@ export async function createInvite({ uplineId, createdBy, inviteeName, appointme
   const row = {
     upline_id: uplineId,
     created_by: createdBy,
-    invitee_name: (inviteeName || '').trim() || null,
+    invitee_name: tidyName(inviteeName || '') || null,
     appointment_id: appointmentId || null,
   };
   const { data, error } = await supabase.from('recruit_invites').insert(row).select().single();

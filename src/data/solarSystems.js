@@ -1,6 +1,7 @@
 // Solar systems (see migration-solar-systems.sql): the partner groups in
 // the Galaxy. Super admins see every one; everyone else, their own.
 import { supabase } from '../supabaseClient.js';
+import { tidyName } from '../lib/names.js';
 
 const missing = error => !!error && (error.code === '42P01' || error.code === 'PGRST205' || error.code === 'PGRST202' || /does not exist|could not find/i.test(error.message || ''));
 
@@ -15,7 +16,7 @@ export async function fetchSolarSystems() {
 // (super admins only).
 export async function createLeaderInvite({ creatorId, systemId, name }) {
   const { data, error } = await supabase.from('recruit_invites').insert({
-    upline_id: creatorId, created_by: creatorId, invitee_name: (name || '').trim() || null,
+    upline_id: creatorId, created_by: creatorId, invitee_name: tidyName(name || '') || null,
     solar_system_id: systemId, invite_role: 'super_manager',
   }).select().single();
   if (error) { console.error(error); return { ok: false, error: error.message }; }

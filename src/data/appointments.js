@@ -5,6 +5,7 @@ import { createClientIntakeCandidate } from '../clientIntake.js';
 import { openIntakeSend } from '../lib/intakeEvents.js';
 import { cachedLoad, invalidateAppointments } from './apptCache.js';
 import { selectAll } from './paged.js';
+import { tidyName } from '../lib/names.js';
 import { dateSetMeta, defaultDateSetOption } from '../lib/pace.js';
 import { addDays, apptEndMs, detectTimezone, fmtDate, fmtDisplayDate, LEGACY_APPT_MINUTES, parseDate, todayStr, weekStartOf } from '../lib/dates.js';
 
@@ -342,11 +343,11 @@ export async function insertAppointment(userId, form) {
     appointment_time: form.appointmentTime,
     appointment_timezone: form.timezone || null,
     duration_minutes: lengthOf(form),
-    presenter: form.presenter.trim(),
+    presenter: tidyName(form.presenter),
     presenter_id: form.presenterId || null,
-    trainee: form.trainee.trim() || null,
+    trainee: tidyName(form.trainee) || null,
     trainee_id: form.traineeId || null,
-    client_name: form.client.trim(),
+    client_name: tidyName(form.client),
     client_email: (form.clientEmail || '').trim() || null,
     client_phone: (form.clientPhone || '').trim() || null,
     prospect_id: form.prospectId || null,
@@ -374,11 +375,11 @@ function appointmentFields(form) {
     appointment_time: form.appointmentTime,
     appointment_timezone: form.timezone || null,
     duration_minutes: lengthOf(form),
-    presenter: form.presenter.trim(),
+    presenter: tidyName(form.presenter),
     presenter_id: form.presenterId || null,
-    trainee: form.trainee.trim() || null,
+    trainee: tidyName(form.trainee) || null,
     trainee_id: form.traineeId || null,
-    client_name: form.client.trim(),
+    client_name: tidyName(form.client),
     client_email: (form.clientEmail || '').trim() || null,
     client_phone: (form.clientPhone || '').trim() || null,
     prospect_id: form.prospectId || null,

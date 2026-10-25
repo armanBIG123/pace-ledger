@@ -152,6 +152,42 @@ export const CSS = `
 .tr-mt-move-menu button { font: inherit; font-size: 13.5px; text-align: left; background: none; border: none; border-radius: 7px; padding: 8px; cursor: pointer; color: var(--ink); }
 .tr-mt-move-menu button:hover { background: var(--brass-tint); }
 .tr-mt-del { white-space: nowrap; }
+/* Log them all: one list, one tap per appointment */
+.tr-modal-card.tr-logall { max-width: 680px; }
+.tr-logall .tr-subtitle { margin: 4px 0 0; }
+.tr-logall-count svg { color: var(--green); vertical-align: -2px; }
+.tr-logall-list { list-style: none; margin: 0; padding: 0; }
+.tr-logall-row { display: flex; flex-direction: column; gap: 9px; padding: 13px 0; border-bottom: 1px solid var(--line); }
+.tr-logall-row:last-child { border-bottom: none; }
+.tr-logall-who strong { font-size: 15px; color: var(--ink); }
+.tr-logall-who span { display: block; margin-top: 1px; font-size: 12.5px; color: var(--slate-light); }
+.tr-logall-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.tr-logall-btn { display: inline-flex; align-items: center; gap: 5px; min-height: 36px; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--card); color: var(--ink); font: inherit; font-size: 13px; font-weight: 600; cursor: pointer; transition: border-color .12s, background .12s; }
+.tr-logall-btn svg { color: var(--slate-light); }
+.tr-logall-btn:hover { border-color: var(--ink); }
+.tr-logall-btn:disabled { opacity: .5; cursor: default; }
+.tr-logall-btn.tr-logall-sold { border-color: rgba(46,125,91,.45); background: #F1F8F4; color: #1F6B4A; }
+.tr-logall-btn.tr-logall-sold svg { color: var(--green); }
+.tr-logall-btn.tr-logall-sold:hover { border-color: var(--green); }
+.tr-logall .tr-link-btn { align-self: center; margin-top: 0; font-size: 13px; }
+.tr-logall-more { margin-left: 4px; padding: 8px 4px; white-space: nowrap; }
+.tr-logall-row-done .tr-logall-who strong { color: var(--slate); }
+.tr-logall-saved { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; font-size: 13.5px; font-weight: 600; color: #1F6B4A; }
+.tr-logall-saved span svg { vertical-align: -2px; }
+.tr-logall-sale { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.tr-logall-premium { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--slate); }
+.tr-logall-premium input { width: 130px; min-height: 36px; }
+.tr-logall-err { margin: 0; }
+.tr-logall .tr-modal-foot .tr-form-actions { align-items: center; }
+.tr-logall-foot-note { margin-right: auto; font-size: 12.5px; }
+.tr-logall-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 10px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--card); font-size: 13.5px; color: var(--slate); }
+@media (max-width: 640px) {
+  .tr-logall-acts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .tr-logall-btn { justify-content: center; padding: 6px 4px; min-height: 40px; white-space: nowrap; }
+  .tr-logall-btn svg { display: none; }
+  .tr-logall-more { justify-self: center; }
+  .tr-logall-foot-note { display: none; }
+}
 .tr-row-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 /* Serif is reserved for page titles and headline figures; everything
    inside a card is set in Plex so the page reads in two clear voices. */

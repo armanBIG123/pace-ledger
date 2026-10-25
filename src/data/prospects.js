@@ -1,6 +1,7 @@
 // Prospects: scoring, loading and saving, plus the Memory Jogger list.
 import { selectAll } from './paged.js';
 import { supabase } from '../supabaseClient.js';
+import { tidyName } from '../lib/names.js';
 
 // ---------------------------------------------------------------------
 // systems — prospecting ability
@@ -146,8 +147,8 @@ export async function fetchAllVisibleProspects() {
 export async function insertProspect(userId, form) {
   const payload = {
     user_id: userId,
-    first_name: form.firstName.trim(),
-    last_name: form.lastName.trim(),
+    first_name: tidyName(form.firstName),
+    last_name: tidyName(form.lastName),
     age: form.age ? Number(form.age) : null,
     relationship_strength: form.relationshipStrength,
     notes: form.notes.trim() || null,
@@ -163,8 +164,8 @@ export async function insertProspect(userId, form) {
 
 export async function updateProspect(id, form) {
   const payload = {
-    first_name: form.firstName.trim(),
-    last_name: form.lastName.trim(),
+    first_name: tidyName(form.firstName),
+    last_name: tidyName(form.lastName),
     age: form.age ? Number(form.age) : null,
     relationship_strength: form.relationshipStrength,
     notes: form.notes.trim() || null,

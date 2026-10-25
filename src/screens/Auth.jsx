@@ -5,6 +5,7 @@ import { supabase } from '../supabaseClient.js';
 import { fetchInvitePreview } from '../invites.js';
 import { isNativeApp, PUBLIC_SITE_URL } from '../native.js';
 import { readJoinToken } from '../data/auth.js';
+import { tidyName } from '../lib/names.js';
 import { Shell, Spinner } from '../components/ui.jsx';
 
 export function AuthScreen() {
@@ -54,7 +55,7 @@ export function AuthScreen() {
           email: mail,
           password,
           // Only the invitation is sent; the database works out the team from it.
-          options: { data: { display_name: displayName.trim(), invite_token: joinToken } },
+          options: { data: { display_name: tidyName(displayName), invite_token: joinToken } },
         });
         if (signErr) {
           setError(/database error/i.test(signErr.message)

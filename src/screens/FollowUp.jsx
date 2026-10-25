@@ -1,6 +1,6 @@
 // Follow Up: past appointments, notes, next steps, intake forms and recruit sign-up.
 import { useEffect, useRef, useState } from 'react';
-import { CheckCheck, ChevronDown, ChevronUp, Pencil, Plus, Presentation, Search, Trash2, X } from 'lucide-react';
+import { CheckCheck, ChevronDown, ChevronUp, ListChecks, Pencil, Plus, Presentation, Search, Trash2, X } from 'lucide-react';
 import { deleteClientIntakeCandidate, fetchClientIntakeCandidates } from '../clientIntake.js';
 import { intakeChanged, openIntakeSend } from '../lib/intakeEvents.js';
 import { intakeStatusText, intakeStatusTone } from '../lib/intakeStatus.js';
@@ -15,6 +15,7 @@ import { PageHead, SkelBlock } from '../components/ui.jsx';
 import { appointmentTexts, ContactRow } from '../components/contact.jsx';
 import { RecruitSignupSection } from '../components/invites.jsx';
 import { FollowUpModal } from '../components/followUpModal.jsx';
+import { LogAllSheet } from '../components/logAll.jsx';
 import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../components/appointmentPanel.jsx';
 
 // One-tap note starters, so logging a touch takes a second.
@@ -57,6 +58,8 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
   const [orgDirectory, setOrgDirectory] = useState([]);
   const [presented, setPresented] = useState([]);
   const [presentedTarget, setPresentedTarget] = useState(null);
+  // "Log them all": every one still waiting, in one list.
+  const [logAll, setLogAll] = useState(null);
   // Cards you just sent an intake from stay in the list you're on.
   const [pinned, setPinned] = useState(() => new Set());
   useEffect(() => { setPinned(new Set()); }, [view]);
@@ -157,6 +160,9 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
   const q = searchQuery.trim().toLowerCase();
   const qDigits = q.replace(/\D/g, '');
   const found = a => !q || a.client.toLowerCase().includes(q) || (qDigits.length >= 3 && (a.clientPhone || '').replace(/\D/g, '').includes(qDigits));
+  // For "Log them all": newest first, nothing already logged.
+  const nologList = past.filter(a => !a.followUpCompletedAt);
+  const presentedToLog = presentedPast.filter(a => !a.followUpCompletedAt);
   const list = view === 'presented' ? presentedPast.filter(found) : past
     .filter(a => matchesView(a, view) || pinned.has(a.id))
     .filter(found);
@@ -268,6 +274,14 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
           <input className="tr-search-input" type="text" placeholder="Search by name or phone…" aria-label="Search past appointments by client name or phone" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} />
           {searchQuery && <button type="button" className="tr-icon-btn" onClick={() => setSearchQuery('')} title="Clear search"><X size={15} /></button>}
         </div>
+        {(view === 'nolog' && nologList.length > 1) || (view === 'presented' && presentedToLog.length > 1) ? (
+          <div className="tr-logall-bar">
+            <span>{view === 'presented' ? presentedToLog.length : nologList.length} still need an outcome.</span>
+            <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={() => setLogAll(view === 'presented' ? 'presented' : 'mine')}>
+              <ListChecks size={14} aria-hidden="true" /> Log them all
+            </button>
+          </div>
+        ) : null}
         <div className="tr-fu-list">
         {list.length === 0 ? (
           <div className="tr-card"><p className="tr-empty">{view === 'presented' ? `Nothing you presented in the last ${PRESENTED_DAYS} days${q ? ' matches' : ''}.` : past.length === 0 ? 'Appointments land here once their time has passed.' : 'Nothing matches this view.'}</p></div>
@@ -405,6 +419,15 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
       {modalTarget && <FollowUpModal appointment={modalTarget} onClose={() => setModalTarget(null)} onSave={handleSaveOutcome} onRescheduled={handleRescheduled} saving={modalSaving}
         onEdit={() => { const x = modalTarget; setModalTarget(null); openAppointment(x); }} />}
       {presentedTarget && <FollowUpModal appointment={presentedTarget} presenter setByName={presentedTarget.setByName} onClose={() => setPresentedTarget(null)} onSave={handlePresentedSave} saving={modalSaving} />}
+      {logAll && (
+        <LogAllSheet user={user} presenter={logAll === 'presented'} items={logAll === 'presented' ? presentedToLog : nologList}
+          onClose={() => setLogAll(null)}
+          onLogged={(a, data, res) => {
+            if (logAll === 'presented') setPresented(prev => prev.map(x => (x.id === a.id ? { ...x, ...res.record } : x)));
+            else setAppointments(prev => applyFollowUpToList(prev, a.id, data, res.followUpTimezone, res.newAppt));
+          }}
+          onMoved={rec => setAppointments(prev => prev.map(x => (x.id === rec.id ? rec : x)))} />
+      )}
     </div>
   );
 }
