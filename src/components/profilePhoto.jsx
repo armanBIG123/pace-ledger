@@ -8,6 +8,7 @@ import { canPickPhotos, PUBLIC_SITE_URL } from '../native.js';
 import { personInitials } from '../lib/format.js';
 import { baseScale, clampPos, cropToBlob, loadPhoto, PHOTO_GOOD_PX, PHOTO_MAX_MB, PHOTO_ZOOM_MAX, photoErrorText, startPos, zoomAround } from '../lib/photo.js';
 import { Avatar } from './avatar.jsx';
+import { askConfirm } from './confirm.jsx';
 
 const STAGE = 240;
 
@@ -75,7 +76,7 @@ export function ProfilePhoto({ user }) {
     window.dispatchEvent(new CustomEvent('paceledger:profile-changed', { detail: { avatar_path: res.path } }));
   }
   async function remove() {
-    if (!window.confirm('Remove your profile photo? Your initials show instead.')) return;
+    if (!(await askConfirm({ title: 'Remove your profile photo?', body: 'Your initials show instead. You can add a photo again any time.', confirmLabel: 'Remove', danger: true }))) return;
     setBusy(true); setErr(''); setDone('');
     const res = await removeMyAvatar();
     setBusy(false);

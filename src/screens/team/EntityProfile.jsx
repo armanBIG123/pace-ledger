@@ -9,6 +9,7 @@ import { todayStr } from '../../lib/dates.js';
 import { fmtPhone, telHref } from '../../lib/phone.js';
 import { canPickPhotos } from '../../native.js';
 import { EntityForm, EntitySegs, FlagBar, FlagDialog, initialsOf, LagBadge, NotesCard, shortDate, stampDate } from './profileParts.jsx';
+import { askConfirm, confirmDelete, newestFirst } from '../../components/confirm.jsx';
 
 const ENTITY_REASONS = ['Waiting on signatures', 'Waiting on the state', 'Waiting on the carrier', 'Partner not responding', 'Missing documents'];
 const stepTitle = key => (ENTITY_STEPS.find(s => s.key === key) || {}).short || 'General';
@@ -63,7 +64,7 @@ export function EntityProfile({ entity, checks, people, backLabel = 'Back', onBa
   async function tick(item, label) {
     setErr('');
     if (checks.has(item)) {
-      if (!window.confirm(`Untick "${label}"?`)) return;
+      if (!(await askConfirm({ title: `Untick "${label}"?`, confirmLabel: 'Untick' }))) return;
       setBusyItem(item);
       const ok = await clearEntityCheck(entity.id, item);
       setBusyItem('');
@@ -112,10 +113,11 @@ export function EntityProfile({ entity, checks, people, backLabel = 'Back', onBa
     } else setNote(`Uploaded ${res.record.file_name}.`);
   }
   async function openDoc(d) { if (!(await openEntityDoc(d))) setErr("Couldn't open it. Check your connection and try again."); }
-  async function removeDoc(d) {
-    if (!window.confirm(`Delete ${d.file_name}? It can't be undone.`)) return;
-    if (await deleteEntityDoc(d)) setDocs(prev => prev.filter(x => x.id !== d.id));
-    else setErr("Couldn't delete it. Check your connection and try again.");
+  function removeDoc(d) {
+    return confirmDelete({
+      title: `Delete ${d.file_name}?`, undoText: `Deleted ${d.file_name}`, item: d, setList: setDocs, sort: newestFirst,
+      commit: () => deleteEntityDoc(d), failText: `Couldn't delete ${d.file_name}. Check your connection and try again. It's been put back.`,
+    });
   }
 
   async function saveFlag(reason) {
@@ -140,7 +142,7 @@ export function EntityProfile({ entity, checks, people, backLabel = 'Back', onBa
     setNote(res.record.archived_at ? 'Archived. It stays under Archived in the list.' : 'Brought back from the archive.');
   }
   async function remove() {
-    if (!window.confirm(`Delete ${entity.name} for good, with its checklist, documents and notes? This can't be undone. (Archive keeps it instead.)`)) return;
+    if (!(await askConfirm({ title: `Delete ${entity.name} for good?`, body: "Its checklist, documents and notes are deleted too, and this can't be undone.\n\nArchive keeps it instead.", confirmLabel: 'Delete for good', danger: true }))) return;
     if (await deleteEntity(entity.id)) onDeleted();
     else setErr("Couldn't delete it. Check your connection and try again.");
   }

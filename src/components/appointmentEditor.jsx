@@ -8,11 +8,11 @@
 //   and the details; how it went stays theirs).
 import { useEffect, useState } from 'react';
 import { Pencil, Video, X } from 'lucide-react';
-import { deleteAppointmentRow, loggedSummary, persistFollowUp } from '../data/appointments.js';
+import { loggedSummary, persistFollowUp } from '../data/appointments.js';
 import { fetchHierarchyPeopleShared } from '../data/team.js';
 import { durationLabel, fmtApptDateTime, todayStr, weekStartOf } from '../lib/dates.js';
 import { AppointmentForm, saveAppointmentChanges } from '../screens/Appointments.jsx';
-import { appointmentEdited } from './appointmentPanel.jsx';
+import { appointmentEdited, deleteAppointmentWithUndo } from './appointmentPanel.jsx';
 import { appointmentTexts, CallButton, TextButton } from './contact.jsx';
 import { FollowUpModal } from './followUpModal.jsx';
 import { Modal, StatusChip, TypeBadge, useIsPhone } from './ui.jsx';
@@ -53,14 +53,7 @@ export function AppointmentEditorBody({ user, appointment, onClose, onDone, onTo
     onDone(res.notice || { kind: 'ok', text: `Saved: ${res.record.client}, ${fmtApptDateTime(res.record)}.` });
   }
   async function remove() {
-    if (!window.confirm(`Delete the appointment with ${appointment.client}? This can't be undone.`)) return;
-    setSaving(true);
-    setSaveError('');
-    const ok = await deleteAppointmentRow(appointment.id);
-    setSaving(false);
-    if (!ok) { setSaveError("Couldn't delete it. Check your connection and try again."); return; }
-    appointmentEdited({ deletedId: appointment.id });
-    onDone({ kind: 'ok', text: `Deleted the appointment with ${appointment.client}.` });
+    if (await deleteAppointmentWithUndo(appointment)) onDone(null);
   }
   async function saveOutcome(id, data) {
     setSaving(true);

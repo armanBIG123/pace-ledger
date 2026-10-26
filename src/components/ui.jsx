@@ -157,7 +157,8 @@ export function Sheet({ labelledBy, onClose, children }) {
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
-    const onKey = e => { if (e.key === 'Escape') closeRef.current(); };
+    // A window open over the sheet (a confirm box) takes Escape first.
+    const onKey = e => { if (e.key === 'Escape' && !document.querySelector('.tr-modal-backdrop')) closeRef.current(); };
     window.addEventListener('keydown', onKey);
     return () => { document.body.style.overflow = prev; window.removeEventListener('keydown', onKey); };
   }, []);

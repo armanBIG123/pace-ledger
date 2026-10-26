@@ -15,6 +15,11 @@ import { createLeaderInvite, moveToSystem } from '../../data/solarSystems.js';
 import { isGalaxyAdmin, roleLabel } from '../../lib/roles.js';
 import { useSystemTabs } from '../../lib/systemScope.js';
 import { SystemTabs } from '../../components/systemTabs.jsx';
+import { NoMatches, PeopleToolbar, SortHeader, usePeopleRows, useSort } from '../../components/peopleList.jsx';
+
+const ROLE_RANK = { super_admin: 0, super_manager: 1, manager: 2, advisor: 3 };
+const tierRank = key => { const i = HIERARCHY_TIERS.findIndex(t => t.key === key); return i < 0 ? -1 : i; };
+import { askConfirm } from '../../components/confirm.jsx';
 
 export function ManageUsersView({ user = null, currentUserId, currentUserName }) {
   const galaxy = isGalaxyAdmin(user);
@@ -27,6 +32,15 @@ export function ManageUsersView({ user = null, currentUserId, currentUserName })
   const [savingId, setSavingId] = useState(null);
   const [movingId, setMovingId] = useState(null);
   const [error, setError] = useState('');
+  const nameById = id => (users.find(x => x.id === id) || {}).display_name || '';
+  const sorter = useSort('manage', {
+    name: { label: 'Name', value: u => u.display_name, dir: 'asc' },
+    role: { label: 'Role', value: u => ROLE_RANK[u.role] ?? 9, dir: 'asc', options: [['asc', 'Role: admins first'], ['desc', 'Role: advisors first']] },
+    reportsTo: { label: 'Reports to', value: u => nameById(u.manager_id) || '~', dir: 'asc', options: [['asc', 'Reports to: A–Z'], ['desc', 'Reports to: Z–A']] },
+    tier: { label: 'Tier', value: u => tierRank(u.hierarchy_tier), dir: 'desc', options: [['desc', 'Tier: highest first'], ['asc', 'Tier: lowest first']] },
+    joined: { label: 'Joined', value: u => u.created_at || '', dir: 'desc', options: [['desc', 'Newest first'], ['asc', 'Oldest first']] },
+  });
+  const view = usePeopleRows(users, { sorter });
 
   // Super admins: only the solar system whose tab is open.
   const refresh = useCallback(async () => {
@@ -128,10 +142,11 @@ export function ManageUsersView({ user = null, currentUserId, currentUserName })
     const team = computeDownline(id, users).filter(p => p.id !== id).length;
     const to = systems.find(x => x.id === systemId);
     if (!target || !to) return;
-    const ok = window.confirm(
-      `Move ${target.display_name}${team ? ` and the ${team} ${team === 1 ? 'person' : 'people'} under them` : ''} to ${to.name}?\n\n` +
-      `They'll only see ${to.name} from now on, and ${target.display_name} will report to nobody until you pick someone in ${to.name}.`
-    );
+    const ok = await askConfirm({
+      title: `Move ${target.display_name}${team ? ` and the ${team} ${team === 1 ? 'person' : 'people'} under them` : ''} to ${to.name}?`,
+      body: `They'll only see ${to.name} from now on, and ${target.display_name} will report to nobody until you pick someone in ${to.name}.`,
+      confirmLabel: `Move to ${to.short_name || to.name}`,
+    });
     if (!ok) return;
     setSavingId(id);
     setError('');
@@ -151,11 +166,13 @@ export function ManageUsersView({ user = null, currentUserId, currentUserName })
     const target = users.find(u => u.id === id);
     const upline = target && target.manager_id ? users.find(u => u.id === target.manager_id) : null;
     const reports = users.filter(u => u.manager_id === id).length;
-    const ok = window.confirm(
-      `Permanently delete ${name}'s account?\n\n` +
-      `Their login, appointments, prospects, notes and Business Plan are deleted, and this can't be undone.` +
-      (reports ? `\n\nThe ${reports} ${reports === 1 ? 'person' : 'people'} who report to them will move up to report to ${upline ? upline.display_name : 'nobody (top level)'}.` : '')
-    );
+    const ok = await askConfirm({
+      title: `Permanently delete ${name}'s account?`,
+      body: "Their login, appointments, prospects, notes and Business Plan are deleted, and this can't be undone."
+        + (reports ? `\n\nThe ${reports} ${reports === 1 ? 'person' : 'people'} who report to them will move up to report to ${upline ? upline.display_name : 'nobody (top level)'}.` : ''),
+      confirmLabel: 'Delete account',
+      danger: true,
+    });
     if (!ok) return;
     setSavingId(id);
     setError('');
@@ -176,16 +193,24 @@ export function ManageUsersView({ user = null, currentUserId, currentUserName })
     </div>
     <SystemTabs tabs={tabs} />
     {tabs.other && tabSystem ? <LeaderInviteCard key={`invite-${tabSystem.id}`} user={user} system={tabSystem} hasLeader={users.some(u => u.role === 'super_manager')} /> : null}
+    {!loading && users.length > 0 ? <PeopleToolbar total={view.total} matched={view.matched} sorter={sorter} placeholder="Find someone by name or email…" /> : null}
     <div className="tr-card tr-summary-card">
       {error && <div className="tr-error" style={{ margin: 16 }}>{error}</div>}
       {loading ? <SkeletonTable rows={6} cols={5} /> : users.length === 0 ? (
         <p className="tr-empty" style={{ margin: 16 }}>No one in {tabSystem ? tabSystem.name : 'the team'} yet.{tabs.other ? ' Invite its Super Manager to start.' : ''}</p>
-      ) : (
+      ) : view.matched === 0 ? <NoMatches /> : (
         <div className="tr-table-wrap">
           <table className="tr-table tr-table-summary tr-table-stack tr-manage-table">
-            <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Reports To</th><th>Tier</th><th></th></tr></thead>
+            <thead><tr>
+              <SortHeader label="Name" sortKey="name" sorter={sorter} />
+              <th>Email</th>
+              <SortHeader label="Role" sortKey="role" sorter={sorter} />
+              <SortHeader label="Reports To" sortKey="reportsTo" sorter={sorter} />
+              <SortHeader label="Tier" sortKey="tier" sorter={sorter} />
+              <th><span className="tr-sr-only">Actions</span></th>
+            </tr></thead>
             <tbody>
-              {users.map(u => (
+              {view.shown.map(u => (
                 <tr key={u.id}>
                   <td className="tr-mt-name">
                     {u.display_name}{u.id === currentUserId ? ' (you)' : ''}

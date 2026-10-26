@@ -4,6 +4,7 @@ import { Download, FileText, Pencil, Plus, Trash2 } from 'lucide-react';
 import { addImportantLink, deleteDocument, deleteImportantLink, fetchDocuments, fetchImportantLinks, formatFileSize, getDocumentDownloadUrl, updateDocumentTitle, updateImportantLink, uploadDocument } from '../documents.js';
 import { SkeletonCards } from '../components/ui.jsx';
 import { isAdmin } from '../lib/roles.js';
+import { confirmDelete, newestFirst } from '../components/confirm.jsx';
 
 // ---------------------------------------------------------------------
 // documents — shared PDF library, open to everyone; upload/delete is
@@ -49,12 +50,14 @@ export function ImportantLinksSection({ user }) {
     setLinks(prev => [...prev, res.record]);
     setNewTitle(''); setNewUrl(''); setShowAdd(false);
   }
-  async function handleDelete(link) {
-    if (!window.confirm(`Remove "${link.title}"?`)) return;
-    const prev = links;
-    setLinks(links.filter(l => l.id !== link.id));
-    const ok = await deleteImportantLink(link.id);
-    if (!ok) setLinks(prev);
+  function handleDelete(link) {
+    // Undo puts it back where it was.
+    const rank = l => { const i = links.findIndex(x => x.id === l.id); return i < 0 ? links.length : i; };
+    return confirmDelete({
+      title: `Remove the "${link.title}" link?`, body: 'It comes off Resources for everyone.', confirmLabel: 'Remove', undoText: 'Link removed',
+      item: link, setList: setLinks, sort: (a, b) => rank(a) - rank(b),
+      commit: () => deleteImportantLink(link.id),
+    });
   }
   function startEdit(link) {
     setEditingId(link.id);
@@ -184,12 +187,11 @@ export function DocumentsBody({ user }) {
     setDocuments(prev => [res.record, ...prev]);
     setTitle(''); setFile(null); setShowUpload(false);
   }
-  async function handleDelete(doc) {
-    if (!window.confirm(`Delete "${doc.title}"? This can't be undone.`)) return;
-    const prev = documents;
-    setDocuments(documents.filter(d => d.id !== doc.id));
-    const ok = await deleteDocument(doc.id, doc.file_path);
-    if (!ok) setDocuments(prev);
+  function handleDelete(doc) {
+    return confirmDelete({
+      title: `Delete "${doc.title}"?`, body: 'The file comes off Resources for everyone.', undoText: 'Document deleted',
+      item: doc, setList: setDocuments, sort: newestFirst, commit: () => deleteDocument(doc.id, doc.file_path),
+    });
   }
   async function handleDownload(doc) {
     setDownloadingId(doc.id);

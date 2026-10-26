@@ -1,6 +1,6 @@
 // The top bar and the Your account sheet.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { LogOut, Plus, ShieldCheck, UserPlus, X } from 'lucide-react';
+import { CalendarClock, CalendarDays, ChevronDown, LifeBuoy, LogOut, Plus, ShieldCheck, UserPlus, UserRound, X } from 'lucide-react';
 import { createInvite } from '../invites.js';
 import { fetchMyOnboarding, onboardingDay, setOnboardingVisibility, shouldShowOnboarding } from '../onboarding.js';
 import { isNativeApp, PUBLIC_SITE_URL } from '../native.js';
@@ -11,6 +11,8 @@ import { avatarUrl, removeAllMyAvatarFiles } from '../data/avatars.js';
 import { InviteShare } from './invites.jsx';
 import { ProfilePhoto } from './profilePhoto.jsx';
 import { isGalaxyAdmin, roleLabel } from '../lib/roles.js';
+import { askConfirm } from './confirm.jsx';
+import { ConnectionsSheet, presentsForTeam } from './connections.jsx';
 
 // True when the top bar's row is wider than the screen (only with very
 // large phone text): then the PaceLedger wordmark steps aside (the shield
@@ -46,14 +48,18 @@ function useHeaderFits(ref) {
 // phone, + New lives in the bottom bar instead).
 export function Header({ user, nav, search, onNew, chat }) {
   const [accountOpen, setAccountOpen] = useState(false);
+  const [connOpen, setConnOpen] = useState(false);
   const [focusName, setFocusName] = useState(false);
   const rowRef = useRef(null);
   const tight = useHeaderFits(rowRef);
-  // Other screens can open Your account (e.g. Today's "Add your last name").
+  // Other screens can open Your account (e.g. Today's "Add your last name"),
+  // and Calendar & Zoom.
   useEffect(() => {
     const open = e => { setFocusName(!!(e.detail && e.detail.focus === 'name')); setAccountOpen(true); };
+    const conn = () => setConnOpen(true);
     window.addEventListener('paceledger:open-account', open);
-    return () => window.removeEventListener('paceledger:open-account', open);
+    window.addEventListener('paceledger:open-connections', conn);
+    return () => { window.removeEventListener('paceledger:open-account', open); window.removeEventListener('paceledger:open-connections', conn); };
   }, []);
   return (
     <>
@@ -64,20 +70,86 @@ export function Header({ user, nav, search, onNew, chat }) {
         <div className="tr-header-user">
           {chat || null}
           {onNew ? <button type="button" className="tr-btn tr-btn-brass tr-btn-sm tr-header-new" onClick={onNew} aria-haspopup="menu"><Plus size={15} /> New</button> : null}
-          <button type="button" className="tr-header-account" onClick={() => { setFocusName(false); setAccountOpen(true); }} title="Your account and profile">
-            {user.avatarPath ? <img className="tr-header-avatar" src={avatarUrl(user.avatarPath)} alt="" aria-hidden="true" /> : null}
-            <span className="tr-header-name">{user.displayName}</span>
-            <span className="tr-header-firstname">{(user.displayName || '').trim().split(/\s+/)[0]}</span>
-            <span className="tr-header-role">{roleLabel(user.role)}</span>
-          </button>
-          <button className="tr-icon-btn" onClick={signOut} title="Log out" aria-label="Log out"><LogOut size={16} /></button>
+          <AccountMenu user={user}
+            onProfile={() => { setFocusName(false); setAccountOpen(true); }}
+            onConnections={() => setConnOpen(true)} />
         </div>
       </div>
       {nav ? <div className="tr-header-nav">{nav}</div> : null}
     </header>
     {/* Outside the header so header styles and stacking don't apply to it. */}
-    {accountOpen && <AccountSheet user={user} focusName={focusName} onClose={() => setAccountOpen(false)} />}
+    {accountOpen && <AccountSheet user={user} focusName={focusName} onClose={() => setAccountOpen(false)} onConnections={() => { setAccountOpen(false); setConnOpen(true); }} />}
+    {connOpen && <ConnectionsSheet user={user} onClose={() => setConnOpen(false)} onEditHours={() => window.dispatchEvent(new Event('paceledger:edit-presenting-hours'))} />}
     </>
+  );
+}
+
+const initialsOf = name => String(name || '?').trim().split(/\s+/).slice(0, 2).map(w => w[0] || '').join('').toUpperCase();
+
+// Your name in the top bar opens this menu: your profile, Calendar & Zoom,
+// presenting hours, help, and Sign out (which used to be an icon right next
+// to Chat, one slip away).
+function AccountMenu({ user, onProfile, onConnections }) {
+  const [open, setOpen] = useState(false);
+  const wrap = useRef(null);
+  const button = useRef(null);
+  const items = useRef([]);
+  const first = (user.displayName || '').trim().split(/\s+/)[0];
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = e => { if (wrap.current && !wrap.current.contains(e.target)) setOpen(false); };
+    const key = e => {
+      if (e.key === 'Escape') { e.preventDefault(); setOpen(false); if (button.current) button.current.focus(); return; }
+      const list = items.current.filter(Boolean);
+      const i = list.indexOf(document.activeElement);
+      if (e.key === 'ArrowDown') { e.preventDefault(); (list[(i + 1) % list.length] || list[0]).focus(); }
+      if (e.key === 'ArrowUp') { e.preventDefault(); (list[(i - 1 + list.length) % list.length] || list[list.length - 1]).focus(); }
+      if (e.key === 'Home') { e.preventDefault(); list[0] && list[0].focus(); }
+      if (e.key === 'End') { e.preventDefault(); list[list.length - 1] && list[list.length - 1].focus(); }
+      if (e.key === 'Tab') setOpen(false);
+    };
+    document.addEventListener('pointerdown', away);
+    document.addEventListener('keydown', key);
+    // The first item has the focus, for the keyboard.
+    const t = setTimeout(() => { const f = items.current.filter(Boolean)[0]; if (f) f.focus({ preventScroll: true }); }, 0);
+    return () => { document.removeEventListener('pointerdown', away); document.removeEventListener('keydown', key); clearTimeout(t); };
+  }, [open]);
+  items.current = [];
+  const item = (label, Icon, onClick, extra = {}) => (
+    <button type="button" role="menuitem" className={`tr-acct-item ${extra.danger ? 'tr-acct-item-danger' : ''}`} ref={el => items.current.push(el)}
+      onClick={() => { setOpen(false); onClick(); }}>
+      <Icon size={16} aria-hidden="true" /><span>{label}</span>
+    </button>
+  );
+  return (
+    <div className="tr-acct" ref={wrap}>
+      <button ref={button} type="button" className="tr-header-account" aria-haspopup="menu" aria-expanded={open} aria-controls="tr-acct-menu"
+        onClick={() => setOpen(v => !v)} title="Your account">
+        {user.avatarPath
+          ? <img className="tr-header-avatar" src={avatarUrl(user.avatarPath)} alt="" aria-hidden="true" />
+          : <span className="tr-header-initials" aria-hidden="true">{initialsOf(user.displayName)}</span>}
+        <span className="tr-header-name">{user.displayName}</span>
+        <span className="tr-header-firstname">{first}</span>
+        <span className="tr-header-role">{roleLabel(user.role)}</span>
+        <ChevronDown size={14} className="tr-acct-chev" aria-hidden="true" />
+      </button>
+      {open ? (
+        <div className="tr-acct-menu" id="tr-acct-menu" role="menu" aria-label="Your account">
+          <div className="tr-acct-who">
+            <strong>{user.displayName}</strong>
+            <span>{user.email}{user.email ? ' · ' : ''}{roleLabel(user.role)}</span>
+          </div>
+          {item('My profile', UserRound, onProfile)}
+          {item('Calendar & Zoom', CalendarDays, onConnections)}
+          {presentsForTeam(user) ? item('Presenting hours', CalendarClock, () => window.dispatchEvent(new Event('paceledger:edit-presenting-hours'))) : null}
+          <a role="menuitem" className="tr-acct-item" ref={el => items.current.push(el)} href={`${PUBLIC_SITE_URL}/support.html`} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>
+            <LifeBuoy size={16} aria-hidden="true" /><span>Help &amp; support</span>
+          </a>
+          <div className="tr-acct-sep" role="separator" />
+          {item('Sign out', LogOut, signOut, { danger: true })}
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -167,7 +239,7 @@ function ZoomAccountRow() {
   useEffect(() => { load(); }, []);
   if (!st) return null;
   async function disconnect() {
-    if (!window.confirm("Disconnect Zoom? New appointments won't get their own meeting link.")) return;
+    if (!(await askConfirm({ title: 'Disconnect Zoom?', body: "New appointments won't get their own meeting link until you connect it again.", confirmLabel: 'Disconnect', danger: true }))) return;
     setBusy(true);
     if (await disconnectZoom()) setSt({ connected: false });
     setBusy(false);
@@ -260,7 +332,7 @@ export function ProfileForm({ user, focusName }) {
   );
 }
 
-export function AccountSheet({ user, focusName = false, onClose }) {
+export function AccountSheet({ user, focusName = false, onClose, onConnections = null }) {
   const [step, setStep] = useState('view'); // 'view' | 'confirm'
   const [typed, setTyped] = useState('');
   const [busy, setBusy] = useState(false);
@@ -298,9 +370,17 @@ export function AccountSheet({ user, focusName = false, onClose }) {
           <a href={`${PUBLIC_SITE_URL}/support.html`} target="_blank" rel="noopener noreferrer">Support</a>
         </div>
         <OnboardingToggle user={user} />
-        <ZoomAccountRow />
+        {onConnections ? (
+          <div className="tr-account-toggle">
+            <div>
+              <div className="tr-account-toggle-title">Calendar &amp; Zoom</div>
+              <div className="tr-account-toggle-sub">Google Calendar, Zoom{presentsForTeam(user) ? ' and your presenting hours' : ''}.</div>
+            </div>
+            <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onConnections}>Open</button>
+          </div>
+        ) : <ZoomAccountRow />}
         <InviteSomeone user={user} />
-        <button type="button" className="tr-btn tr-btn-ghost tr-btn-block" onClick={signOut}><LogOut size={15} /> Log out</button>
+        <button type="button" className="tr-btn tr-btn-ghost tr-btn-block" onClick={signOut}><LogOut size={15} /> Sign out</button>
 
         <div className="tr-account-danger">
           {step === 'view' ? (

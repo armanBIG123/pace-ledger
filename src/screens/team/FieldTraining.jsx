@@ -10,6 +10,8 @@ import { fetchUpcomingAppointments, setAppointmentTrainee } from '../../data/rec
 import { EmailButton } from '../../components/email.jsx';
 import { MoreMenu, RefreshButton, SkeletonTable, TitleInfo, TypeBadge } from '../../components/ui.jsx';
 import { useAppointmentEdits, openAppointment } from '../../components/appointmentPanel.jsx';
+import { askConfirm } from '../../components/confirm.jsx';
+import { PeopleToolbar, personMatches, usePeopleSearch } from '../../components/peopleList.jsx';
 
 const SEATS_SHOWN = 8;
 const first = name => (name || '').trim().split(/\s+/)[0] || 'there';
@@ -29,6 +31,7 @@ export function FieldTrainingSubView({ user, members, loadingMembers, emptyMessa
   const [busyId, setBusyId] = useState(null);
   const [notice, setNotice] = useState(null);
   const [allSeats, setAllSeats] = useState(false);
+  const [q] = usePeopleSearch();
 
   const refresh = useCallback(async () => {
     if (!members.length) { setData({ needers: [], seats: [], booked: [], byId: new Map() }); return; }
@@ -56,7 +59,7 @@ export function FieldTrainingSubView({ user, members, loadingMembers, emptyMessa
   }
   async function remove(appt) {
     const name = (data.byId.get(appt.traineeId) || {}).display_name || appt.trainee || 'the trainee';
-    if (!window.confirm(`Take ${name} off this appointment (${fmtApptDateTime(appt)})?`)) return;
+    if (!(await askConfirm({ title: `Take ${name} off this appointment?`, body: fmtApptDateTime(appt), confirmLabel: 'Take them off' }))) return;
     setBusyId(appt.id); setNotice(null);
     const res = await setAppointmentTrainee(appt.id, null);
     setBusyId(null);
@@ -67,8 +70,15 @@ export function FieldTrainingSubView({ user, members, loadingMembers, emptyMessa
   if (loadingMembers || data === null) return <SkeletonTable rows={6} cols={4} />;
   if (members.length === 0) return <div className="tr-card"><p className="tr-empty">{emptyMessage}</p></div>;
 
-  const { needers, seats, booked, byId } = data;
+  const { needers: allNeeders, seats: allSeatList, booked: allBooked, byId } = data;
   const nameOf = id => (byId.get(id) || {}).display_name || '';
+  // The search: people who need observation sales, open seats they (or the
+  // presenter) match, and field trainings booked for them.
+  const hit = p => personMatches(p || {}, q);
+  const searching = !!q.trim();
+  const needers = allNeeders.filter(n => hit(n.person));
+  const seats = searching ? allSeatList.filter(({ appt, eligible }) => eligible.some(hit) || hit({ display_name: appt.presenter || nameOf(appt.presenterId) })) : allSeatList;
+  const booked = searching ? allBooked.filter(a => hit(byId.get(a.traineeId) || { display_name: a.trainee }) || hit({ display_name: a.presenter || nameOf(a.presenterId) })) : allBooked;
   const nothingBooked = needers.filter(n => !n.booked.length).length;
   const me = user.displayName || '';
 
@@ -80,6 +90,7 @@ export function FieldTrainingSubView({ user, members, loadingMembers, emptyMessa
         <RefreshButton onClick={refresh} />
       </div>
       {notice && <div className={notice.kind === 'ok' ? 'tr-flash' : 'tr-error'} style={{ marginBottom: 12 }}>{notice.text}</div>}
+      <PeopleToolbar total={allNeeders.length} matched={needers.length} />
       <div className="tr-org-stats">
         <span><strong>{needers.length}</strong> need observation sales</span>
         {nothingBooked > 0 && <span className="tr-lic-stat-warn"><strong>{nothingBooked}</strong> with nothing booked this week</span>}

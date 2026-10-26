@@ -17,6 +17,7 @@ import { RecruitSignupSection } from '../components/invites.jsx';
 import { FollowUpModal } from '../components/followUpModal.jsx';
 import { LogAllSheet } from '../components/logAll.jsx';
 import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../components/appointmentPanel.jsx';
+import { askConfirm, confirmDelete, newestFirst } from '../components/confirm.jsx';
 
 // One-tap note starters, so logging a touch takes a second.
 export const QUICK_NOTE_TAGS = ['Called', 'Left voicemail', 'Texted', 'Emailed', 'Met in person', 'No answer'];
@@ -220,9 +221,8 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
     setNotes(prev => [res.record, ...prev]);
     if (!preset) setNoteDrafts(prev => ({ ...prev, [a.id]: '' }));
   }
-  async function handleDeleteNote(n) {
-    if (!window.confirm('Delete this note?')) return;
-    if (await deleteFollowUpNote(n.id)) setNotes(prev => prev.filter(x => x.id !== n.id));
+  function handleDeleteNote(n) {
+    return confirmDelete({ title: 'Delete this note?', body: n.note || '', undoText: 'Note deleted', item: n, setList: setNotes, sort: newestFirst, commit: () => deleteFollowUpNote(n.id) });
   }
   // Opens the send window (text, email or copy the link). The card stays
   // in this list until you switch lists, even once it's no longer
@@ -232,7 +232,7 @@ export function FollowUpBody({ user, onScheduleNext, initialIntent, onIntentCons
     openIntakeSend({ appointment: a, candidate: cand });
   }
   async function handleRemoveIntake(a, candidate) {
-    if (!window.confirm(`Remove ${a.client}'s intake? Their link will stop working and any answers are deleted.`)) return;
+    if (!(await askConfirm({ title: `Remove ${a.client}'s intake form?`, body: 'Their link stops working, and any answers they gave are deleted.', confirmLabel: 'Remove', danger: true }))) return;
     if (await deleteClientIntakeCandidate(candidate.id)) {
       await setAppointmentIntakeRequested(a.id, false);
       setCandidates(prev => prev.filter(c => c.id !== candidate.id));

@@ -8,6 +8,7 @@ import { ENTITY_PHASES, STALLED_DAYS, stateName, US_STATES } from '../../lib/pro
 import { isValidEmail } from '../../lib/format.js';
 import { isValidPhone } from '../../lib/phone.js';
 import { todayStr } from '../../lib/dates.js';
+import { confirmDelete, newestFirst } from '../../components/confirm.jsx';
 
 export const shortDate = d => (d ? new Date(`${String(d).slice(0, 10)}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '');
 export const stampDate = iso => (iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '');
@@ -129,9 +130,8 @@ export function NotesCard({ subject }) {
     setNotes(prev => [res.record, ...(prev || [])]);
     setDraft('');
   }
-  async function remove(n) {
-    if (!window.confirm('Delete this note?')) return;
-    if (await deleteProfileNote(n.id)) setNotes(prev => prev.filter(x => x.id !== n.id));
+  function remove(n) {
+    return confirmDelete({ title: 'Delete this note?', body: n.body || '', undoText: 'Note deleted', item: n, setList: setNotes, sort: newestFirst, commit: () => deleteProfileNote(n.id) });
   }
   return (
     <section className="tr-card tr-pf-box" aria-labelledby={`tr-pf-notes-${key}`}>

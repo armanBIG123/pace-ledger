@@ -1,17 +1,18 @@
 // Calendar: month and list views, trainings and manager availability.
 import { useCallback, useEffect, useState } from 'react';
-import { Ban, CalendarClock, CalendarDays, ChevronLeft, ChevronRight, GraduationCap, Plus, Trash2, Video, X } from 'lucide-react';
-import { isNativeApp, openInBrowserSheet, PUBLIC_SITE_URL } from '../native.js';
+import { Ban, CalendarClock, CalendarDays, ChevronLeft, ChevronRight, GraduationCap, Plus, Settings, Trash2, Video, X } from 'lucide-react';
+import { isNativeApp } from '../native.js';
 import { createScheduleBlock, deleteScheduleBlock, deleteScheduleBlockSeries, fetchScheduleBlocksInRange } from '../schedule.js';
 import { addDays, addMinutesToTime, apptEndClock, apptLocalDate, apptLocalTimeKey, buildMonthGrid, detectTimezone, durationLabel, fmtApptDateTime, fmtDate, fmtDisplayDate, fmtTime, minutesBetweenTimes, monthStartOf, parseDate, shiftMonth, timezoneOptionsWithDetected, todayStr, trainingEndClock, trainingLocalDate, trainingLocalTimeKey } from '../lib/dates.js';
 import { fetchAppointmentsInRange, isRecruitType, isSaleType, typeLabel } from '../data/appointments.js';
 import { createTraining, deleteTraining, deleteTrainingSeries, fetchTrainingsInRange } from '../data/trainings.js';
 import { fetchTeamMembers, seesTeam } from '../data/team.js';
-import { connectGoogleCalendar, disconnectGoogleCalendar, fetchGoogleConnectionStatus, fetchGoogleEvents, googleEventTimeKey } from '../data/integrations.js';
+import { fetchGoogleConnectionStatus, fetchGoogleEvents, googleEventTimeKey } from '../data/integrations.js';
 import { Modal, openPicker, PageHead, RefreshButton, SkeletonCalendar, useIsPhone } from '../components/ui.jsx';
 import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../components/appointmentPanel.jsx';
-import { GoogleCalendarConnect } from '../components/integrations.jsx';
 import { isAdmin } from '../lib/roles.js';
+import { askChoice, askConfirm, undoable } from '../components/confirm.jsx';
+import { ConnectionsSheet, startGoogleConnect } from '../components/connections.jsx';
 import { PresentingHoursCard } from '../components/presentingHours.jsx';
 import { fetchMyPresentingHours } from '../data/availability.js';
 
@@ -297,7 +298,7 @@ function CalendarItemInfo({ item, user, onClose, onDelete }) {
   );
 }
 
-export function CalendarBody({ user, onLogAppointment }) {
+export function CalendarBody({ user, onLogAppointment, intent = null, onIntentConsumed }) {
   const isPhone = useIsPhone();
   const [monthStartStr, setMonthStartStr] = useState(monthStartOf(todayStr()));
   // The month grid gets cramped on a phone, so phones start on the list.
@@ -324,14 +325,27 @@ export function CalendarBody({ user, onLogAppointment }) {
   const [hoursSet, setHoursSet] = useState(null); // null: not known yet
   const [hoursNote, setHoursNote] = useState('');
   const [nudgeHidden, setNudgeHidden] = useState(() => { try { return localStorage.getItem(`pl-hours-nudge-${user.id}`) === 'hidden'; } catch { return false; } });
-  useEffect(() => {
+  const [googleHintHidden, setGoogleHintHidden] = useState(() => { try { return localStorage.getItem(`pl-google-hint-${user.id}`) === 'hidden'; } catch { return false; } });
+  // Calendar settings: Google Calendar, Zoom and presenting hours.
+  const [connOpen, setConnOpen] = useState(false);
+  const checkHours = useCallback(() => {
     if (!presents) return;
     fetchMyPresentingHours(user.id).then(r => setHoursSet(r.unavailable || r.error ? null : r.saved && r.hours.length > 0));
   }, [user.id, presents]);
+  useEffect(() => { checkHours(); }, [checkHours]);
   function hideNudge() {
     setNudgeHidden(true);
     try { localStorage.setItem(`pl-hours-nudge-${user.id}`, 'hidden'); } catch { /* private window */ }
   }
+  function hideGoogleHint() {
+    setGoogleHintHidden(true);
+    try { localStorage.setItem(`pl-google-hint-${user.id}`, 'hidden'); } catch { /* private window */ }
+  }
+  // Opened from the account menu's "Presenting hours".
+  useEffect(() => {
+    if (intent === 'hours' && presents) { setHoursNote(''); setPosting('hours'); }
+    if (intent && onIntentConsumed) onIntentConsumed();
+  }, [intent]); // eslint-disable-line react-hooks/exhaustive-deps
   // 'all' | 'mine' | a specific person's userId — only meaningful for
   // managers/admins, who see more than just their own appointments here.
   const [personFilter, setPersonFilter] = useState('all');
@@ -371,57 +385,65 @@ export function CalendarBody({ user, onLogAppointment }) {
     else setAppts(prev => applyAppointmentEdit(prev, change));
   });
   function openAppt(a) { setDayModal(null); openAppointment(a); }
-  // Re-check once a Google connection finishes in the background.
+  // Re-check once a Google connection finishes in the background, or
+  // Google or Zoom is connected or disconnected in Calendar settings.
   useEffect(() => {
     window.addEventListener('paceledger:google-connected', refresh);
-    return () => window.removeEventListener('paceledger:google-connected', refresh);
+    window.addEventListener('paceledger:connections-changed', refresh);
+    return () => {
+      window.removeEventListener('paceledger:google-connected', refresh);
+      window.removeEventListener('paceledger:connections-changed', refresh);
+    };
   }, [refresh]);
 
   async function handleConnect() {
-    if (isNativeApp()) {
-      // Google doesn't allow its sign-in inside an app's web view, so the
-      // connection is made on the website in a Safari sheet.
-      await openInBrowserSheet(`${PUBLIC_SITE_URL}/?connect=google&for=${encodeURIComponent(user.id)}`, () => refresh());
-      return;
-    }
-    setGoogleConnecting(true);
-    await connectGoogleCalendar();
+    if (!isNativeApp()) setGoogleConnecting(true);
+    await startGoogleConnect(user, refresh);
   }
-  async function handleDisconnect() {
-    const ok = await disconnectGoogleCalendar();
-    if (ok) { setGoogleStatus({ connected: false }); setGoogleEvents([]); }
-  }
-  async function handleDeleteTraining(training) {
-    if (training.recurring_group_id) {
-      const deleteAll = window.confirm(
-        "This is part of a weekly series.\n\nOK = delete this and all future occurrences\nCancel = just this one date"
-      );
-      if (deleteAll) {
-        const ok = await deleteTrainingSeries(training.recurring_group_id, training.training_date);
-        if (ok) setTrainings(prev => prev.filter(t => !(t.recurring_group_id === training.recurring_group_id && t.training_date >= training.training_date)));
-        return ok;
-      }
+  // Removing a training or a blocked-out time: one date or, for a weekly
+  // series, this date and every later one. It disappears right away with
+  // Undo; the database delete happens a few seconds later.
+  async function removeFromCalendar({ item, dateOf, setList, title, deleteOne, deleteSeries, noun }) {
+    const day = fmtDisplayDate(dateOf(item));
+    let scope = 'one';
+    if (item.recurring_group_id) {
+      scope = await askChoice({
+        title,
+        body: 'It repeats every week.',
+        choices: [
+          { value: 'one', label: `Just ${day}`, sub: 'The other weeks stay.', danger: true },
+          { value: 'series', label: `${day} and every week after`, sub: 'Earlier weeks stay as history.', danger: true },
+        ],
+      });
+      if (!scope) return false;
+    } else if (!(await askConfirm({ title, body: day, confirmLabel: 'Remove', danger: true }))) {
+      return false;
     }
-    if (!window.confirm('Remove this training for everyone? This can\'t be undone.')) return false;
-    const ok = await deleteTraining(training.id);
-    if (ok) setTrainings(prev => prev.filter(t => t.id !== training.id));
-    return ok;
+    const gone = scope === 'series'
+      ? x => x.recurring_group_id === item.recurring_group_id && dateOf(x) >= dateOf(item)
+      : x => x.id === item.id;
+    let removed = [];
+    undoable({
+      text: scope === 'series' ? `${noun} removed from ${day} on` : `${noun} removed`,
+      apply: () => setList(prev => { removed = prev.filter(gone); return prev.filter(x => !gone(x)); }),
+      revert: () => setList(prev => [...prev.filter(x => !removed.some(r => r.id === x.id)), ...removed]),
+      commit: () => (scope === 'series' ? deleteSeries(item.recurring_group_id, dateOf(item)) : deleteOne(item.id)),
+      failText: `Couldn't remove the ${noun.toLowerCase()}. Check your connection and try again. It's been put back.`,
+    });
+    return true;
   }
-  async function handleDeleteScheduleBlock(block) {
-    if (block.recurring_group_id) {
-      const deleteAll = window.confirm(
-        "This is part of a weekly series.\n\nOK = delete this and all future occurrences\nCancel = just this one date"
-      );
-      if (deleteAll) {
-        const ok = await deleteScheduleBlockSeries(block.recurring_group_id, block.block_date);
-        if (ok) setScheduleBlocks(prev => prev.filter(b => !(b.recurring_group_id === block.recurring_group_id && b.block_date >= block.block_date)));
-        return ok;
-      }
-    }
-    if (!window.confirm('Remove this blocked time?')) return false;
-    const ok = await deleteScheduleBlock(block.id);
-    if (ok) setScheduleBlocks(prev => prev.filter(b => b.id !== block.id));
-    return ok;
+  function handleDeleteTraining(training) {
+    return removeFromCalendar({
+      item: training, dateOf: t => t.training_date, setList: setTrainings, noun: 'Training',
+      title: `Remove "${training.title}" for everyone?`, deleteOne: deleteTraining, deleteSeries: deleteTrainingSeries,
+    });
+  }
+  function handleDeleteScheduleBlock(block) {
+    return removeFromCalendar({
+      item: block, dateOf: b => b.block_date, setList: setScheduleBlocks, noun: 'Blocked time',
+      title: block.user_id === user.id ? 'Remove this blocked-out time?' : `Remove ${block.user_name || 'their'}${block.user_name ? '’s' : ''} blocked-out time?`,
+      deleteOne: deleteScheduleBlock, deleteSeries: deleteScheduleBlockSeries,
+    });
   }
 
   function apptsForDay(dateStr) {
@@ -456,16 +478,16 @@ export function CalendarBody({ user, onLogAppointment }) {
             <GraduationCap size={14} aria-hidden="true" /> New training
           </button>
         ) : null}
-        {presents ? (
-          <button type="button" className={`tr-btn tr-btn-sm ${posting === 'hours' ? 'tr-btn-brass' : 'tr-btn-ghost'}`} aria-expanded={posting === 'hours'} onClick={() => { setHoursNote(''); setPosting(p => (p === 'hours' ? null : 'hours')); }}>
-            <CalendarClock size={14} aria-hidden="true" /> Presenting hours
-          </button>
-        ) : null}
         {user.role === 'manager' || isAdmin(user) ? (
           <button type="button" className={`tr-btn tr-btn-sm ${posting === 'block' ? 'tr-btn-brass' : 'tr-btn-ghost'}`} aria-expanded={posting === 'block'} onClick={() => setPosting(p => (p === 'block' ? null : 'block'))}>
             <Ban size={14} aria-hidden="true" /> Block out time
           </button>
         ) : null}
+        <button type="button" className={`tr-btn tr-btn-sm tr-btn-ghost tr-cal-settings ${connOpen || posting === 'hours' ? 'tr-btn-brass' : ''}`} onClick={() => setConnOpen(true)}
+          aria-label={`Calendar settings${!loading && !googleStatus.connected ? ' (Google Calendar isn’t connected)' : ''}`}>
+          <Settings size={14} aria-hidden="true" /> <span className="tr-cal-settings-long">Calendar settings</span><span className="tr-cal-settings-short">Settings</span>
+          {!loading && (!googleStatus.connected || (presents && hoursSet === false)) ? <span className="tr-cal-settings-dot" aria-hidden="true" /> : null}
+        </button>
       </PageHead>
       {posting === 'training' && isAdmin(user) ? <TrainingPostCard user={user} onClose={() => setPosting(null)} onPosted={t => setTrainings(prev => [...prev, t])} /> : null}
       {posting === 'block' && (user.role === 'manager' || isAdmin(user)) ? <SchedulePostCard user={user} onClose={() => setPosting(null)} onPosted={b => setScheduleBlocks(prev => [...prev, b])} /> : null}
@@ -486,20 +508,25 @@ export function CalendarBody({ user, onLogAppointment }) {
           <button type="button" className="tr-icon-btn" aria-label="Dismiss" onClick={() => setHoursNote('')}><X size={16} /></button>
         </div>
       ) : null}
+      {/* One line at most: presenting hours for anyone who presents and
+          hasn't set them, otherwise Google Calendar if it isn't connected.
+          Both live in Calendar settings too. */}
       {presents && hoursSet === false && !nudgeHidden && posting !== 'hours' && !hoursNote ? (
-        <div className="tr-card tr-ph-nudge">
-          <CalendarClock size={18} aria-hidden="true" />
-          <div className="tr-ph-nudge-text">
-            <strong>Let your team book you to present</strong>
-            <span>Set the hours you present and they’ll see your open times when they log an appointment, so no more texting to find a time.</span>
-          </div>
-          <div className="tr-ph-nudge-acts">
-            <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={() => setPosting('hours')}>Set presenting hours</button>
-            <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={hideNudge}>Not now</button>
-          </div>
+        <div className="tr-cal-hint">
+          <CalendarClock size={16} aria-hidden="true" />
+          <span className="tr-cal-hint-text"><strong>Let your team book you to present.</strong> <span className="tr-cal-hint-more">Set your presenting hours and they see your open times.</span></span>
+          <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={() => { setHoursNote(''); setPosting('hours'); }}>Set hours</button>
+          <button type="button" className="tr-icon-btn" aria-label="Not now" title="Not now" onClick={hideNudge}><X size={15} /></button>
+        </div>
+      ) : !loading && !googleStatus.connected && !googleHintHidden && posting !== 'hours' && !hoursNote ? (
+        <div className="tr-cal-hint">
+          <CalendarDays size={16} aria-hidden="true" />
+          <span className="tr-cal-hint-text"><strong>See your Google events here.</strong> <span className="tr-cal-hint-more">Connect Google Calendar, and appointments you log go on it too.</span></span>
+          <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={handleConnect} disabled={googleConnecting}>{googleConnecting ? 'Opening…' : 'Connect'}</button>
+          <button type="button" className="tr-icon-btn" aria-label="Not now" title="Not now" onClick={hideGoogleHint}><X size={15} /></button>
         </div>
       ) : null}
-      <GoogleCalendarConnect status={googleStatus} connecting={googleConnecting} onConnect={handleConnect} onDisconnect={handleDisconnect} />
+      {connOpen ? <ConnectionsSheet user={user} onClose={() => setConnOpen(false)} onEditHours={presents ? () => { setHoursNote(''); setPosting('hours'); } : null} /> : null}
       {/* Month / List and ‹ month › stay together on one line; the rest
           wraps under them on a phone. */}
       <div className="tr-weeknav tr-cal-toolbar">

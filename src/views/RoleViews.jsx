@@ -10,6 +10,7 @@ import { ChatButton, useChatUnread } from '../components/chatButton.jsx';
 import { AnnouncementGate } from '../components/announcements.jsx';
 import { AppointmentPanel } from '../components/appointmentPanel.jsx';
 import { IntakePanel } from '../components/intakePanel.jsx';
+import { DialogHost } from '../components/confirm.jsx';
 import { lazyScreen, prefetchScreens, ScreenBoundary, ScreenLoading } from '../components/lazyScreen.jsx';
 import { TodayBody } from '../screens/Today.jsx';
 
@@ -119,6 +120,12 @@ function useViewNav() {
     window.addEventListener('paceledger:open-log', open);
     return () => window.removeEventListener('paceledger:open-log', open);
   });
+  // The account menu's "Presenting hours" opens Calendar with them open.
+  useEffect(() => {
+    const hours = () => go('calendar', 'hours');
+    window.addEventListener('paceledger:edit-presenting-hours', hours);
+    return () => window.removeEventListener('paceledger:edit-presenting-hours', hours);
+  });
   // A link from an email (…/?chat=urgent) opens that chat.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -145,7 +152,7 @@ function MyWorkScreens({ user, nav }) {
           prefillData={prefillData} onPrefillConsumed={() => setPrefillData(null)} cameFrom={cameFrom} onReturn={goBack}
           onLogAppointment={logAppointment} />
       )}
-      {tab === 'calendar' && <CalendarBody user={user} onLogAppointment={logAppointment} />}
+      {tab === 'calendar' && <CalendarBody user={user} onLogAppointment={logAppointment} intent={intentFor('calendar')} onIntentConsumed={clearIntent} />}
       {tab === 'growth' && <GrowthBody user={user} view={growthView} onView={setGrowthView} />}
       {tab === 'resources' && <DocumentsBody user={user} />}
       {tab === 'chat' && <ChatBody user={user} initialChannel={intentFor('chat')} onIntentConsumed={clearIntent} />}
@@ -176,6 +183,7 @@ export function AdvisorView({ user }) {
   const chatCounts = useChatUnread(user);
   return (
     <Shell>
+      <DialogHost />
       <Header user={user} search={<GlobalSearch user={user} go={go} withPeople={false} />} onNew={openNew}
         chat={<ChatButton counts={chatCounts} onOpen={() => go('chat')} active={tab === 'chat'} />}
         nav={<TabNav tabs={MY_WORK_TABS} tab={tab} onSelect={setTab} onNew={openNew} />} />
@@ -201,6 +209,7 @@ export function ManagerView({ user }) {
   const chatCounts = useChatUnread(user);
   return (
     <Shell>
+      <DialogHost />
       <Header user={user} search={<GlobalSearch user={user} go={go} withPeople />} onNew={openNew}
         chat={<ChatButton counts={chatCounts} onOpen={() => go('chat')} active={tab === 'chat'} />} nav={<>
         <GroupSwitch group={group} onSelect={selectGroup} teamLabel="Team" />
@@ -229,6 +238,7 @@ export function AdminView({ user }) {
   const chatCounts = useChatUnread(user);
   return (
     <Shell>
+      <DialogHost />
       <Header user={user} search={<GlobalSearch user={user} go={go} withPeople />} onNew={openNew}
         chat={<ChatButton counts={chatCounts} onOpen={() => go('chat')} active={tab === 'chat'} />} nav={<>
         <GroupSwitch group={group} onSelect={selectGroup} teamLabel="Team & admin" />
