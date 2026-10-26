@@ -19,6 +19,7 @@ import { appointmentTexts, CallButton, TextButton } from '../components/contact.
 import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../components/appointmentPanel.jsx';
 import { IntakeStatusRow, sendIntakeAfterBooking } from '../components/intakePanel.jsx';
 import { isValidPhone } from '../lib/phone.js';
+import { OpenTimes } from '../components/openTimes.jsx';
 
 export function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty, hideSet, me = '' }) {
   // Only show the Trainee column when someone in this group actually has one.
@@ -263,6 +264,15 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
   const meta = dateSetMeta(dateSetOption);
   const duration = appointmentTime && endTime ? minutesBetweenTimes(appointmentTime, endTime) : 0;
 
+  // A time picked from the presenter's open times: their presentation
+  // length sets when it ends.
+  function pickOpenTime({ day, time, minutes }) {
+    setAppointmentDate(day);
+    setAppointmentTime(time);
+    setEndTime(addMinutesToTime(time, minutes || DEFAULT_APPT_MINUTES));
+    setErr('');
+  }
+
   function handleStartChange(value) {
     if (value) {
       const was = appointmentTime && endTime ? minutesBetweenTimes(appointmentTime, endTime) : 0;
@@ -341,6 +351,9 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
   }
 
   const presenterShown = presenterOptions.find(p => p.id === presenterId)?.display_name || '';
+  // Someone else presenting: their open times show above the date and time.
+  const showOpenTimes = !!presenterId && presenterId !== user.id;
+  const presenterIsLeader = uplineIds.has(presenterId) || presenterId === zoomHostId || zoomManagers.some(z => z.id === presenterId);
   const traineePick = traineeOptions.find(p => p.id === traineeId);
   const traineeNote = !traineePick ? '' : traineePick.id === user.id ? "you're the trainee" : `${traineePick.display_name} sits in`;
   const title = editing ? 'Edit appointment' : 'Log an appointment';
@@ -436,20 +449,6 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
           <span>Recruit, sale or both</span>
           <TypeChoice recruit={typeRecruit} sale={typeSale} onToggleRecruit={() => setTypeRecruit(v => !v)} onToggleSale={() => setTypeSale(v => !v)} />
         </div>
-        <div className="tr-appt-when">
-          <label className="tr-field tr-appt-when-date">
-            <span>Date</span>
-            <input type="date" value={appointmentDate} onChange={e => setAppointmentDate(e.target.value)} onClick={openPicker} />
-          </label>
-          <label className="tr-field">
-            <span>Starts</span>
-            <input type="time" value={appointmentTime} onChange={e => handleStartChange(e.target.value)} onClick={openPicker} />
-          </label>
-          <label className="tr-field">
-            <span>Ends{duration >= 5 && duration <= 720 ? <em className="tr-appt-len">{durationLabel(duration)}</em> : null}</span>
-            <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} onClick={openPicker} />
-          </label>
-        </div>
         {!editing && zoomHostOptions.length > 0 && (
           <label className={`tr-field ${lockedToZoomHost ? 'tr-field-wide' : ''}`}>
             <span>Presenting manager</span>
@@ -481,6 +480,25 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
             </select>
           </label>
         )}
+        {showOpenTimes && (
+          <OpenTimes presenterId={presenterId} presenterName={presenterShown} timezone={timezone} excludeId={editing?.id || null}
+            selectedDate={appointmentDate} selectedTime={appointmentTime} durationMinutes={duration}
+            onPick={pickOpenTime} refreshKey={`${err}|${saveError}`} nudgeIfNoHours={presenterIsLeader} />
+        )}
+        <div className="tr-appt-when">
+          <label className="tr-field tr-appt-when-date">
+            <span>Date</span>
+            <input type="date" value={appointmentDate} onChange={e => setAppointmentDate(e.target.value)} onClick={openPicker} />
+          </label>
+          <label className="tr-field">
+            <span>Starts</span>
+            <input type="time" value={appointmentTime} onChange={e => handleStartChange(e.target.value)} onClick={openPicker} />
+          </label>
+          <label className="tr-field">
+            <span>Ends{duration >= 5 && duration <= 720 ? <em className="tr-appt-len">{durationLabel(duration)}</em> : null}</span>
+            <input type="time" value={endTime} onChange={e => setEndTime(e.target.value)} onClick={openPicker} />
+          </label>
+        </div>
       </div>
 
       <div className={`tr-form-more ${showMore ? 'tr-form-more-open' : ''}`}>
@@ -920,7 +938,7 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
     .filter(a => (a.status || '') === statusView)
     .sort((a, b) => (b.appointmentDate + b.appointmentTime).localeCompare(a.appointmentDate + a.appointmentTime));
 
-  function closeForm() { setShowForm(false); setPendingPrefillData(null); fromElsewhere.current = false; }
+  function closeForm() { setShowForm(false); setPendingPrefillData(null); setError(''); fromElsewhere.current = false; }
   // Cancel on a form you opened from another screen takes you back there.
   function cancelForm() { const back = fromElsewhere.current; closeForm(); if (back && onReturn) onReturn(); }
   // Editing opens the same window as on Calendar and Today, right where you
@@ -1083,10 +1101,12 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
             {showForm ? <><X size={16} /> Close</> : <><Plus size={16} /> Log appointment</>}
           </button>
         </PageHead>
-        {error && <div className="tr-error">{error}</div>}
+        {/* A save that fails shows in the form itself (on a phone the form
+            covers the page). */}
+        {error && !showForm && <div className="tr-error">{error}</div>}
         {notice && <div className={notice.kind === 'ok' ? 'tr-flash' : 'tr-error'}>{notice.text}</div>}
         {showForm && (
-          <AppointmentForm user={user} weekMonday={weekMonday} prefillData={pendingPrefillData} onCancel={cancelForm} onSubmit={handleFormSubmit} saving={saving} sheet={isPhone} />
+          <AppointmentForm user={user} weekMonday={weekMonday} prefillData={pendingPrefillData} onCancel={cancelForm} onSubmit={handleFormSubmit} saving={saving} sheet={isPhone} saveError={error} />
         )}
         <div className="tr-toolbar">
           <div className="tr-search-row">
