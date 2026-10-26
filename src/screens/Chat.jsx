@@ -15,6 +15,7 @@ import { Modal, MoreMenu, SkelBlock, useIsPhone } from '../components/ui.jsx';
 import { Avatar, useAvatars } from '../components/avatar.jsx';
 import { MEGAPHONE_ABOUT, MegaPhoneRoom } from './MegaPhone.jsx';
 import { isAdmin as isAdminRole } from '../lib/roles.js';
+import { askConfirm, undoable } from '../components/confirm.jsx';
 
 const ICONS = { megaphone: Megaphone, general: Hash, work: Briefcase, urgent: LifeBuoy, reports: Flag };
 // Rooms that aren't conversations (no messages to load or mark read).
@@ -416,10 +417,21 @@ export function ChatBody({ user, initialChannel, onIntentConsumed }) {
 
   async function remove(m) {
     const mine = m.userId === user.id;
-    if (!window.confirm(mine ? 'Delete this message? Everyone will see "Message removed".' : `Remove ${first((people.get(m.userId) || {}).display_name)}'s message for everyone?`)) return;
-    const res = await deleteChatMessage(m.id);
-    if (!res.ok) { setSendError(res.error); return; }
-    setByChannel(prev => ({ ...prev, [m.channel]: { ...prev[m.channel], messages: prev[m.channel].messages.map(x => (x.id === m.id ? { ...x, body: '', deletedAt: new Date().toISOString() } : x)) } }));
+    const ok = await askConfirm(mine
+      ? { title: 'Delete this message?', body: 'Everyone sees "Message removed" instead.', confirmLabel: 'Delete', danger: true }
+      : { title: `Remove ${first((people.get(m.userId) || {}).display_name)}'s message?`, body: 'It\'s removed for everyone.', confirmLabel: 'Remove', danger: true });
+    if (!ok) return;
+    const swap = fn => setByChannel(prev => (prev[m.channel] ? { ...prev, [m.channel]: { ...prev[m.channel], messages: prev[m.channel].messages.map(x => (x.id === m.id ? fn(x) : x)) } } : prev));
+    undoable({
+      text: mine ? 'Message deleted' : 'Message removed',
+      apply: () => swap(x => ({ ...x, body: '', deletedAt: new Date().toISOString(), _was: x })),
+      revert: () => swap(x => x._was || x),
+      commit: async () => {
+        const res = await deleteChatMessage(m.id);
+        if (!res.ok) setSendError(res.error);
+        return res.ok;
+      },
+    });
   }
   async function block(id) {
     const name = (people.get(id) || {}).display_name || 'them';
@@ -431,7 +443,7 @@ export function ChatBody({ user, initialChannel, onIntentConsumed }) {
   }
   async function confirmBlock(id) {
     const name = first((people.get(id) || {}).display_name);
-    if (window.confirm(`Block ${name}? You won't see ${name}'s messages in Chat. They aren't told, and you can unblock them later.`)) block(id);
+    if (await askConfirm({ title: `Block ${name}?`, body: `You won't see ${name}'s messages in Chat. They aren't told, and you can unblock them later.`, confirmLabel: 'Block', danger: true })) block(id);
   }
   async function unblock(id) {
     const res = await unblockChatUser(user.id, id);

@@ -8,6 +8,7 @@ import { ALL_CHARACTERISTICS, appointmentsForProspect, bookedProspectKeys, delet
 import { PageHead, SkeletonCards } from '../components/ui.jsx';
 import { CallButton, ContactRow, prospectTexts, TextButton } from '../components/contact.jsx';
 import { isValidPhone } from '../lib/phone.js';
+import { askConfirm, undoable } from '../components/confirm.jsx';
 
 // prefillNotes: notes to start a new prospect with (e.g. the Memory Jogger
 // prompt that brought them to mind).
@@ -434,11 +435,16 @@ export function SystemsBody({ user, onLogAppointment, initialIntent, onIntentCon
     setSystemsView('prospect');
   }
   async function handleDelete(id) {
-    if (!window.confirm("Delete this prospect? This can't be undone.")) return;
-    const prev = prospects;
-    setProspects(prospects.filter(p => p.id !== id));
-    const ok = await deleteProspect(id);
-    if (!ok) setProspects(prev);
+    const target = prospects.find(p => p.id === id);
+    const name = target ? `${target.firstName || ''} ${target.lastName || ''}`.trim() : '';
+    if (!(await askConfirm({ title: `Delete ${name || 'this prospect'}?`, body: 'Their score and notes go with them.', confirmLabel: 'Delete', danger: true }))) return;
+    undoable({
+      text: `Deleted ${name || 'the prospect'}`,
+      apply: () => setProspects(prev => prev.filter(p => p.id !== id)),
+      revert: () => setProspects(prev => (target && !prev.some(p => p.id === id) ? [...prev, target] : prev)),
+      commit: () => deleteProspect(id),
+      failText: `Couldn't delete ${name || 'the prospect'}. Check your connection and try again. They've been put back.`,
+    });
   }
   async function handleToggleOutcome(prospect, field) {
     const nextValue = !prospect[field];

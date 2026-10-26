@@ -5,6 +5,17 @@ import { fetchAllVisibleProspects, prospectLeaningKey, prospectTotalChecked } fr
 import { fetchTeamMembers } from '../../data/team.js';
 import { MemberSubline, RefreshButton, SkeletonTable, TitleInfo } from '../../components/ui.jsx';
 import { ProspectCard, ProspectFunnel } from '../Prospecting.jsx';
+import { FoldedPeople, NoMatches, PeopleToolbar, SortHeader, useHideEmpty, usePeopleRows, useSort } from '../../components/peopleList.jsx';
+
+const PROSPECTING_SORTS = {
+  name: { label: 'Name', value: r => r.m.display_name, dir: 'asc' },
+  active: { label: 'Active prospects', value: r => r.active.length, dir: 'desc' },
+  sale: { label: 'Sale potential', value: r => r.sale, dir: 'desc' },
+  recruit: { label: 'Recruit potential', value: r => r.recruit, dir: 'desc' },
+  recruited: { label: 'Recruited', value: r => r.recruited, dir: 'desc' },
+  sold: { label: 'Sold', value: r => r.sold, dir: 'desc' },
+};
+const noProspects = r => r.list.length === 0;
 
 // ---------------------------------------------------------------------
 // track production — submitted premium + recruits for the week, manager/admin only
@@ -18,6 +29,8 @@ export function TeamProspectingBody({ user }) {
   const [prospects, setProspects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(null);
+  const sorter = useSort('prospecting', PROSPECTING_SORTS);
+  const [hideEmpty, setHideEmpty] = useHideEmpty('prospecting');
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -32,6 +45,20 @@ export function TeamProspectingBody({ user }) {
 
   useEffect(() => { refresh(); }, [refresh]);
 
+  const rows = members.map(m => {
+    const list = prospects.filter(p => p.userId === m.id);
+    const active = list.filter(p => !p.markedRecruited && !p.markedSold);
+    return {
+      id: m.id, m, list, active,
+      sale: active.filter(p => prospectLeaningKey(p) === 'sale').length,
+      recruit: active.filter(p => prospectLeaningKey(p) === 'recruit').length,
+      recruited: list.filter(p => p.markedRecruited).length,
+      sold: list.filter(p => p.markedSold).length,
+    };
+  });
+  const view = usePeopleRows(rows, { personOf: r => r.m, isEmpty: noProspects, hideEmpty, sorter });
+  const num = n => <span className={n ? '' : 'tr-zero'}>{n}</span>;
+
   return (
     <>
       <div className="tr-row-head tr-screen-head">
@@ -43,27 +70,24 @@ export function TeamProspectingBody({ user }) {
       ) : (
         <>
           <ProspectFunnel prospects={prospects} title="Team conversion funnel" />
+          <PeopleToolbar total={view.total} matched={view.matched} sorter={sorter}
+            hideEmpty={hideEmpty} onHideEmpty={setHideEmpty} emptyLabel="Hide people with no prospects" foldedCount={view.folded.length} />
           <div className="tr-card tr-summary-card">
+          {view.matched === 0 ? <NoMatches /> : (
           <div className="tr-table-wrap">
             <table className="tr-table tr-table-summary tr-table-stack">
               <thead>
                 <tr>
-                  <th>Team member</th>
-                  <th>Active prospects</th>
-                  <th>Sale potential</th>
-                  <th>Recruit potential</th>
-                  <th>Recruited</th>
-                  <th>Sold</th>
+                  <SortHeader label="Team member" sortKey="name" sorter={sorter} />
+                  <SortHeader label="Active prospects" sortKey="active" sorter={sorter} />
+                  <SortHeader label="Sale potential" sortKey="sale" sorter={sorter} />
+                  <SortHeader label="Recruit potential" sortKey="recruit" sorter={sorter} />
+                  <SortHeader label="Recruited" sortKey="recruited" sorter={sorter} />
+                  <SortHeader label="Sold" sortKey="sold" sorter={sorter} />
                 </tr>
               </thead>
               <tbody>
-                {members.map(m => {
-                  const list = prospects.filter(p => p.userId === m.id);
-                  const active = list.filter(p => !p.markedRecruited && !p.markedSold);
-                  const sale = active.filter(p => prospectLeaningKey(p) === 'sale').length;
-                  const recruit = active.filter(p => prospectLeaningKey(p) === 'recruit').length;
-                  const recruited = list.filter(p => p.markedRecruited).length;
-                  const sold = list.filter(p => p.markedSold).length;
+                {view.shown.map(({ m, list, active, sale, recruit, recruited, sold }) => {
                   const isOpen = expanded === m.id;
                   const sortedList = list.slice().sort((a, b) => prospectTotalChecked(b) - prospectTotalChecked(a));
                   return (
@@ -74,11 +98,11 @@ export function TeamProspectingBody({ user }) {
                           {m.role === 'manager' ? <span className="tr-note"> — manager</span> : null}
                           <MemberSubline member={m} />
                         </td>
-                        <td className="tr-mono" data-label="Active">{active.length}</td>
-                        <td className="tr-mono" data-label="Sale potential">{sale}</td>
-                        <td className="tr-mono" data-label="Recruit potential">{recruit}</td>
-                        <td className="tr-mono" data-label="Recruited">{recruited}</td>
-                        <td className="tr-mono" data-label="Sold">{sold}</td>
+                        <td className="tr-mono" data-label="Active">{num(active.length)}</td>
+                        <td className="tr-mono" data-label="Sale potential">{num(sale)}</td>
+                        <td className="tr-mono" data-label="Recruit potential">{num(recruit)}</td>
+                        <td className="tr-mono" data-label="Recruited">{num(recruited)}</td>
+                        <td className="tr-mono" data-label="Sold">{num(sold)}</td>
                       </tr>
                       {isOpen && (
                         <tr className="tr-expand-row"><td colSpan={6}>
@@ -95,6 +119,8 @@ export function TeamProspectingBody({ user }) {
               </tbody>
             </table>
           </div>
+          )}
+          <FoldedPeople people={view.folded.map(r => r.m)} label="No prospects on their list" onShow={() => setHideEmpty(false)} />
         </div>
         </>
       )}

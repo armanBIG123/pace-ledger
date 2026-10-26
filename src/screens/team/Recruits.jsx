@@ -11,6 +11,7 @@ import { fetchSaleDates, fetchTeamOpenInvites, fetchUpcomingAppointments } from 
 import { AGENCY_EMAIL } from '../../data/promotions.js';
 import { ComposeEmail } from '../../components/email.jsx';
 import { MoreMenu, RefreshButton, SkeletonTable, TitleInfo } from '../../components/ui.jsx';
+import { NoMatches, PeopleToolbar, personMatches, usePeopleSearch } from '../../components/peopleList.jsx';
 
 const first = name => (name || '').trim().split(/\s+/)[0] || 'there';
 const fmtLong = d => (d ? new Date(`${String(d).slice(0, 10)}T00:00:00`).toLocaleDateString('en-US', { month: 'long', day: 'numeric' }) : '');
@@ -22,6 +23,7 @@ export function RecruitsSubView({ user, members, loadingMembers, emptyMessage })
   const [busyId, setBusyId] = useState(null);
   const [notice, setNotice] = useState(null);
   const [compose, setCompose] = useState(null);
+  const [q] = usePeopleSearch();
 
   const refresh = useCallback(async () => {
     if (!members.length) { setData({ board: { rows: [], counts: {} }, byId: new Map() }); return; }
@@ -52,7 +54,8 @@ export function RecruitsSubView({ user, members, loadingMembers, emptyMessage })
 
   const { rows, counts } = data.board;
   const nameOf = id => (data.byId.get(id) || {}).display_name || '';
-  const shown = rows.filter(r => (filter === 'all' ? true : filter === 'flagged' ? !!r.flag : r.stage === filter));
+  const matches = r => personMatches({ display_name: r.name, email: r.person && r.person.email }, q);
+  const shown = rows.filter(r => (filter === 'all' ? true : filter === 'flagged' ? !!r.flag : r.stage === filter) && matches(r));
   const me = user.displayName || '';
 
   // Each row gets at most one button, and only gold when the row needs
@@ -140,7 +143,10 @@ export function RecruitsSubView({ user, members, loadingMembers, emptyMessage })
         ))}
       </div>
 
-      {shown.length === 0 ? (
+      <PeopleToolbar total={rows.length} matched={rows.filter(matches).length} />
+      {shown.length === 0 && q.trim() && rows.length > 0 ? (
+        <div className="tr-card"><NoMatches /></div>
+      ) : shown.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">
           {rows.length === 0 ? 'No new recruits right now. People show up here from the moment you make their sign-up link until their first sale.'
             : filter === 'flagged' ? 'Nobody needs you right now. 🎉' : 'Nobody at this step right now.'}

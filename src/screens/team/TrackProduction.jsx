@@ -12,10 +12,20 @@ import { fetchAppointmentsHeldInWeek, isPolicyIssued } from '../../data/appointm
 import { fetchTeamMembers } from '../../data/team.js';
 import { RefreshButton, SkeletonTable, TitleInfo, WeekNav } from '../../components/ui.jsx';
 import { PendingIssueView } from './PendingIssue.jsx';
+import { FoldedPeople, NoMatches, PeopleToolbar, SortHeader, useHideEmpty, usePeopleRows, useSort } from '../../components/peopleList.jsx';
 import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../../components/appointmentPanel.jsx';
 
 const byTime = list => list.slice().sort((a, b) => apptStartMs(a) - apptStartMs(b));
 const withWhom = a => (a.presenter && a.presenterId !== a.userId ? ` · with ${a.presenter}` : '');
+
+// Sorting Track Production's list.
+const PRODUCTION_SORTS = {
+  name: { label: 'Name', value: r => r.m.display_name, dir: 'asc' },
+  sales: { label: 'Sales', value: r => r.t.sold.length, dir: 'desc' },
+  premium: { label: 'Premium', value: r => r.t.premium, dir: 'desc' },
+  recruits: { label: 'Recruits', value: r => r.t.recruits, dir: 'desc' },
+};
+const noProduction = r => !r.t.sold.length && !r.t.recruits;
 
 const signedUpWhen = iso => new Date(iso).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
@@ -70,6 +80,8 @@ export function TrackProductionBody({ user }) {
   const [expanded, setExpanded] = useState(null);
   const [view, setView] = useState('week'); // 'week' | 'pending'
   const [pendingKey, setPendingKey] = useState(0);
+  const sorter = useSort('production', PRODUCTION_SORTS);
+  const [hideEmpty, setHideEmpty] = useHideEmpty('production');
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -110,6 +122,9 @@ export function TrackProductionBody({ user }) {
     downloadCSV(`track-production-week-of-${weekMonday}.csv`, rows);
   }
 
+  const rows = members.map(m => ({ id: m.id, m, t: tally(m) }));
+  const view_ = usePeopleRows(rows, { personOf: r => r.m, isEmpty: noProduction, hideEmpty, sorter });
+
   const switcher = (
     <div className="tr-seg tr-seg-view" role="group" aria-label="Show">
       <button type="button" className={view === 'week' ? 'tr-seg-on' : ''} aria-pressed={view === 'week'} onClick={() => setView('week')}>This week</button>
@@ -146,13 +161,22 @@ export function TrackProductionBody({ user }) {
       {loading ? <SkeletonTable rows={5} cols={4} /> : members.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">No team members yet.</p></div>
       ) : (
+        <>
+        <PeopleToolbar total={view_.total} matched={view_.matched} sorter={sorter}
+          hideEmpty={hideEmpty} onHideEmpty={setHideEmpty} emptyLabel="Hide people with nothing this week" foldedCount={view_.folded.length} />
         <div className="tr-card tr-summary-card">
+          {view_.matched === 0 ? <NoMatches /> : (
           <div className="tr-table-wrap">
             <table className="tr-table tr-table-summary tr-table-stack">
-              <thead><tr><th>Team member</th><th>Sales</th><th>Submitted premium</th><th>Recruits</th></tr></thead>
+              <thead><tr>
+                <SortHeader label="Team member" sortKey="name" sorter={sorter} />
+                <SortHeader label="Sales" sortKey="sales" sorter={sorter} />
+                <SortHeader label="Submitted premium" sortKey="premium" sorter={sorter} />
+                <SortHeader label="Recruits" sortKey="recruits" sorter={sorter} />
+              </tr></thead>
               <tbody>
-                {members.map(m => {
-                  const { sold, recruited, joined, recruits, premium, noPremium } = tally(m);
+                {view_.shown.map(({ m, t }) => {
+                  const { sold, recruited, joined, recruits, premium, noPremium } = t;
                   const isOpen = expanded === m.id;
                   const toggle = () => setExpanded(isOpen ? null : m.id);
                   return (
@@ -167,12 +191,12 @@ export function TrackProductionBody({ user }) {
                           {m.role === 'super_admin' ? <span className="tr-note"> — admin</span> : null}
                           {m.reports_to_name ? <div className="tr-tenure">Reports to {m.reports_to_name}</div> : null}
                         </td>
-                        <td className="tr-mono" data-label="Sales">{sold.length || '—'}</td>
-                        <td className="tr-mono" data-label="Premium">
+                        <td className={`tr-mono ${sold.length ? '' : 'tr-zero'}`} data-label="Sales">{sold.length || '—'}</td>
+                        <td className={`tr-mono ${sold.length ? '' : 'tr-zero'}`} data-label="Premium">
                           {sold.length ? fmtCurrency(premium) : '—'}
                           {noPremium ? <div className="tr-tenure">{noPremium} with no premium entered</div> : null}
                         </td>
-                        <td className="tr-mono" data-label="Recruits">{recruits || '—'}</td>
+                        <td className={`tr-mono ${recruits ? '' : 'tr-zero'}`} data-label="Recruits">{recruits || '—'}</td>
                       </tr>
                       {isOpen && (
                         <tr className="tr-expand-row">
@@ -187,7 +211,10 @@ export function TrackProductionBody({ user }) {
               </tbody>
             </table>
           </div>
+          )}
+          <FoldedPeople people={view_.folded.map(r => r.m)} label="No sales or recruits this week" onShow={() => setHideEmpty(false)} />
         </div>
+        </>
       )}
     </>
   );

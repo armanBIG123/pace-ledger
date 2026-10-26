@@ -6,6 +6,9 @@
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { lazyScreen, ScreenBoundary } from './lazyScreen.jsx';
 import { Modal } from './ui.jsx';
+import { askConfirm, undoable } from './confirm.jsx';
+import { deleteAppointmentRow } from '../data/appointments.js';
+import { fmtApptDateTime } from '../lib/dates.js';
 
 const AppointmentEditorBody = lazyScreen(() => import('./appointmentEditor.jsx'), 'AppointmentEditorBody');
 
@@ -19,6 +22,27 @@ export function openAppointment(appointment) {
 // Phone reminders and Pipeline's counts listen for this event too.
 export function appointmentEdited(change) {
   window.dispatchEvent(new CustomEvent('paceledger:appointments-changed', { detail: { ...change, fromWindow: true } }));
+}
+
+// Deleting an appointment: an in-app confirm, then it leaves every list
+// right away with Undo; the database delete happens a few seconds later
+// (and a list that reloaded in between drops it again then). Returns false
+// if they changed their mind.
+export async function deleteAppointmentWithUndo(appt) {
+  const who = appt.client ? `the appointment with ${appt.client}` : 'this appointment';
+  if (!(await askConfirm({ title: `Delete ${who}?`, body: fmtApptDateTime(appt), confirmLabel: 'Delete', danger: true }))) return false;
+  undoable({
+    text: `Deleted ${appt.client ? `the appointment with ${appt.client}` : 'the appointment'}`,
+    apply: () => appointmentEdited({ deletedId: appt.id }),
+    revert: () => appointmentEdited({ reload: true }),
+    commit: async () => {
+      const ok = await deleteAppointmentRow(appt.id);
+      if (ok) appointmentEdited({ deletedId: appt.id });
+      return ok;
+    },
+    failText: `Couldn't delete the appointment with ${appt.client || 'them'}. Check your connection and try again. It's been put back.`,
+  });
+  return true;
 }
 
 // A list of appointments with that change applied.

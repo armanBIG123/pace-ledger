@@ -15,6 +15,17 @@ import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../.
 import { RecruitsSubView } from './Recruits.jsx';
 import { FieldTrainingSubView } from './FieldTraining.jsx';
 import { isAdmin as isAdminRole } from '../../lib/roles.js';
+import { askConfirm, askText } from '../../components/confirm.jsx';
+import { FoldedPeople, NoMatches, PeopleToolbar, personMatches, SortHeader, useHideEmpty, usePeopleRows, usePeopleSearch, useSort } from '../../components/peopleList.jsx';
+
+// Sorting Team Pace's list. Status: behind first, then on the way, then on pace.
+const STATUS_RANK = { missed: 0, progress: 1, met: 2 };
+const PACE_SORTS = {
+  name: { label: 'Name', value: r => r.adv.display_name, dir: 'asc' },
+  total: { label: 'Set this week', value: r => r.total, dir: 'desc' },
+  status: { label: 'Status', value: r => STATUS_RANK[r.status] ?? 1, dir: 'asc', options: [['asc', 'Behind first'], ['desc', 'On pace first']] },
+};
+const nothingSet = r => r.total === 0;
 
 // A general, week-scoped feedback channel a manager can leave for an
 // advisor — separate from Open Requirements' policy-specific notes.
@@ -73,6 +84,7 @@ export function NewAdvisorsCard({ members }) {
     setOpen(next);
     try { localStorage.setItem('pl_newadv_open', next ? '1' : '0'); } catch { /* ignore */ }
   }
+  const [q] = usePeopleSearch();
   const recent = members.filter(m => {
     const d = onboardingDay(m.created_at);
     return d != null && d <= 60;
@@ -85,9 +97,10 @@ export function NewAdvisorsCard({ members }) {
     return () => { alive = false; };
   }, [ids]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!recent.length || rows === null || rows === 'error') return null;
+  if (q.trim() && !recent.some(m => personMatches(m, q))) return null;
   const byId = {};
   rows.forEach(r => { byId[r.user_id] = r; });
-  const list = recent.map(m => {
+  const list = recent.filter(m => personMatches(m, q)).map(m => {
     // A row with no totals only holds a show/hide choice, not progress.
     const r = byId[m.id] && byId[m.id].total_count > 0 ? byId[m.id] : null;
     const day = onboardingDay(m.created_at);
@@ -191,6 +204,8 @@ export function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, 
   const [weekMonday, setWeekMonday] = useState(weekStartOf(todayStr()));
   const [expanded, setExpanded] = useState(null);
   const [typeFilter, setTypeFilter] = useState('all');
+  const sorter = useSort('pace', PACE_SORTS);
+  const [hideEmpty, setHideEmpty] = useHideEmpty('pace');
 
   function byType(list) {
     if (typeFilter === 'all') return list;
@@ -235,6 +250,14 @@ export function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, 
     ? members.filter(m => weekAppts.filter(a => countsTowardPace(a, m.id)).length === 0).length
     : 0;
 
+  const paceRows = members.map(adv => {
+    const list = weekAppts.filter(a => countsTowardPace(a, adv.id));
+    const groups = DATE_SET_OPTIONS.map(opt => list.filter(a => a.dateSetOption === opt.value));
+    const counts = groups.map(g => g.length);
+    return { id: adv.id, adv, groups, counts, total: counts.reduce((t, c) => t + c, 0), status: getStatus(counts, weekMonday) };
+  });
+  const view = usePeopleRows(paceRows, { personOf: r => r.adv, isEmpty: nothingSet, hideEmpty, sorter });
+
   return (
     <>
       <div className="tr-row-head tr-screen-head">
@@ -242,6 +265,10 @@ export function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, 
         <RefreshButton onClick={refreshAppts} />
       </div>
       <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
+      {!loadingMembers && members.length > 0 ? (
+        <PeopleToolbar total={view.total} matched={view.matched} sorter={sorter}
+          hideEmpty={hideEmpty} onHideEmpty={setHideEmpty} emptyLabel="Hide people with nothing set" foldedCount={view.folded.length} />
+      ) : null}
       {!loadingMembers && <NewAdvisorsCard members={members} />}
       <div className="tr-typefilter-row">
         <span className="tr-typefilter-label">Show:</span>
@@ -261,22 +288,19 @@ export function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, 
             {' '}this week.
           </div>
           <div className="tr-card tr-summary-card">
+          {view.matched === 0 ? <NoMatches /> : (
           <div className="tr-table-wrap">
             <table className="tr-table tr-table-summary">
               <thead>
                 <tr>
-                  <th>{memberLabel}</th>
+                  <SortHeader label={memberLabel} sortKey="name" sorter={sorter} />
                   {DATE_SET_OPTIONS.map(opt => <th key={opt.value}>{opt.shortLabel}</th>)}
-                  <th>Total</th><th>Status</th>
+                  <SortHeader label="Total" sortKey="total" sorter={sorter} />
+                  <SortHeader label="Status" sortKey="status" sorter={sorter} />
                 </tr>
               </thead>
               <tbody>
-                {members.map(adv => {
-                  const list = weekAppts.filter(a => countsTowardPace(a, adv.id));
-                  const groups = DATE_SET_OPTIONS.map(opt => list.filter(a => a.dateSetOption === opt.value));
-                  const counts = groups.map(g => g.length);
-                  const total = counts.reduce((s, c) => s + c, 0);
-                  const status = getStatus(counts, weekMonday);
+                {view.shown.map(({ adv, groups, counts, total, status }) => {
                   const isOpen = expanded === adv.id;
                   return (
                     <React.Fragment key={adv.id}>
@@ -311,6 +335,8 @@ export function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, 
               </tbody>
             </table>
           </div>
+          )}
+          <FoldedPeople people={view.folded.map(r => r.adv)} label="Nothing set yet this week" onShow={() => setHideEmpty(false)} />
         </div>
         </>
       )}
@@ -397,7 +423,7 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
 
   async function submit(member, progress) {
     const t = progress.nextTier;
-    if (!window.confirm(`Submit ${member.display_name}'s promotion to ${t.name} (${t.key}) for approval?\n\nPaceLedger will email ${emailedTo} with their results.`)) return;
+    if (!(await askConfirm({ title: `Submit ${member.display_name}'s promotion to ${t.name} (${t.key})?`, body: `PaceLedger emails ${emailedTo} with their results, and a super admin approves it.`, confirmLabel: 'Submit' }))) return;
     setBusyId(member.id); setNotice(null);
     const res = await submitPromotion(member, progress);
     setBusyId(null);
@@ -421,7 +447,7 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
   async function approve(member, progress) {
     const t = progress.nextTier;
     if (noSubmissions) {
-      if (!window.confirm(`Promote ${member.display_name} to ${t.name} (${t.key})?`)) return;
+      if (!(await askConfirm({ title: `Promote ${member.display_name} to ${t.name} (${t.key})?`, confirmLabel: `Promote to ${t.key}` }))) return;
       setBusyId(member.id); setNotice(null);
       const err = await approvePromotion(user, member, t);
       setBusyId(null);
@@ -432,9 +458,9 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
     }
     let req = waitingFor(member, progress);
     const ask = req
-      ? `Approve ${member.display_name}'s promotion to ${t.name} (${t.key})?`
-      : `Promote ${member.display_name} to ${t.name} (${t.key})?\n\nNo one has submitted it yet, so PaceLedger will submit it now and email ${emailedTo} with their results.`;
-    if (!window.confirm(ask)) return;
+      ? { title: `Approve ${member.display_name}'s promotion to ${t.name} (${t.key})?`, confirmLabel: 'Approve' }
+      : { title: `Promote ${member.display_name} to ${t.name} (${t.key})?`, body: `No one has submitted it yet, so PaceLedger submits it now and emails ${emailedTo} with their results.`, confirmLabel: `Promote to ${t.key}` };
+    if (!(await askConfirm(ask))) return;
     setBusyId(member.id); setNotice(null);
     if (!req) {
       const res = await submitPromotion(member, progress);
@@ -458,7 +484,7 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
   }
 
   async function sendBack(req, member) {
-    const note = window.prompt(`Send ${member.display_name}'s promotion back?\n\nWhat needs fixing? ${req.submitted_by_name || 'Their manager'} will see this.`, '');
+    const note = await askText({ title: `Send ${member.display_name}'s promotion back?`, label: 'What needs fixing?', body: `${req.submitted_by_name || 'Their manager'} sees this, and can submit it again once it's fixed.`, placeholder: 'e.g. Their premium for this month is short', confirmLabel: 'Send back' });
     if (note === null) return;
     setBusyId(member.id); setNotice(null);
     const out = await sendBackPromotion(req.id, note);
@@ -469,6 +495,8 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
     refresh();
   }
 
+  const [q] = usePeopleSearch();
+  const promoShown = progressList.filter(({ member }) => personMatches(member, q));
   const readyCount = progressList.filter(({ member, progress }) => progress?.allMet && !waitingFor(member, progress)).length;
   const waitingCount = progressList.filter(({ member, progress }) => waitingFor(member, progress)).length;
   const isLoading = loadingMembers || loading;
@@ -496,12 +524,14 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
       ) : (
         <>
           <p className="tr-count-line"><strong>{readyCount}</strong> ready · <strong>{waitingCount}</strong> waiting for approval</p>
+          <PeopleToolbar total={progressList.length} matched={promoShown.length} />
           <div className="tr-card tr-summary-card">
+            {promoShown.length === 0 ? <NoMatches /> : (
             <div className="tr-table-wrap">
               <table className="tr-table tr-table-summary">
                 <thead><tr><th>{memberLabel}</th><th>Now</th><th>Next</th><th><span className="tr-sr-only">Progress</span></th></tr></thead>
                 <tbody>
-                  {progressList.map(({ member, progress }) => {
+                  {promoShown.map(({ member, progress }) => {
                     const isOpen = expanded === member.id;
                     const metCount = progress.results.filter(r => r.met).length;
                     const totalCount = progress.results.length;
@@ -559,6 +589,7 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
                 </tbody>
               </table>
             </div>
+            )}
           </div>
         </>
       )}
@@ -572,6 +603,7 @@ export const LICENSING_STUCK_DAYS = 10;
 
 export function TeamLicensingSubView({ members, loadingMembers, memberLabel, emptyMessage }) {
   const [rows, setRows] = useState(null);
+  const [q] = usePeopleSearch();
   const refresh = useCallback(async () => {
     if (!members.length) { setRows([]); return; }
     setRows(null);
@@ -599,6 +631,8 @@ export function TeamLicensingSubView({ members, loadingMembers, memberLabel, emp
   const recent = rows.filter(r => r.st.licensed && r.person.licensed_at && daysBetween(r.person.licensed_at, new Date()) <= 90 && r.person.created_at);
   const avgDays = recent.length ? Math.round(recent.reduce((t, r) => t + daysBetween(r.person.created_at, r.person.licensed_at), 0) / recent.length) : null;
   const stuck = open.filter(r => r.stuck).length;
+  const openShown = open.filter(r => personMatches(r.member, q));
+  const recentShown = recent.filter(r => personMatches(r.member, q));
 
   return (
     <>
@@ -612,15 +646,18 @@ export function TeamLicensingSubView({ members, loadingMembers, memberLabel, emp
         <span><strong>{examsSoon}</strong> exam{examsSoon === 1 ? '' : 's'} in the next 7 days</span>
         <span>{avgDays != null ? <><strong>{avgDays} days</strong> to licensed on average (last 90 days)</> : 'Days to licensed: not enough data yet'}</span>
       </div>
+      <PeopleToolbar total={open.length} matched={openShown.length} />
       {open.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">Everyone here is licensed and appointed. 🎉</p></div>
+      ) : openShown.length === 0 ? (
+        <div className="tr-card"><NoMatches /></div>
       ) : (
         <div className="tr-card tr-summary-card">
           <div className="tr-table-wrap">
             <table className="tr-table tr-table-summary">
               <thead><tr><th>{memberLabel}</th><th>Progress</th><th>Next step</th><th>Exam</th><th>Status</th></tr></thead>
               <tbody>
-                {open.map(r => (
+                {openShown.map(r => (
                   <tr key={r.member.id}>
                     <td>{r.member.display_name}<MemberSubline member={r.member} /></td>
                     <td>
@@ -639,11 +676,11 @@ export function TeamLicensingSubView({ members, loadingMembers, memberLabel, emp
           </div>
         </div>
       )}
-      {recent.length > 0 && (
+      {recentShown.length > 0 && (
         <div className="tr-card tr-lic-recent">
           <h3 className="tr-h3" style={{ marginTop: 0 }}>Licensed in the last 90 days</h3>
           <ul className="tr-promo-list" style={{ marginLeft: 0 }}>
-            {recent.map(r => <li key={r.member.id}><span><strong>{r.member.display_name}</strong> · {daysBetween(r.person.created_at, r.person.licensed_at)} days from joining</span></li>)}
+            {recentShown.map(r => <li key={r.member.id}><span><strong>{r.member.display_name}</strong> · {daysBetween(r.person.created_at, r.person.licensed_at)} days from joining</span></li>)}
           </ul>
         </div>
       )}

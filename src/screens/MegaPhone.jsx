@@ -14,6 +14,7 @@ import { Avatar, useAvatars } from '../components/avatar.jsx';
 import { SkelBlock } from '../components/ui.jsx';
 import { AnnText, ConfirmRow } from '../components/announcements.jsx';
 import { isAdmin as isAdminRole } from '../lib/roles.js';
+import { askConfirm } from '../components/confirm.jsx';
 
 export const MEGAPHONE_ABOUT = 'Announcements from super admins. Everyone can read them here; only super admins post.';
 const COLORS = ['#2D68A8', '#6B51A0', '#2E7D5B', '#A0522D', '#8E6B1F', '#24548A', '#7A3E5C'];
@@ -43,7 +44,7 @@ function Composer({ editing, onSaved, onCancel }) {
     onSaved(res.record, !editing);
   }
   async function remove() {
-    if (!window.confirm(`Delete "${editing.title}" for good, with who confirmed it? To just take it off Today, use End now instead.`)) return;
+    if (!(await askConfirm({ title: `Delete "${editing.title}" for good?`, body: 'Who confirmed it is deleted too. To just take it off Today, use End now instead.', confirmLabel: 'Delete for good', danger: true }))) return;
     setBusy(true);
     const ok = await deleteAnnouncement(editing.id);
     setBusy(false);
@@ -164,7 +165,7 @@ export function MegaPhoneRoom({ user, isPhone, onBack }) {
   const ordered = [...live, ...past];
 
   async function end(a) {
-    if (!window.confirm(`End "${a.title}" now? It comes off everyone's Today page and stays here in MegaPhone.`)) return;
+    if (!(await askConfirm({ title: `End "${a.title}" now?`, body: "It comes off everyone's Today page and stays here in MegaPhone.", confirmLabel: 'End now' }))) return;
     setErr('');
     if (await endAnnouncement(a.id)) setFlash(`Ended "${a.title}".`);
     else setErr("Couldn't end it. Check your connection and try again.");

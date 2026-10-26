@@ -7,7 +7,7 @@ import { checkAppointmentConflict } from '../schedule.js';
 import { DATE_SET_OPTIONS, dateSetMeta, defaultDateSetOption } from '../lib/pace.js';
 import { addMinutesToDateTime, addMinutesToTime, apptEndMs, apptStartMs, detectTimezone, durationLabel, fmtApptDateTime, fmtClockRange, fmtDisplayDate, fmtFollowUpDateTime, minutesBetweenTimes, parseDate, shiftWeekStr, timezoneOptionsWithDetected, todayStr, weekStartOf } from '../lib/dates.js';
 import { downloadCSV, fmtCurrency, isValidEmail } from '../lib/format.js';
-import { addPolicyNote, applyFollowUpToList, DEFAULT_APPT_MINUTES, deleteAppointmentRow, fetchAppointmentsImPresenting, fetchMyAppointments, fetchPolicyNotes, fetchSoldPolicies, fetchZoomConnectedManagers, insertAppointment, inviteFailureMessage, isPastAppointment, isPolicyIssued, isRecruitType, isSaleType, ISSUED_PREMIUM_VIEW, markInviteSent, persistFollowUp, SOLD_PREMIUM_VIEW, STATUS_OPTIONS, typeLabel, updateAppointment, updatePolicyFields, updateTeamAppointment } from '../data/appointments.js';
+import { addPolicyNote, applyFollowUpToList, DEFAULT_APPT_MINUTES, fetchAppointmentsImPresenting, fetchMyAppointments, fetchPolicyNotes, fetchSoldPolicies, fetchZoomConnectedManagers, insertAppointment, inviteFailureMessage, isPastAppointment, isPolicyIssued, isRecruitType, isSaleType, ISSUED_PREMIUM_VIEW, markInviteSent, persistFollowUp, SOLD_PREMIUM_VIEW, STATUS_OPTIONS, typeLabel, updateAppointment, updatePolicyFields, updateTeamAppointment } from '../data/appointments.js';
 import { ALL_CHARACTERISTICS, fetchMyProspects, insertProspect, LEANING_LABELS, normName, prospectLeaningKey, prospectNameKey, prospectTotalChecked } from '../data/prospects.js';
 import { fetchOrgDirectory } from '../data/team.js';
 import { createZoomMeeting, fetchZoomConnectionStatus, pushAppointmentToGoogleCalendar, sendAppointmentInviteEmail, startZoomConnect, updateAppointmentZoomUrl } from '../data/integrations.js';
@@ -16,7 +16,7 @@ import { MyCoachingNotes, PaceStrip, PaceTrend, PersonalBests } from '../compone
 import { ZoomNudge } from '../components/integrations.jsx';
 import { FollowUpModal } from '../components/followUpModal.jsx';
 import { appointmentTexts, CallButton, TextButton } from '../components/contact.jsx';
-import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../components/appointmentPanel.jsx';
+import { applyAppointmentEdit, deleteAppointmentWithUndo, openAppointment, useAppointmentEdits } from '../components/appointmentPanel.jsx';
 import { IntakeStatusRow, sendIntakeAfterBooking } from '../components/intakePanel.jsx';
 import { isValidPhone } from '../lib/phone.js';
 import { OpenTimes } from '../components/openTimes.jsx';
@@ -1039,12 +1039,7 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
   }
   async function handleDelete(id) {
     const target = appointments.find(a => a.id === id);
-    const label = target ? `the appointment with ${target.client}` : 'this appointment';
-    if (!window.confirm(`Delete ${label}? This can't be undone.`)) return;
-    const prev = appointments;
-    setAppointments(appointments.filter(a => a.id !== id));
-    const ok = await deleteAppointmentRow(id);
-    if (!ok) setAppointments(prev);
+    if (target) await deleteAppointmentWithUndo(target);
   }
   async function handleSaveFollowUp(id, data) {
     setFollowUpSaving(true);
