@@ -4,9 +4,9 @@
 -- week (for example Mon-Thu 6-9 PM and Sat 10 AM-2 PM), how long a
 -- presentation runs, and a few rules (how much notice, how far ahead, a
 -- break between). From then on PaceLedger works out their open times by
--- itself: their hours, minus every appointment they're already in (booked,
--- presenting or sitting in as the trainee) and every time they've blocked
--- out. When an advisor logs an appointment with them, the form shows those
+-- itself: their hours, minus every appointment they're already presenting
+-- and every time they've blocked out (sitting in on a training doesn't
+-- count). When an advisor logs an appointment with them, the form shows those
 -- open times to tap. Nobody keeps a calendar up to date by hand.
 --
 -- What other people see: only which times are open. Never what someone is
@@ -68,14 +68,15 @@ grant select on public.presenter_settings, public.presenter_hours to authenticat
 
 -- Looking up someone's busy times quickly.
 create index if not exists appointments_presenter_at_idx on public.appointments (presenter_id, appointment_at) where presenter_id is not null;
-create index if not exists appointments_trainee_at_idx on public.appointments (trainee_id, appointment_at) where trainee_id is not null;
-create index if not exists appointments_user_at_idx on public.appointments (user_id, appointment_at);
+create index if not exists appointments_user_at_idx on public.appointments (user_id, appointment_at) where presenter_id is null;
 create index if not exists manager_availability_blocks_user_start_idx on public.manager_availability_blocks (user_id, start_at);
 
 -- 2) When someone is busy ----------------------------------------------------------
--- Every appointment they're in (booked it, presenting, or the trainee), and
--- every time they've blocked out, that overlaps [p_from, p_to). The same
--- rules as the double-booking check (check_appointment_conflict). Old rows
+-- Every appointment they're presenting, and every time they've blocked out,
+-- that overlaps [p_from, p_to). Sitting in on a training (the trainee) or
+-- booking one for someone else to present doesn't take up their time; old
+-- rows with no presenter count for the person who booked them. The same
+-- rules as the double-booking check (migration-trainings-dont-block.sql). Old rows
 -- from before time zones are read in the presenter's time zone. Only for
 -- the functions below; nobody can call it directly.
 create or replace function public.pl_presenter_busy(p_presenter uuid, p_from timestamptz, p_to timestamptz, p_exclude uuid default null)
@@ -90,7 +91,7 @@ as $$
    cross join tz
    cross join lateral (select coalesce(x.appointment_at, (x.appointment_date + x.appointment_time) at time zone coalesce(x.appointment_timezone, tz.name)) as s) b
    cross join lateral (select b.s, b.s + make_interval(mins => coalesce(x.duration_minutes, 30)) as e) t
-   where (x.presenter_id = p_presenter or x.user_id = p_presenter or x.trainee_id = p_presenter)
+   where (x.presenter_id = p_presenter or (x.presenter_id is null and x.user_id = p_presenter))
      and (p_exclude is null or x.id <> p_exclude)
      and (x.appointment_at is null or (x.appointment_at < p_to and x.appointment_at > p_from - interval '13 hours'))
      and t.s < p_to and t.e > p_from
