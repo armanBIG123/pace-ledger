@@ -193,6 +193,20 @@ export function agentStage({ agreements, kase, settings, writingNumber }) {
   return 'send';
 }
 
+// Agents who were contracting before it moved into PaceLedger, with nothing
+// started here yet:
+//   'outside'  already appointed, or submitted their profile in InsuraCloud:
+//              steps 6 and 7 show as done.
+//   'moved'    got an InsuraCloud link but never submitted there: they sign
+//              the agreement here.
+export function earlierContracting({ stage, kase, progress, writingNumber }) {
+  if (stage !== 'sign' || (kase && kase.info_sent_at)) return null;
+  const p = progress || {};
+  if (writingNumber || p.profile_submitted_on) return 'outside';
+  if (p.contracting_sent_on) return 'moved';
+  return null;
+}
+
 export function timeLeft(expiresAt, now = Date.now()) {
   const ms = new Date(expiresAt).getTime() - now;
   if (!(ms > 0)) return '0m';
