@@ -237,7 +237,7 @@ export function LicensingTracker({ user, profile }) {
   const raw = progress || {};
   const earlier = inApp ? earlierContracting({ stage, kase: ct.kase, progress: raw, writingNumber: profile.fg_writing_number }) : null;
   const outside = earlier === 'outside';
-  // Got an InsuraCloud link but never submitted there: the agreement step
+  // Got a contracting link but never submitted: the agreement step
   // starts over here, so it isn't shown as done.
   const movedHere = earlier === 'moved';
   const p = movedHere ? { ...raw, contracting_sent_on: null } : raw;
@@ -275,7 +275,7 @@ export function LicensingTracker({ user, profile }) {
       if (signedAgreement) return <span>Signed {fmtDay(signedAgreement.agent_signed_at)} · countersigned {fmtDay(signedAgreement.countersigned_at)}</span>;
       if (stage === 'countersign') return <span><strong>Signed.</strong> Waiting for BIG to countersign; your contracting form opens right after.</span>;
       if (outside) return <span>{p.contracting_sent_on ? `Done ${fmtShortDate(p.contracting_sent_on)}` : 'Done'}</span>;
-      if (movedHere) return <span>Contracting moved from InsuraCloud into PaceLedger. Sign your producer agreement here: about 3 minutes. Then you'll send your info here too.</span>;
+      if (movedHere) return <span>Contracting happens right here in PaceLedger now. Sign your producer agreement: about 3 minutes. Then you'll send your info here too.</span>;
       return <span>Sign it right here: about 3 minutes. Your name, email and today's date are filled in for you.</span>;
     }
     if (key === 'profileSubmitted') {
@@ -338,15 +338,15 @@ export function LicensingTracker({ user, profile }) {
       case 'insuracloud':
         return st.done.insuracloud
           ? <span>{p.contracting_sent_on ? `Sent ${fmtShortDate(p.contracting_sent_on)}` : 'Done'}</span>
-          : <span>Once you have your NPN, your manager sends you a link to InsuraCloud, our contracting hub. Tell them when your NPN is in.</span>;
+          : <span>Once you have your NPN, your manager sends you a link to set up your contracting. Tell them when your NPN is in.</span>;
       case 'profileSubmitted':
         return st.done.profileSubmitted
           ? <span>{p.profile_submitted_on ? `Submitted ${fmtShortDate(p.profile_submitted_on)}` : 'Done'}</span>
-          : <span>Open the InsuraCloud link, fill in your profile and submit it.</span>;
+          : <span>Open the contracting link, fill in your profile and submit it.</span>;
       case 'appointed':
         return st.done.appointed ? <span>On file</span>
           : numberDue ? <span>Usually arrives within {WRITING_NUMBER_BUSINESS_DAYS} business days of your profile, so by <strong>{fmtShortDate(numberDue)}</strong>. Add it below when it comes.</span>
-          : <span>Arrives within {WRITING_NUMBER_BUSINESS_DAYS} business days of submitting your InsuraCloud profile. Add it below.</span>;
+          : <span>Arrives within {WRITING_NUMBER_BUSINESS_DAYS} business days of submitting your contracting profile. Add it below.</span>;
       default: return null;
     }
   }
