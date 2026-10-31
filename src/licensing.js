@@ -34,6 +34,35 @@ const LEADER_STEP = {
 };
 export const leaderStepText = step => (step ? LEADER_STEP[step.key] || step.title : '');
 
+// Contracting in PaceLedger (Profiles -> Contracting -> Setup -> Turn it on)
+// replaces InsuraCloud. The same two steps keep their place on the path:
+// the producer agreement where the InsuraCloud invite was, and sending the
+// contracting info where the profile was. Their dates are filled in by the
+// database when the agreement is countersigned and the info is sent, so
+// every screen that reads this path keeps working.
+const STEP_WORDS = {
+  insuracloud: {
+    old: { title: 'Get your InsuraCloud invite from your manager', short: 'InsuraCloud sent', leader: 'Send them the InsuraCloud link' },
+    app: { title: 'Sign your producer agreement', short: 'Agreement signed', leader: 'Have them sign their producer agreement' },
+  },
+  profileSubmitted: {
+    old: { title: 'Submit your InsuraCloud profile', short: 'Profile submitted', leader: 'Submit their InsuraCloud profile' },
+    app: { title: 'Send your contracting info', short: 'Info sent', leader: 'Have them send their contracting info' },
+  },
+};
+let inApp = false;
+export const contractingInApp = () => inApp;
+export function setContractingInApp(on) {
+  inApp = !!on;
+  for (const s of LICENSING_STEPS) {
+    const w = STEP_WORDS[s.key];
+    if (!w) continue;
+    const pick = inApp ? w.app : w.old;
+    s.title = pick.title; s.short = pick.short;
+    LEADER_STEP[s.key] = pick.leader;
+  }
+}
+
 // The F&G writing number usually arrives within this many business days of
 // the InsuraCloud profile being submitted.
 export const WRITING_NUMBER_BUSINESS_DAYS = 2;

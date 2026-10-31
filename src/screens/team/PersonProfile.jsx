@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Building2, ChevronLeft, Circle, CircleDot, CheckCircle2, Flag, Pencil } from 'lucide-react';
 import { adminUpdateLicensing, clearPersonFlag, setPersonFlag } from '../../data/adminProfiles.js';
-import { LICENSING_STEPS } from '../../licensing.js';
+import { contractingInApp, LICENSING_STEPS } from '../../licensing.js';
 import { hierarchyTierLabel } from '../../hierarchy.js';
 import { personInitials } from '../../lib/format.js';
 import { entityProgress, PERSON_STEP_TEXT, personProgress, personStepDetail } from '../../lib/profiles.js';
@@ -11,7 +11,7 @@ import { Avatar } from '../../components/avatar.jsx';
 import { FlagBar, FlagDialog, LagBadge, NotesCard, PersonDots, stampDate } from './profileParts.jsx';
 import { roleLabel } from '../../lib/roles.js';
 
-const PERSON_REASONS = ['Not responding', 'Waiting on the exam', 'Waiting on InsuraCloud', 'Waiting on the carrier', 'Needs help from their upline'];
+const personReasons = () => ['Not responding', 'Waiting on the exam', contractingInApp() ? 'Waiting on contracting' : 'Waiting on InsuraCloud', 'Waiting on the carrier', 'Needs help from their upline'];
 // The editable fields behind the 8 steps, in order.
 const EDIT_FIELDS = [
   ['course_started_on', 'Course started', 'date'], ['course_completed_on', 'Course finished', 'date'],
@@ -19,6 +19,7 @@ const EDIT_FIELDS = [
   ['npn', 'NPN (license number)', 'text'], ['contracting_sent_on', 'InsuraCloud sent', 'date'],
   ['profile_submitted_on', 'InsuraCloud profile submitted', 'date'], ['fg_writing_number', 'F&G writing number', 'text'],
 ];
+const fieldLabel = (k, label) => (!contractingInApp() ? label : k === 'contracting_sent_on' ? 'Agreement countersigned' : k === 'profile_submitted_on' ? 'Contracting info sent' : label);
 
 export function PersonProfile({ person, progress, flag, people, entities, checksOf, photo, backLabel = 'Back', onBack, onOpenEntity, onChanged, onFlagChanged }) {
   const [flagging, setFlagging] = useState(false);
@@ -110,7 +111,7 @@ export function PersonProfile({ person, progress, flag, people, entities, checks
               <div className="tr-form-grid">
                 {EDIT_FIELDS.map(([k, label, type]) => (
                   <label key={k} className="tr-field">
-                    <span>{label}</span>
+                    <span>{fieldLabel(k, label)}</span>
                     <input type={type} value={form[k] || ''} onChange={e => { setForm(prev => ({ ...prev, [k]: e.target.value })); setErr(''); }}
                       {...(type === 'text' ? { autoComplete: 'off', maxLength: k === 'npn' ? 20 : 40, inputMode: k === 'npn' ? 'numeric' : undefined } : {})} />
                   </label>
@@ -152,7 +153,7 @@ export function PersonProfile({ person, progress, flag, people, entities, checks
         </div>
       </div>
 
-      {flagging ? <FlagDialog title={`Flag ${person.display_name}`} current={flag ? flag.reason : ''} reasons={PERSON_REASONS} onSave={saveFlag} onClear={clearFlag} onClose={() => setFlagging(false)} /> : null}
+      {flagging ? <FlagDialog title={`Flag ${person.display_name}`} current={flag ? flag.reason : ''} reasons={personReasons()} onSave={saveFlag} onClear={clearFlag} onClose={() => setFlagging(false)} /> : null}
     </div>
   );
 }

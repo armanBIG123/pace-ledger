@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Award, ChevronRight, Mail } from 'lucide-react';
-import { fetchLicensingForUsers, markContractingStep } from '../../licensing.js';
+import { contractingInApp, fetchLicensingForUsers, markContractingStep } from '../../licensing.js';
 import { buildRecruitBoard, RECRUIT_STAGES, salesLookupIds } from '../../lib/recruits.js';
 import { todayStr } from '../../lib/dates.js';
 import { fetchHierarchyPeople } from '../../data/team.js';
@@ -77,6 +77,15 @@ export function RecruitsSubView({ user, members, loadingMembers, emptyMessage })
         `Hi ${first(p.display_name)},\n\nHow's licensing going? ${r.detail} Is there anything I can help with to get you to the next step?\n\n${me}`);
       return r.flag ? { main: { label: 'Email', Icon: Mail, onClick: run }, more: [] } : { main: null, more: [{ label: `Email ${first(p.display_name)}`, onClick: run }] };
     }
+    if (r.stage === 'contracting' && (r.step === 'agreement' || r.step === 'info')) {
+      // Contracting in PaceLedger: the agent does these steps; nothing to mark.
+      const agreement = r.step === 'agreement';
+      return {
+        main: null,
+        more: p.email ? [{ label: 'Email a reminder', onClick: email(p.email, p.display_name, agreement ? 'Sign your producer agreement' : 'Send your contracting info',
+          `Hi ${first(p.display_name)},\n\nQuick reminder to ${agreement ? 'sign your producer agreement' : 'send your contracting info'} in PaceLedger: Growth → Licensing. It only takes a few minutes, and it's the next step to getting appointed.\n\n${me}`) }] : [],
+      };
+    }
     if (r.stage === 'contracting' && r.step === 'send') {
       return { main: markBtn('Mark link sent', 'sent', `Marked the InsuraCloud link as sent to ${p.display_name}.`, true), more: [] };
     }
@@ -93,8 +102,8 @@ export function RecruitsSubView({ user, members, loadingMembers, emptyMessage })
     if (r.stage === 'contracting' && r.step === 'number') {
       return {
         main: r.flag === 'late' ? { label: 'Email agency', gold: true, onClick: email(AGENCY_EMAIL, 'Agency', `F&G writing number for ${p.display_name}`,
-          `Hi,\n\n${p.display_name} submitted their InsuraCloud profile on ${fmtLong(r.pr.profile_submitted_on)} and hasn't received their F&G writing number yet.\n\nNPN: ${p.npn || 'on file in PaceLedger'}\n\nCould you check on it?\n\nThanks,\n${me}`) } : null,
-        more: [{ label: 'Undo "profile submitted"', disabled: busy, onClick: () => mark(r, 'unsubmitted', 'Undone.') }],
+          `Hi,\n\n${p.display_name} ${contractingInApp() ? 'sent their contracting info' : 'submitted their InsuraCloud profile'} on ${fmtLong(r.pr.profile_submitted_on)} and hasn't received their F&G writing number yet.\n\nNPN: ${p.npn || 'on file in PaceLedger'}\n\nCould you check on it?\n\nThanks,\n${me}`) } : null,
+        more: contractingInApp() ? [] : [{ label: 'Undo "profile submitted"', disabled: busy, onClick: () => mark(r, 'unsubmitted', 'Undone.') }],
       };
     }
     if (r.stage === 'ready') {
@@ -123,7 +132,7 @@ export function RecruitsSubView({ user, members, loadingMembers, emptyMessage })
   return (
     <>
       <div className="tr-row-head tr-screen-head">
-        <TitleInfo title="Recruits" info={<>Every new person's path from invite to first sale. Anyone who needs you is at the top. A writing number counts as late 2 business days after the InsuraCloud profile is submitted. "Email agency" writes to {AGENCY_EMAIL}.</>} />
+        <TitleInfo title="Recruits" info={<>Every new person's path from invite to first sale. Anyone who needs you is at the top. A writing number counts as late 2 business days after {contractingInApp() ? 'the contracting info is sent' : 'the InsuraCloud profile is submitted'}. "Email agency" writes to {AGENCY_EMAIL}.</>} />
         <RefreshButton onClick={refresh} />
       </div>
       {data.missingSetup && <div className="tr-error" style={{ marginBottom: 12 }}>Sign-up links and InsuraCloud steps show here once the database update (migration-recruits-field-training.sql) has been run.</div>}

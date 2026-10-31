@@ -1,7 +1,7 @@
 // Pieces of Growth (My work → Growth): your level and path, progress to the next level, the promotion ladder, licensing tracker and incentives.
 import { useCallback, useEffect, useState } from 'react';
 import { Check, Pencil } from 'lucide-react';
-import { addBusinessDays, daysBetween, examWhen, fetchLicensingProgress, LICENSING_STEPS, licensingStatus, saveLicensingProgress, US_STATES, WRITING_NUMBER_BUSINESS_DAYS } from '../licensing.js';
+import { addBusinessDays, contractingInApp, daysBetween, examWhen, fetchLicensingProgress, LICENSING_STEPS, licensingStatus, saveLicensingProgress, US_STATES, WRITING_NUMBER_BUSINESS_DAYS } from '../licensing.js';
 import { computeDownline, computeReadiness, computeTierProgress, HIERARCHY_TIER_WINDOW_LABELS, HIERARCHY_TIERS, isLicensed, nextTierAfter } from '../hierarchy.js';
 import { fmtShortDate, todayStr, weekStartOf } from '../lib/dates.js';
 import { DATE_SET_OPTIONS, getStatus, WEEKLY_TOTAL_TARGET } from '../lib/pace.js';
@@ -12,6 +12,10 @@ import { lowerFirst } from '../lib/format.js';
 import { fetchAppointmentsAsTrainee, fetchAppointmentsForUserIds, fetchAppointmentsImPresenting, fetchMyAppointments } from '../data/appointments.js';
 import { fetchHierarchyPeople, fetchMyLicensing, saveLicensing } from '../data/team.js';
 import { PageHead, RefreshButton, SkeletonCards } from '../components/ui.jsx';
+import { AgreementHistory, AgreementSheet, ContractingFormSheet, contractingChanged, useMyContracting } from '../components/contracting.jsx';
+import { askConfirm } from '../components/confirm.jsx';
+import { contractingWords, withdrawContractingInfo } from '../data/contracting.js';
+import { agentStage, fmtDay, fmtWhen } from '../lib/contracting.js';
 
 // The career ladder: one rung per tier, top of the ladder first. Rungs
 // already reached are marked done, your current one is highlighted, and the
@@ -209,21 +213,32 @@ export function IncentivesBody() {
 }
 
 export function LicensingTracker({ user, profile }) {
+  const inApp = contractingInApp();
+  const [ct, reloadCt] = useMyContracting(user, inApp);
+  const [sheet, setSheet] = useState(null); // 'agreement' | 'form'
   const [progress, setProgress] = useState(undefined);
   const [provider, setProvider] = useState('');
   const [examDate, setExamDate] = useState('');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
+  const loadProgress = useCallback(() => fetchLicensingProgress(user.id).then(r => {
+    const row = r && !r.error ? r : null;
+    setProgress(row);
+    setProvider((row && row.course_provider) || '');
+    setExamDate((row && row.exam_on) || '');
+  }), [user.id]);
   useEffect(() => {
-    fetchLicensingProgress(user.id).then(r => {
-      const row = r && !r.error ? r : null;
-      setProgress(row);
-      setProvider((row && row.course_provider) || '');
-      setExamDate((row && row.exam_on) || '');
-    });
-  }, [user.id]);
-  if (progress === undefined) return <SkeletonCards count={1} />;
-  const p = progress || {};
+    loadProgress();
+    window.addEventListener('paceledger:contracting-changed', loadProgress);
+    return () => window.removeEventListener('paceledger:contracting-changed', loadProgress);
+  }, [loadProgress]);
+  if (progress === undefined || (inApp && !ct)) return <SkeletonCards count={1} />;
+  const stage = inApp ? agentStage({ agreements: ct.agreements, kase: ct.kase, settings: ct.settings, writingNumber: profile.fg_writing_number }) : '';
+  const raw = progress || {};
+  // Got an InsuraCloud link but never submitted there: the agreement step
+  // starts over here, so it isn't shown as done.
+  const movedHere = inApp && stage === 'sign' && !!raw.contracting_sent_on && !raw.profile_submitted_on;
+  const p = movedHere ? { ...raw, contracting_sent_on: null } : raw;
   const st = licensingStatus(p, profile);
   const today = todayStr();
   const joinedDays = user.createdAt ? daysBetween(user.createdAt, new Date()) + 1 : null;
@@ -241,10 +256,64 @@ export function LicensingTracker({ user, profile }) {
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   const derived = k => ((k === 'course' || k === 'courseDone' || k === 'examBooked' || k === 'examPassed') && (st.done.npn || st.licensed))
-    || ((k === 'insuracloud' || k === 'profileSubmitted') && st.licensed);
+    || ((k === 'insuracloud' || k === 'profileSubmitted') && (st.licensed || inApp));
+  // Contracting in PaceLedger: where they are, from what they've actually done.
+  const kase = (ct && ct.kase) || {};
+  const signedAgreement = inApp ? (ct.agreements || []).find(a => a.status === 'completed') : null;
+  async function withdraw() {
+    if (!(await askConfirm({ title: 'Withdraw your contracting info?', body: "It's deleted from PaceLedger right away. You can send it again any time.", confirmLabel: 'Withdraw and delete', danger: true }))) return;
+    setBusy('withdraw'); setError('');
+    const res = await withdrawContractingInfo();
+    setBusy('');
+    if (!res.ok) { setError(contractingWords(res.error)); return; }
+    contractingChanged();
+  }
+  // Started contracting in InsuraCloud before it moved here.
+  const viaInsuraCloud = inApp && !signedAgreement && !!p.profile_submitted_on && !kase.info_sent_at;
+  function contractingDetail(key) {
+    if (key === 'insuracloud') {
+      if (signedAgreement) return <span>Signed {fmtDay(signedAgreement.agent_signed_at)} · countersigned {fmtDay(signedAgreement.countersigned_at)}</span>;
+      if (stage === 'countersign') return <span><strong>Signed.</strong> Waiting for BIG to countersign; your contracting form opens right after.</span>;
+      if (viaInsuraCloud) return <span>Done in InsuraCloud{p.contracting_sent_on ? ` ${fmtShortDate(p.contracting_sent_on)}` : ''}.</span>;
+      if (movedHere) return <span>Contracting moved from InsuraCloud into PaceLedger. Sign your producer agreement here: about 3 minutes. Then you'll send your info here too.</span>;
+      return <span>Sign it right here: about 3 minutes. Your name, email and today's date are filled in for you.</span>;
+    }
+    if (key === 'profileSubmitted') {
+      if (viaInsuraCloud) return <span>Submitted in InsuraCloud {fmtShortDate(p.profile_submitted_on)}.</span>;
+      if (stage === 'waiting') return <span>Sent {fmtWhen(kase.info_sent_at)}. BIG is entering it in SureLC; it's deleted from PaceLedger by <strong>{fmtWhen(kase.expires_at)}</strong> at the latest.</span>;
+      if (kase.entered_at && kase.delete_reason === 'entered') return <span>Sent {fmtDay(kase.info_sent_at)} · entered in SureLC and deleted from PaceLedger {fmtDay(kase.entered_at)}.</span>;
+      if (kase.delete_reason === 'expired') return <span>Your info was deleted 72 hours after you sent it, before BIG got to it. Please send it again.</span>;
+      if (!signedAgreement) return <span>Opens once BIG countersigns your producer agreement.</span>;
+      if (ct.settings && ct.settings.paused) return <span>BIG paused the form for a moment. Check back soon.</span>;
+      return <span>Social Security number, banking, driver's license, E&amp;O, AML and background questions. Encrypted on your device; deleted from PaceLedger once BIG enters it in SureLC, and after 72 hours at most.</span>;
+    }
+    if (key === 'appointed') {
+      if (st.done.appointed) return <span>On file</span>;
+      if (viaInsuraCloud && numberDue) return <span>Usually arrives within {WRITING_NUMBER_BUSINESS_DAYS} business days of your profile, so by <strong>{fmtShortDate(numberDue)}</strong>. Add it below when it comes.</span>;
+      if (stage === 'entered') return <span>BIG entered your info in SureLC. Watch your email for a link from SureLC to review and sign.</span>;
+      if (stage === 'review') return <span><strong>Check your email:</strong> SureLC sent you a link to review and sign. Nothing goes to a carrier until you do.</span>;
+      if (stage === 'carrier') return <span>You signed in SureLC. BIG is sending it to the carrier.</span>;
+      if (stage === 'number') return <span>Sent to the carrier {fmtDay(kase.sent_to_carrier_at)}. Add your writing number below when it arrives.</span>;
+      return <span>Comes after you review and sign in SureLC and BIG sends it to the carrier. Add it below.</span>;
+    }
+    return null;
+  }
+  function contractingAction(key, isNext) {
+    if (key === 'insuracloud' && stage === 'sign' && isNext) {
+      return <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={() => setSheet('agreement')}>Sign your agreement</button>;
+    }
+    if (key === 'profileSubmitted' && stage === 'send' && isNext && !(ct.settings && ct.settings.paused)) {
+      return <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={() => setSheet('form')}>Fill out the form</button>;
+    }
+    if (key === 'profileSubmitted' && stage === 'waiting') {
+      return <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm tr-ct-withdraw" disabled={busy === 'withdraw'} onClick={withdraw}>Withdraw my info</button>;
+    }
+    return null;
+  }
   const numberDue = p.profile_submitted_on ? addBusinessDays(p.profile_submitted_on, WRITING_NUMBER_BUSINESS_DAYS) : null;
 
   function detail(step) {
+    if (inApp && (step.key === 'insuracloud' || step.key === 'profileSubmitted' || step.key === 'appointed')) return contractingDetail(step.key);
     switch (step.key) {
       case 'course':
         return st.done.course
@@ -283,6 +352,7 @@ export function LicensingTracker({ user, profile }) {
   }
   function action(step, isNext) {
     const k = step.key;
+    if (inApp && (k === 'insuracloud' || k === 'profileSubmitted')) return contractingAction(k, isNext);
     if (st.done[k]) {
       // Only the latest finished step can be undone (to fix a mis-tap).
       if (derived(k) || k === 'npn' || k === 'appointed' || LICENSING_STEPS.indexOf(step) !== st.nextIndex - 1) return null;
@@ -334,6 +404,7 @@ export function LicensingTracker({ user, profile }) {
   }
 
   return (
+    <>
     <div className="tr-card tr-lic-card">
       <div className="tr-row-head" style={{ marginBottom: 4 }}>
         <h3 className="tr-h3" style={{ margin: 0 }}>Your path to licensed</h3>
@@ -370,6 +441,10 @@ export function LicensingTracker({ user, profile }) {
       </ol>
       {error && <div className="tr-error" style={{ marginTop: 8 }}>{error}</div>}
     </div>
+    {inApp ? <AgreementHistory agreements={ct.agreements} /> : null}
+    {sheet === 'agreement' ? <AgreementSheet onClose={() => { setSheet(null); reloadCt(); loadProgress(); }} /> : null}
+    {sheet === 'form' ? <ContractingFormSheet user={user} settings={ct.settings} onClose={() => setSheet(null)} onSent={() => { setSheet(null); reloadCt(); loadProgress(); }} /> : null}
+    </>
   );
 }
 
