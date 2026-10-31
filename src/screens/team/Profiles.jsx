@@ -4,7 +4,7 @@
 // the step they're on and how long they've been there, so the lag is easy
 // to spot; flagged ones go to the top in red. Click one for its profile.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowUpDown, Building2, ChevronRight, Flag, Hourglass, Plus, Search, UserRound, X } from 'lucide-react';
+import { ArrowUpDown, Building2, ChevronRight, Flag, Hourglass, Plus, Search, ShieldCheck, UserRound, X } from 'lucide-react';
 import { addProfileNote, createEntity, fetchProfilesData, setEntityCheck } from '../../data/adminProfiles.js';
 import { fetchHierarchyPeople } from '../../data/team.js';
 import { fetchLicensingForUsers, LICENSING_STEPS } from '../../licensing.js';
@@ -16,12 +16,17 @@ import { SkeletonRows, TitleInfo } from '../../components/ui.jsx';
 import { EntityForm, EntitySegs, LagBadge, PersonDots } from './profileParts.jsx';
 import { EntityProfile } from './EntityProfile.jsx';
 import { PersonProfile } from './PersonProfile.jsx';
+import { lazyScreen } from '../../components/lazyScreen.jsx';
+import { fetchContractingCounts } from '../../data/contracting.js';
+
+// The contracting team's desk (behind two-step login), loaded only when opened.
+const ContractingBody = lazyScreen(() => import('./Contracting.jsx'), 'ContractingBody');
 
 const EMPTY_CHECKS = new Map();
 const remember = (k, v) => { try { sessionStorage.setItem(k, v); } catch { /* fine */ } };
 const recall = (k, d) => { try { return sessionStorage.getItem(k) || d; } catch { return d; } };
 
-export function ProfilesBody() {
+export function ProfilesBody({ user }) {
   const [view, setView] = useState(() => recall('pl_profiles_view', 'people'));
   const [people, setPeople] = useState(null);
   const [progress, setProgress] = useState(new Map());
@@ -33,7 +38,11 @@ export function ProfilesBody() {
   const [sort, setSort] = useState('waiting');
   const [adding, setAdding] = useState(false);
   const [flash, setFlash] = useState('');
+  const [ctCount, setCtCount] = useState(null); // waiting for the contracting team, or null if not on it
   const avatars = useAvatars();
+  useEffect(() => {
+    fetchContractingCounts().then(r => setCtCount(r.ok && r.data ? (r.data.countersign || 0) + (r.data.to_enter || 0) : null));
+  }, [view]);
 
   const load = useCallback(async () => {
     const [list, d] = await Promise.all([fetchHierarchyPeople(), fetchProfilesData()]);
@@ -168,7 +177,9 @@ export function ProfilesBody() {
         <div className="tr-pf-tabs" role="tablist" aria-label="Profiles">
           <button type="button" role="tab" aria-selected={view === 'people'} className={view === 'people' ? 'tr-pf-tab-on' : ''} onClick={() => pickView('people')}><UserRound size={15} aria-hidden="true" /> Individuals <i>{peopleN}</i></button>
           <button type="button" role="tab" aria-selected={view === 'entities'} className={view === 'entities' ? 'tr-pf-tab-on' : ''} onClick={() => pickView('entities')}><Building2 size={15} aria-hidden="true" /> Entities <i>{entitiesN}</i></button>
+          <button type="button" role="tab" aria-selected={view === 'contracting'} className={view === 'contracting' ? 'tr-pf-tab-on' : ''} onClick={() => pickView('contracting')}><ShieldCheck size={15} aria-hidden="true" /> Contracting {ctCount ? <i className="tr-pf-tab-alert">{ctCount}</i> : null}</button>
         </div>
+        {view === 'contracting' ? null : <>
         <div className="tr-search-row tr-pf-search">
           <Search size={15} className="tr-search-icon" />
           <input className="tr-search-input" type="text" value={q} onChange={e => setQ(e.target.value)}
@@ -183,9 +194,10 @@ export function ProfilesBody() {
           </select>
         </label>
         {view === 'entities' ? <button type="button" className="tr-btn tr-btn-brass tr-pf-add" onClick={() => setAdding(true)}><Plus size={15} aria-hidden="true" /> Add entity</button> : null}
+        </>}
       </div>
 
-      {view === 'people' ? (
+      {view === 'contracting' ? <ContractingBody user={user} /> : view === 'people' ? (
         <>
           <div className="tr-pf-chips" role="group" aria-label="Show">
             {chip('people', 'all', 'Everyone', peopleCounts.all)}

@@ -10,6 +10,8 @@ import { AuthScreen, ResetPasswordScreen } from './screens/Auth.jsx';
 import { AdminView, AdvisorView, ManagerView } from './views/RoleViews.jsx';
 import { isAdmin } from './lib/roles.js';
 import { fetchSolarSystems } from './data/solarSystems.js';
+import { fetchContractingSettings } from './data/contracting.js';
+import { setContractingInApp } from './licensing.js';
 
 // The client intake form (opened from a link sent to a client) loads only
 // for that link.
@@ -144,9 +146,11 @@ export default function App() {
 
     setProfileLoading(true);
     setProfileError('');
-    Promise.all([supabase.from('profiles').select('*').eq('id', userId).single(), hasDirectReports(userId), fetchSolarSystems()])
-      .then(([{ data, error }, leads, systems]) => {
+    Promise.all([supabase.from('profiles').select('*').eq('id', userId).single(), hasDirectReports(userId), fetchSolarSystems(), fetchContractingSettings(true)])
+      .then(([{ data, error }, leads, systems, contracting]) => {
         if (cancelled) return;
+        // Contracting in PaceLedger, once a super admin turns it on (Profiles -> Contracting).
+        setContractingInApp(!!(contracting && contracting.enabled));
         if (error) setProfileError('Could not load your profile. Try refreshing the page.');
         setProfile(data ? { ...data, _leads: leads, _systems: systems } : null);
         setProfileLoading(false);

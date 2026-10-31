@@ -1,7 +1,7 @@
 // Team & admin → Profiles (super admins): the subsidiary checklist for
 // entities, and where each person is on the licensing and contracting
 // path. Pure functions, so they're easy to check.
-import { licensingStatus } from '../licensing.js';
+import { contractingInApp, licensingStatus } from '../licensing.js';
 import { fmtDate, todayStr } from './dates.js';
 
 // No progress for this many days = "Stalled".
@@ -141,11 +141,14 @@ export function entityNextText(entity, checks, step) {
 
 // ---- Individuals --------------------------------------------------------
 // The licensing and contracting path, as a super admin reads it.
-export const PERSON_STEP_TEXT = {
+const PERSON_STEP_BASE = {
   course: 'Start the pre-licensing course', courseDone: 'Finish the pre-licensing course', examBooked: 'Book the state exam',
   examPassed: 'Pass the state exam', npn: 'Get the license number (NPN)', insuracloud: 'Get the InsuraCloud invite',
   profileSubmitted: 'Submit the InsuraCloud profile', appointed: 'Get the F&G writing number',
 };
+// With contracting in PaceLedger, the two contracting steps read differently.
+const PERSON_STEP_APP = { insuracloud: 'Sign the producer agreement', profileSubmitted: 'Send their contracting info' };
+export const PERSON_STEP_TEXT = new Proxy(PERSON_STEP_BASE, { get: (t, k) => (contractingInApp() && PERSON_STEP_APP[k]) || t[k] });
 
 // Where a person is, and how long since their last step. Super admins
 // aren't tracked on this path (the same as the Org chart).
@@ -175,8 +178,8 @@ export function personNowText(person, progress, pp) {
     case 'examPassed': return p.exam_on ? `Exam ${pp.examAhead ? '' : 'was '}${short(p.exam_on)}${p.exam_attempts ? ` · attempt ${p.exam_attempts + 1}` : ''}` : '';
     case 'npn': return p.exam_passed_on ? `Passed the exam ${short(p.exam_passed_on)}` : '';
     case 'insuracloud': return person.npn ? `Licensed · NPN ${person.npn}` : '';
-    case 'profileSubmitted': return p.contracting_sent_on ? `InsuraCloud sent ${short(p.contracting_sent_on)}` : '';
-    case 'appointed': return p.profile_submitted_on ? `Profile submitted ${short(p.profile_submitted_on)}` : '';
+    case 'profileSubmitted': return p.contracting_sent_on ? `${contractingInApp() ? 'Agreement signed' : 'InsuraCloud sent'} ${short(p.contracting_sent_on)}` : '';
+    case 'appointed': return p.profile_submitted_on ? `${contractingInApp() ? 'Info sent' : 'Profile submitted'} ${short(p.profile_submitted_on)}` : '';
     default: return person.created_at ? `Joined ${short(person.created_at)}` : '';
   }
 }

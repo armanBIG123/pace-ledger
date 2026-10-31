@@ -1,6 +1,6 @@
 // Recruits board: where each new person is on the path from invite to
 // first sale, and what they (or their leader) need to do next.
-import { addBusinessDays, daysBetween, licensingStatus, WRITING_NUMBER_BUSINESS_DAYS } from '../licensing.js';
+import { addBusinessDays, contractingInApp, daysBetween, licensingStatus, WRITING_NUMBER_BUSINESS_DAYS } from '../licensing.js';
 import { tierAtLeast } from '../hierarchy.js';
 
 export const RECRUIT_STAGES = [
@@ -82,16 +82,20 @@ export function buildRecruitBoard({ members, progress, invites = [], sales = new
 
     if (st.done.npn) {
       if (!st.done.insuracloud) {
-        rows.push({ ...base, stage: 'contracting', step: 'send', detail: 'Has their NPN. Send them your InsuraCloud invite link, then mark it sent.', days: pr && pr.updated_at ? daysBetween(pr.updated_at, `${today}T12:00:00`) : null, flag: 'action', flagText: 'Send InsuraCloud link' });
+        rows.push(contractingInApp()
+          ? { ...base, stage: 'contracting', step: 'agreement', detail: 'Has their NPN. Next they sign their producer agreement in PaceLedger (Growth → Licensing).', days: pr && pr.updated_at ? daysBetween(pr.updated_at, `${today}T12:00:00`) : null, flag: 'action', flagText: 'Have them sign' }
+          : { ...base, stage: 'contracting', step: 'send', detail: 'Has their NPN. Send them your InsuraCloud invite link, then mark it sent.', days: pr && pr.updated_at ? daysBetween(pr.updated_at, `${today}T12:00:00`) : null, flag: 'action', flagText: 'Send InsuraCloud link' });
       } else if (!st.done.profileSubmitted) {
         const days = pr && pr.contracting_sent_on ? daysBetween(`${pr.contracting_sent_on}T12:00:00`, `${today}T12:00:00`) : null;
         const late = days != null && days >= PROFILE_NUDGE_DAYS;
-        rows.push({ ...base, stage: 'contracting', step: 'profile', detail: `InsuraCloud link sent${pr && pr.contracting_sent_on ? ` ${fmt(pr.contracting_sent_on)}` : ''}. Waiting on them to submit their profile.`, days, flag: late ? 'stuck' : null, flagText: late ? 'Nudge them' : '' });
+        rows.push({ ...base, stage: 'contracting', step: contractingInApp() ? 'info' : 'profile', detail: contractingInApp()
+          ? `Agreement countersigned${pr && pr.contracting_sent_on ? ` ${fmt(pr.contracting_sent_on)}` : ''}. Waiting on them to send their contracting info.`
+          : `InsuraCloud link sent${pr && pr.contracting_sent_on ? ` ${fmt(pr.contracting_sent_on)}` : ''}. Waiting on them to submit their profile.`, days, flag: late ? 'stuck' : null, flagText: late ? 'Nudge them' : '' });
       } else {
         const sub = pr.profile_submitted_on;
         const due = addBusinessDays(sub, WRITING_NUMBER_BUSINESS_DAYS);
         const late = today > due;
-        rows.push({ ...base, stage: 'contracting', step: 'number', due, detail: `Profile submitted ${fmt(sub)}. F&G writing number ${late ? `was due ${fmt(due)}` : `due by ${fmt(due)}`}.`, days: daysBetween(`${sub}T12:00:00`, `${today}T12:00:00`), flag: late ? 'late' : null, flagText: late ? 'Writing number late' : '' });
+        rows.push({ ...base, stage: 'contracting', step: 'number', due, detail: `${contractingInApp() ? 'Contracting info sent' : 'Profile submitted'} ${fmt(sub)}. F&G writing number ${late ? `was due ${fmt(due)}` : `due by ${fmt(due)}`}.`, days: daysBetween(`${sub}T12:00:00`, `${today}T12:00:00`), flag: late ? 'late' : null, flagText: late ? 'Writing number late' : '' });
       }
       return;
     }

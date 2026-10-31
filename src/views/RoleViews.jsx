@@ -248,7 +248,7 @@ export function AdminView({ user }) {
         <Screens id={`${group}:${tab}`}>
           <MyWorkScreens user={user} nav={nav} />
           <TeamScreens user={user} nav={nav} />
-          {tab === 'profiles' && isGalaxyAdmin(user) && <ProfilesBody />}
+          {tab === 'profiles' && isGalaxyAdmin(user) && <ProfilesBody user={user} />}
           {tab === 'clientforms' && <ClientFormsBody />}
           {tab === 'users' && <ManageUsersView user={user} currentUserId={user.id} currentUserName={user.displayName} />}
         </Screens>
