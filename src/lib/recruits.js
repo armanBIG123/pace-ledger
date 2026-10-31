@@ -6,7 +6,7 @@ import { tierAtLeast } from '../hierarchy.js';
 export const RECRUIT_STAGES = [
   { key: 'invited', label: 'Invited', hint: 'Has a sign-up link, not joined yet' },
   { key: 'licensing', label: 'Getting licensed', hint: 'Course and state exam' },
-  { key: 'contracting', label: 'Contracting', hint: 'InsuraCloud and the F&G writing number' },
+  { key: 'contracting', label: 'Contracting', hint: 'Contracting and the F&G writing number' },
   { key: 'ready', label: 'Ready to sell', hint: 'Licensed and appointed, no sale yet' },
   { key: 'firstsale', label: 'First sale', hint: 'In the last 30 days' },
 ];
@@ -84,13 +84,13 @@ export function buildRecruitBoard({ members, progress, invites = [], sales = new
       if (!st.done.insuracloud) {
         rows.push(contractingInApp()
           ? { ...base, stage: 'contracting', step: 'agreement', detail: 'Has their NPN. Next they sign their producer agreement in PaceLedger (Growth → Licensing).', days: pr && pr.updated_at ? daysBetween(pr.updated_at, `${today}T12:00:00`) : null, flag: 'action', flagText: 'Have them sign' }
-          : { ...base, stage: 'contracting', step: 'send', detail: 'Has their NPN. Send them your InsuraCloud invite link, then mark it sent.', days: pr && pr.updated_at ? daysBetween(pr.updated_at, `${today}T12:00:00`) : null, flag: 'action', flagText: 'Send InsuraCloud link' });
+          : { ...base, stage: 'contracting', step: 'send', detail: 'Has their NPN. Send them the contracting link, then mark it sent.', days: pr && pr.updated_at ? daysBetween(pr.updated_at, `${today}T12:00:00`) : null, flag: 'action', flagText: 'Send contracting link' });
       } else if (!st.done.profileSubmitted) {
         const days = pr && pr.contracting_sent_on ? daysBetween(`${pr.contracting_sent_on}T12:00:00`, `${today}T12:00:00`) : null;
         const late = days != null && days >= PROFILE_NUDGE_DAYS;
         rows.push({ ...base, stage: 'contracting', step: contractingInApp() ? 'info' : 'profile', detail: contractingInApp()
           ? `Agreement countersigned${pr && pr.contracting_sent_on ? ` ${fmt(pr.contracting_sent_on)}` : ''}. Waiting on them to send their contracting info.`
-          : `InsuraCloud link sent${pr && pr.contracting_sent_on ? ` ${fmt(pr.contracting_sent_on)}` : ''}. Waiting on them to submit their profile.`, days, flag: late ? 'stuck' : null, flagText: late ? 'Nudge them' : '' });
+          : `Contracting link sent${pr && pr.contracting_sent_on ? ` ${fmt(pr.contracting_sent_on)}` : ''}. Waiting on them to submit their profile.`, days, flag: late ? 'stuck' : null, flagText: late ? 'Nudge them' : '' });
       } else {
         const sub = pr.profile_submitted_on;
         const due = addBusinessDays(sub, WRITING_NUMBER_BUSINESS_DAYS);

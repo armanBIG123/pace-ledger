@@ -143,8 +143,8 @@ export function entityNextText(entity, checks, step) {
 // The licensing and contracting path, as a super admin reads it.
 const PERSON_STEP_BASE = {
   course: 'Start the pre-licensing course', courseDone: 'Finish the pre-licensing course', examBooked: 'Book the state exam',
-  examPassed: 'Pass the state exam', npn: 'Get the license number (NPN)', insuracloud: 'Get the InsuraCloud invite',
-  profileSubmitted: 'Submit the InsuraCloud profile', appointed: 'Get the F&G writing number',
+  examPassed: 'Pass the state exam', npn: 'Get the license number (NPN)', insuracloud: 'Get the contracting link',
+  profileSubmitted: 'Submit the contracting profile', appointed: 'Get the F&G writing number',
 };
 // With contracting in PaceLedger, the two contracting steps read differently.
 const PERSON_STEP_APP = { insuracloud: 'Sign the producer agreement', profileSubmitted: 'Send their contracting info' };
@@ -178,7 +178,7 @@ export function personNowText(person, progress, pp) {
     case 'examPassed': return p.exam_on ? `Exam ${pp.examAhead ? '' : 'was '}${short(p.exam_on)}${p.exam_attempts ? ` · attempt ${p.exam_attempts + 1}` : ''}` : '';
     case 'npn': return p.exam_passed_on ? `Passed the exam ${short(p.exam_passed_on)}` : '';
     case 'insuracloud': return person.npn ? `Licensed · NPN ${person.npn}` : '';
-    case 'profileSubmitted': return p.contracting_sent_on ? `${contractingInApp() ? 'Agreement signed' : 'InsuraCloud sent'} ${short(p.contracting_sent_on)}` : '';
+    case 'profileSubmitted': return p.contracting_sent_on ? `${contractingInApp() ? 'Agreement signed' : 'Link sent'} ${short(p.contracting_sent_on)}` : '';
     case 'appointed': return p.profile_submitted_on ? `${contractingInApp() ? 'Info sent' : 'Profile submitted'} ${short(p.profile_submitted_on)}` : '';
     default: return person.created_at ? `Joined ${short(person.created_at)}` : '';
   }

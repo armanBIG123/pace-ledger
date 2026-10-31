@@ -748,4 +748,13 @@ begin
 end
 $do$;
 
+-- Old flags say "Waiting on InsuraCloud"; the reason is now "Waiting on contracting".
+do $do$
+begin
+  if to_regclass('public.person_flags') is not null then
+    update public.person_flags set reason = 'Waiting on contracting' where reason = 'Waiting on InsuraCloud';
+  end if;
+end
+$do$;
+
 commit;

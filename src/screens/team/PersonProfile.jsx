@@ -11,13 +11,13 @@ import { Avatar } from '../../components/avatar.jsx';
 import { FlagBar, FlagDialog, LagBadge, NotesCard, PersonDots, stampDate } from './profileParts.jsx';
 import { roleLabel } from '../../lib/roles.js';
 
-const personReasons = () => ['Not responding', 'Waiting on the exam', contractingInApp() ? 'Waiting on contracting' : 'Waiting on InsuraCloud', 'Waiting on the carrier', 'Needs help from their upline'];
+const personReasons = () => ['Not responding', 'Waiting on the exam', 'Waiting on contracting', 'Waiting on the carrier', 'Needs help from their upline'];
 // The editable fields behind the 8 steps, in order.
 const EDIT_FIELDS = [
   ['course_started_on', 'Course started', 'date'], ['course_completed_on', 'Course finished', 'date'],
   ['exam_on', 'Exam date', 'date'], ['exam_passed_on', 'Exam passed', 'date'],
-  ['npn', 'NPN (license number)', 'text'], ['contracting_sent_on', 'InsuraCloud sent', 'date'],
-  ['profile_submitted_on', 'InsuraCloud profile submitted', 'date'], ['fg_writing_number', 'F&G writing number', 'text'],
+  ['npn', 'NPN (license number)', 'text'], ['contracting_sent_on', 'Contracting link sent', 'date'],
+  ['profile_submitted_on', 'Contracting profile submitted', 'date'], ['fg_writing_number', 'F&G writing number', 'text'],
 ];
 const fieldLabel = (k, label) => (!contractingInApp() ? label : k === 'contracting_sent_on' ? 'Agreement countersigned' : k === 'profile_submitted_on' ? 'Contracting info sent' : label);
 
