@@ -87,14 +87,14 @@ export function RecruitsSubView({ user, members, loadingMembers, emptyMessage })
       };
     }
     if (r.stage === 'contracting' && r.step === 'send') {
-      return { main: markBtn('Mark link sent', 'sent', `Marked the InsuraCloud link as sent to ${p.display_name}.`, true), more: [] };
+      return { main: markBtn('Mark link sent', 'sent', `Marked the contracting link as sent to ${p.display_name}.`, true), more: [] };
     }
     if (r.stage === 'contracting' && r.step === 'profile') {
       return {
-        main: markBtn('Mark profile submitted', 'submitted', `Marked ${p.display_name}'s InsuraCloud profile as submitted.`, !!r.flag),
+        main: markBtn('Mark profile submitted', 'submitted', `Marked ${p.display_name}'s contracting profile as submitted.`, !!r.flag),
         more: [
-          p.email ? { label: 'Email a reminder', onClick: email(p.email, p.display_name, 'Your InsuraCloud profile',
-            `Hi ${first(p.display_name)},\n\nQuick reminder to finish and submit your InsuraCloud profile from the link I sent. Your F&G writing number usually arrives within 2 business days after that, and then you're ready to write business.\n\n${me}`) } : null,
+          p.email ? { label: 'Email a reminder', onClick: email(p.email, p.display_name, 'Your contracting profile',
+            `Hi ${first(p.display_name)},\n\nQuick reminder to finish and submit your contracting profile from the link I sent. Your F&G writing number usually arrives within 2 business days after that, and then you're ready to write business.\n\n${me}`) } : null,
           { label: 'Undo "link sent"', disabled: busy, onClick: () => mark(r, 'unsent', 'Undone.') },
         ],
       };
@@ -102,7 +102,7 @@ export function RecruitsSubView({ user, members, loadingMembers, emptyMessage })
     if (r.stage === 'contracting' && r.step === 'number') {
       return {
         main: r.flag === 'late' ? { label: 'Email agency', gold: true, onClick: email(AGENCY_EMAIL, 'Agency', `F&G writing number for ${p.display_name}`,
-          `Hi,\n\n${p.display_name} ${contractingInApp() ? 'sent their contracting info' : 'submitted their InsuraCloud profile'} on ${fmtLong(r.pr.profile_submitted_on)} and hasn't received their F&G writing number yet.\n\nNPN: ${p.npn || 'on file in PaceLedger'}\n\nCould you check on it?\n\nThanks,\n${me}`) } : null,
+          `Hi,\n\n${p.display_name} ${contractingInApp() ? 'sent their contracting info' : 'submitted their contracting profile'} on ${fmtLong(r.pr.profile_submitted_on)} and hasn't received their F&G writing number yet.\n\nNPN: ${p.npn || 'on file in PaceLedger'}\n\nCould you check on it?\n\nThanks,\n${me}`) } : null,
         more: contractingInApp() ? [] : [{ label: 'Undo "profile submitted"', disabled: busy, onClick: () => mark(r, 'unsubmitted', 'Undone.') }],
       };
     }
@@ -132,10 +132,10 @@ export function RecruitsSubView({ user, members, loadingMembers, emptyMessage })
   return (
     <>
       <div className="tr-row-head tr-screen-head">
-        <TitleInfo title="Recruits" info={<>Every new person's path from invite to first sale. Anyone who needs you is at the top. A writing number counts as late 2 business days after {contractingInApp() ? 'the contracting info is sent' : 'the InsuraCloud profile is submitted'}. "Email agency" writes to {AGENCY_EMAIL}.</>} />
+        <TitleInfo title="Recruits" info={<>Every new person's path from invite to first sale. Anyone who needs you is at the top. A writing number counts as late 2 business days after {contractingInApp() ? 'the contracting info is sent' : 'the contracting profile is submitted'}. "Email agency" writes to {AGENCY_EMAIL}.</>} />
         <RefreshButton onClick={refresh} />
       </div>
-      {data.missingSetup && <div className="tr-error" style={{ marginBottom: 12 }}>Sign-up links and InsuraCloud steps show here once the database update (migration-recruits-field-training.sql) has been run.</div>}
+      {data.missingSetup && <div className="tr-error" style={{ marginBottom: 12 }}>Sign-up links and contracting steps show here once the database update (migration-recruits-field-training.sql) has been run.</div>}
       {notice && <div className={notice.kind === 'ok' ? 'tr-flash' : 'tr-error'} style={{ marginBottom: 12 }}>{notice.text}</div>}
 
       <div className="tr-rec-stages" role="group" aria-label="Show">

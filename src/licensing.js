@@ -20,33 +20,33 @@ export const LICENSING_STEPS = [
   { key: 'examBooked', title: 'Book your state exam', short: 'Exam booked' },
   { key: 'examPassed', title: 'Pass the exam', short: 'Exam passed' },
   { key: 'npn', title: 'Get your license number (NPN)', short: 'Licensed' },
-  { key: 'insuracloud', title: 'Get your InsuraCloud invite from your manager', short: 'InsuraCloud sent' },
-  { key: 'profileSubmitted', title: 'Submit your InsuraCloud profile', short: 'Profile submitted' },
+  { key: 'insuracloud', title: 'Get your contracting link from your manager', short: 'Link sent' },
+  { key: 'profileSubmitted', title: 'Submit your contracting profile', short: 'Profile submitted' },
   { key: 'appointed', title: 'Get your F&G writing number', short: 'Appointed' },
 ];
 
-// The next step in a leader's words ("Book the state exam", "Send the
-// InsuraCloud link").
+// The next step in a leader's words ("Book the state exam", "Send them the
+// contracting link").
 const LEADER_STEP = {
   course: 'Start the pre-licensing course', courseDone: 'Finish the course', examBooked: 'Book the state exam',
-  examPassed: 'Pass the exam', npn: 'Get their license number (NPN)', insuracloud: 'Send them the InsuraCloud link',
-  profileSubmitted: 'Submit their InsuraCloud profile', appointed: 'Get their F&G writing number',
+  examPassed: 'Pass the exam', npn: 'Get their license number (NPN)', insuracloud: 'Send them the contracting link',
+  profileSubmitted: 'Submit their contracting profile', appointed: 'Get their F&G writing number',
 };
 export const leaderStepText = step => (step ? LEADER_STEP[step.key] || step.title : '');
 
 // Contracting in PaceLedger (Profiles -> Contracting -> Setup -> Turn it on)
-// replaces InsuraCloud. The same two steps keep their place on the path:
-// the producer agreement where the InsuraCloud invite was, and sending the
+// replaces the contracting link. The same two steps keep their place on the
+// path: the producer agreement where the link was, and sending the
 // contracting info where the profile was. Their dates are filled in by the
 // database when the agreement is countersigned and the info is sent, so
 // every screen that reads this path keeps working.
 const STEP_WORDS = {
   insuracloud: {
-    old: { title: 'Get your InsuraCloud invite from your manager', short: 'InsuraCloud sent', leader: 'Send them the InsuraCloud link' },
+    old: { title: 'Get your contracting link from your manager', short: 'Link sent', leader: 'Send them the contracting link' },
     app: { title: 'Sign your producer agreement', short: 'Agreement signed', leader: 'Have them sign their producer agreement' },
   },
   profileSubmitted: {
-    old: { title: 'Submit your InsuraCloud profile', short: 'Profile submitted', leader: 'Submit their InsuraCloud profile' },
+    old: { title: 'Submit your contracting profile', short: 'Profile submitted', leader: 'Submit their contracting profile' },
     app: { title: 'Send your contracting info', short: 'Info sent', leader: 'Have them send their contracting info' },
   },
 };
@@ -64,7 +64,7 @@ export function setContractingInApp(on) {
 }
 
 // The F&G writing number usually arrives within this many business days of
-// the InsuraCloud profile being submitted.
+// the contracting profile being submitted.
 export const WRITING_NUMBER_BUSINESS_DAYS = 2;
 
 const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;

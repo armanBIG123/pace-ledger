@@ -510,7 +510,7 @@ function SetupView({ user, settings, onBack, onChanged, setFlash, bootstrap }) {
 
           <section className="tr-card tr-ct-setup-step">
             <h3 className="tr-h3"><Settings size={17} aria-hidden="true" /> 4 · Turn it on</h3>
-            <p className="tr-ct-hint">When it's on, agents sign their agreement and send their info in PaceLedger, and the InsuraCloud steps go away. Turning it off brings them back.</p>
+            <p className="tr-ct-hint">When it's on, agents sign their agreement and send their info right here, instead of the contracting-link steps. Turning it off brings those back.</p>
             <p>Contracting is <strong>{settings.enabled ? 'on' : 'off'}</strong>{settings.paused ? ' (the form is paused)' : ''}.</p>
             <button type="button" className={`tr-btn tr-btn-sm ${settings.enabled ? 'tr-btn-ghost' : 'tr-btn-brass'}`} disabled={busy === 'on' || (!settings.enabled && !ready)} onClick={onOff}>{settings.enabled ? 'Turn it off' : 'Turn it on'}</button>
             {!settings.enabled && !ready ? <p className="tr-ct-hint">Finish steps 2 and 3 first.</p> : null}
@@ -632,7 +632,7 @@ function Desk({ user }) {
               <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setView({ name: 'setup' })}><Settings size={14} aria-hidden="true" /> Setup</button>
             </div>
           </div>
-          {!settings.enabled ? <p className="tr-ct-off">Contracting in PaceLedger is off: agents still see the InsuraCloud steps. Finish <button type="button" className="tr-link-btn" onClick={() => setView({ name: 'setup' })}>Setup</button> to turn it on.</p> : null}
+          {!settings.enabled ? <p className="tr-ct-off">Contracting in PaceLedger is off: agents still see the contracting-link steps. Finish <button type="button" className="tr-link-btn" onClick={() => setView({ name: 'setup' })}>Setup</button> to turn it on.</p> : null}
           <Queue rows={rows} settings={settings} now={now} busy={busy}
             onOpen={id => setView({ name: 'case', userId: id })} onCountersign={q => setCountersign({ id: q.agreement_id, agent_name: q.name })}
             onStep={step} onSetup={() => setView({ name: 'setup' })} onLog={() => setView({ name: 'log' })}

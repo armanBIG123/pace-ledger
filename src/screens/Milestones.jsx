@@ -15,7 +15,7 @@ import { PageHead, RefreshButton, SkeletonCards } from '../components/ui.jsx';
 import { AgreementHistory, AgreementSheet, ContractingFormSheet, contractingChanged, useMyContracting } from '../components/contracting.jsx';
 import { askConfirm } from '../components/confirm.jsx';
 import { contractingWords, withdrawContractingInfo } from '../data/contracting.js';
-import { agentStage, fmtDay, fmtWhen } from '../lib/contracting.js';
+import { agentStage, earlierContracting, fmtDay, fmtWhen } from '../lib/contracting.js';
 
 // The career ladder: one rung per tier, top of the ladder first. Rungs
 // already reached are marked done, your current one is highlighted, and the
@@ -235,9 +235,11 @@ export function LicensingTracker({ user, profile }) {
   if (progress === undefined || (inApp && !ct)) return <SkeletonCards count={1} />;
   const stage = inApp ? agentStage({ agreements: ct.agreements, kase: ct.kase, settings: ct.settings, writingNumber: profile.fg_writing_number }) : '';
   const raw = progress || {};
-  // Got an InsuraCloud link but never submitted there: the agreement step
+  const earlier = inApp ? earlierContracting({ stage, kase: ct.kase, progress: raw, writingNumber: profile.fg_writing_number }) : null;
+  const outside = earlier === 'outside';
+  // Got a contracting link but never submitted: the agreement step
   // starts over here, so it isn't shown as done.
-  const movedHere = inApp && stage === 'sign' && !!raw.contracting_sent_on && !raw.profile_submitted_on;
+  const movedHere = earlier === 'moved';
   const p = movedHere ? { ...raw, contracting_sent_on: null } : raw;
   const st = licensingStatus(p, profile);
   const today = todayStr();
@@ -268,18 +270,16 @@ export function LicensingTracker({ user, profile }) {
     if (!res.ok) { setError(contractingWords(res.error)); return; }
     contractingChanged();
   }
-  // Started contracting in InsuraCloud before it moved here.
-  const viaInsuraCloud = inApp && !signedAgreement && !!p.profile_submitted_on && !kase.info_sent_at;
   function contractingDetail(key) {
     if (key === 'insuracloud') {
       if (signedAgreement) return <span>Signed {fmtDay(signedAgreement.agent_signed_at)} · countersigned {fmtDay(signedAgreement.countersigned_at)}</span>;
       if (stage === 'countersign') return <span><strong>Signed.</strong> Waiting for BIG to countersign; your contracting form opens right after.</span>;
-      if (viaInsuraCloud) return <span>Done in InsuraCloud{p.contracting_sent_on ? ` ${fmtShortDate(p.contracting_sent_on)}` : ''}.</span>;
-      if (movedHere) return <span>Contracting moved from InsuraCloud into PaceLedger. Sign your producer agreement here: about 3 minutes. Then you'll send your info here too.</span>;
+      if (outside) return <span>{p.contracting_sent_on ? `Done ${fmtShortDate(p.contracting_sent_on)}` : 'Done'}</span>;
+      if (movedHere) return <span>Contracting happens right here in PaceLedger now. Sign your producer agreement: about 3 minutes. Then you'll send your info here too.</span>;
       return <span>Sign it right here: about 3 minutes. Your name, email and today's date are filled in for you.</span>;
     }
     if (key === 'profileSubmitted') {
-      if (viaInsuraCloud) return <span>Submitted in InsuraCloud {fmtShortDate(p.profile_submitted_on)}.</span>;
+      if (outside) return <span>{p.profile_submitted_on ? `Submitted ${fmtShortDate(p.profile_submitted_on)}` : 'Done'}</span>;
       if (stage === 'waiting') return <span>Sent {fmtWhen(kase.info_sent_at)}. BIG is entering it in SureLC; it's deleted from PaceLedger by <strong>{fmtWhen(kase.expires_at)}</strong> at the latest.</span>;
       if (kase.entered_at && kase.delete_reason === 'entered') return <span>Sent {fmtDay(kase.info_sent_at)} · entered in SureLC and deleted from PaceLedger {fmtDay(kase.entered_at)}.</span>;
       if (kase.delete_reason === 'expired') return <span>Your info was deleted 72 hours after you sent it, before BIG got to it. Please send it again.</span>;
@@ -289,7 +289,7 @@ export function LicensingTracker({ user, profile }) {
     }
     if (key === 'appointed') {
       if (st.done.appointed) return <span>On file</span>;
-      if (viaInsuraCloud && numberDue) return <span>Usually arrives within {WRITING_NUMBER_BUSINESS_DAYS} business days of your profile, so by <strong>{fmtShortDate(numberDue)}</strong>. Add it below when it comes.</span>;
+      if (outside && numberDue) return <span>Usually arrives within {WRITING_NUMBER_BUSINESS_DAYS} business days of your profile, so by <strong>{fmtShortDate(numberDue)}</strong>. Add it below when it comes.</span>;
       if (stage === 'entered') return <span>BIG entered your info in SureLC. Watch your email for a link from SureLC to review and sign.</span>;
       if (stage === 'review') return <span><strong>Check your email:</strong> SureLC sent you a link to review and sign. Nothing goes to a carrier until you do.</span>;
       if (stage === 'carrier') return <span>You signed in SureLC. BIG is sending it to the carrier.</span>;
@@ -338,15 +338,15 @@ export function LicensingTracker({ user, profile }) {
       case 'insuracloud':
         return st.done.insuracloud
           ? <span>{p.contracting_sent_on ? `Sent ${fmtShortDate(p.contracting_sent_on)}` : 'Done'}</span>
-          : <span>Once you have your NPN, your manager sends you a link to InsuraCloud, our contracting hub. Tell them when your NPN is in.</span>;
+          : <span>Once you have your NPN, your manager sends you a link to set up your contracting. Tell them when your NPN is in.</span>;
       case 'profileSubmitted':
         return st.done.profileSubmitted
           ? <span>{p.profile_submitted_on ? `Submitted ${fmtShortDate(p.profile_submitted_on)}` : 'Done'}</span>
-          : <span>Open the InsuraCloud link, fill in your profile and submit it.</span>;
+          : <span>Open the contracting link, fill in your profile and submit it.</span>;
       case 'appointed':
         return st.done.appointed ? <span>On file</span>
           : numberDue ? <span>Usually arrives within {WRITING_NUMBER_BUSINESS_DAYS} business days of your profile, so by <strong>{fmtShortDate(numberDue)}</strong>. Add it below when it comes.</span>
-          : <span>Arrives within {WRITING_NUMBER_BUSINESS_DAYS} business days of submitting your InsuraCloud profile. Add it below.</span>;
+          : <span>Arrives within {WRITING_NUMBER_BUSINESS_DAYS} business days of submitting your contracting profile. Add it below.</span>;
       default: return null;
     }
   }
