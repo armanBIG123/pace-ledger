@@ -6,7 +6,7 @@ import { Download, Eye, EyeOff, FileText, Lock, Paperclip, ShieldCheck, Trash2 }
 import { Sheet } from './ui.jsx';
 import { askConfirm } from './confirm.jsx';
 import { agreementLink, contractingWords, fetchMyContracting, sendContractingInfo, startAgreement, syncAgreement } from '../data/contracting.js';
-import { BACKGROUND_QUESTIONS, FILE_TYPES, fmtDay, fmtWhen, formProblems, fieldsFromForm, MAX_FILE_BYTES } from '../lib/contracting.js';
+import { BACKGROUND_QUESTIONS, FILE_TYPES, filePickProblem, fmtDay, fmtWhen, formProblems, fieldsFromForm, MAX_FILE_BYTES } from '../lib/contracting.js';
 import { US_STATES } from '../lib/profiles.js';
 import { shrinkImage } from '../lib/vault.js';
 import { todayStr } from '../lib/dates.js';
@@ -178,8 +178,15 @@ function Field({ label, error, hint, children, id }) {
     </label>
   );
 }
-function FilePick({ label, file, onPick, error, accept = 'application/pdf,image/jpeg,image/png', capture, id }) {
+function FilePick({ label, file, onPick, error, hint, accept = 'application/pdf,image/*', capture, id }) {
   const input = useRef(null);
+  const [bad, setBad] = useState('');
+  function chosen(f) {
+    const problem = filePickProblem(f);
+    setBad(problem);
+    if (!problem) onPick(f);
+  }
+  const message = bad || error;
   return (
     <div className={`tr-ct-file ${error ? 'tr-ct-bad' : ''}`} id={id}>
       {file ? (
@@ -191,8 +198,8 @@ function FilePick({ label, file, onPick, error, accept = 'application/pdf,image/
       ) : (
         <button type="button" className="tr-ct-file-add" onClick={() => input.current && input.current.click()}><Paperclip size={16} aria-hidden="true" /> {label}</button>
       )}
-      <input ref={input} type="file" accept={accept} capture={capture} hidden onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) onPick(f); }} />
-      {error ? <em className="tr-ct-err">{error}</em> : null}
+      <input ref={input} type="file" accept={accept} capture={capture} hidden onChange={e => { const f = e.target.files && e.target.files[0]; e.target.value = ''; if (f) chosen(f); }} />
+      {message ? <em className="tr-ct-err" role="alert">{message}</em> : hint ? <em className="tr-ct-hint">{hint}</em> : null}
     </div>
   );
 }
@@ -211,20 +218,20 @@ export function ContractingFormSheet({ user, settings, onClose, onSent }) {
     street: '', city: '', state: '', zip: '', dl_number: '', dl_state: '', dl_expires: '',
     bank_name: '', account_type: 'Checking', routing: '', account: '', account2: '',
     eo_has: '', eo_carrier: '', eo_policy: '', eo_amount: '', eo_expires: '', eo_file: null,
-    aml_done: '', aml_provider: '', aml_date: '', aml_file: null, dl_file: null,
+    aml_done: '', aml_provider: '', aml_date: '', aml_file: null, dl_file: null, bank_file: null,
     bg: BACKGROUND_QUESTIONS.map(() => ''), bgNotes: {}, bgFiles: [], confirm: false,
   }));
   const [showSsn, setShowSsn] = useState(false);
   const [tried, setTried] = useState(false);
   const [sending, setSending] = useState('');
   const [error, setError] = useState('');
+  const [leftOut, setLeftOut] = useState(null); // files that didn't go through
   const touched = useRef(false);
   const set = (k, v) => { touched.current = true; setF(prev => ({ ...prev, [k]: v })); };
   const today = todayStr();
   const problems = formProblems(f, today);
   const shown = tried ? problems : {};
   const nProblems = Object.keys(problems).length;
-  const fileErr = file => (file && !FILE_TYPES.includes(file.type) && !/^image\//.test(file.type) ? 'Use a PDF, JPG or PNG.' : file && file.size > 12 * 1024 * 1024 ? 'That file is too big.' : '');
 
   async function close() {
     if (sending) return;
@@ -241,24 +248,46 @@ export function ContractingFormSheet({ user, settings, onClose, onSent }) {
     }
     const picked = [
       f.dl_file && { kind: 'dl_front', file: f.dl_file },
+      f.bank_file && { kind: 'bank_doc', file: f.bank_file },
       f.eo_has === 'yes' && f.eo_file && { kind: 'eo_certificate', file: f.eo_file },
       f.aml_done === 'yes' && f.aml_file && { kind: 'aml_certificate', file: f.aml_file },
       ...f.bgFiles.map(file => ({ kind: 'background_doc', file })),
     ].filter(Boolean);
-    for (const p of picked) { const bad = fileErr(p.file); if (bad) { setError(`${p.file.name}: ${bad}`); return; } }
-    setSending('Getting files ready…');
+    // Files are optional: one that can't be used is left out, never the info.
+    setSending(picked.length ? 'Getting files ready…' : 'Encrypting on this device…');
     const files = [];
+    const skipped = [];
     for (const p of picked) {
-      const { mime, bytes } = await bytesOf(p.file);
-      if (bytes.length > MAX_FILE_BYTES) { setSending(''); setError(`${p.file.name} is over 4 MB. Take a smaller photo or a smaller PDF.`); return; }
-      files.push({ kind: p.kind, name: p.file.name, mime: FILE_TYPES.includes(mime) ? mime : 'application/pdf', bytes });
+      let got = null;
+      try { got = await bytesOf(p.file); } catch { got = null; }
+      if (!got || !FILE_TYPES.includes(got.mime) || got.bytes.length > MAX_FILE_BYTES) { skipped.push(p.file.name); continue; }
+      files.push({ kind: p.kind, name: p.file.name, mime: got.mime, bytes: got.bytes });
     }
     const res = await sendContractingInfo({ settings, userId: user.id, fields: fieldsFromForm(f), files, onProgress: setSending });
     setSending('');
     if (!res.ok) { setError(res.error === 'encrypt_failed' ? "This device couldn't encrypt the form. Update your browser or app and try again." : contractingWords(res.error)); return; }
     contractingChanged();
     window.dispatchEvent(new Event('paceledger:onboarding-changed'));
+    const missed = [...skipped, ...(res.skipped || [])];
+    if (missed.length) { touched.current = false; setLeftOut({ names: missed, expiresAt: res.expiresAt }); return; }
     onSent(res.expiresAt);
+  }
+
+  if (leftOut) {
+    return (
+      <Sheet labelledBy="tr-ct-title" onClose={() => onSent(leftOut.expiresAt)}>
+        <div className="tr-fsheet-head">
+          <h2 id="tr-ct-title" className="tr-fsheet-title">Contracting info</h2>
+        </div>
+        <div className="tr-fsheet-body">
+          <div className="tr-ct-done">
+            <ShieldCheck size={28} aria-hidden="true" />
+            <p><strong>Your info is sent.</strong> {leftOut.names.length === 1 ? 'This file' : 'These files'} didn't go through: {leftOut.names.join(', ')}. That's OK: they're optional, and BIG will ask if they need {leftOut.names.length === 1 ? 'it' : 'them'}.</p>
+            <button type="button" className="tr-btn tr-btn-brass" onClick={() => onSent(leftOut.expiresAt)}>Done</button>
+          </div>
+        </div>
+      </Sheet>
+    );
   }
 
   return (
@@ -336,6 +365,8 @@ export function ContractingFormSheet({ user, settings, onClose, onSent }) {
             <Field id="ct-account2" label="Account number again" error={shown.account2}><input type="password" inputMode="numeric" value={f.account2} onChange={e => set('account2', e.target.value)} maxLength={17} autoComplete="off" data-lpignore="true" onPaste={e => e.preventDefault()} /></Field>
           </div>
           <p className="tr-ct-hint">Use an account in your name. Any later change to where commissions go has to come from you.</p>
+          <FilePick id="ct-bank_file" label="Voided check or bank letter (optional)" file={f.bank_file} onPick={v => set('bank_file', v)}
+            hint="A PDF or photo that shows your name and the account: a voided check, a direct-deposit form or a bank letter." />
         </fieldset>
 
         <fieldset className="tr-ct-sec">
@@ -349,7 +380,7 @@ export function ContractingFormSheet({ user, settings, onClose, onSent }) {
                 <Field label="Coverage per claim (optional)"><input value={f.eo_amount} onChange={e => set('eo_amount', e.target.value)} maxLength={20} placeholder="$1,000,000" /></Field>
                 <Field id="ct-eo_expires" label="Expires" error={shown.eo_expires}><input type="date" value={f.eo_expires} min={today} onChange={e => set('eo_expires', e.target.value)} /></Field>
               </div>
-              <FilePick id="ct-eo_file" label="E&O certificate" file={f.eo_file} onPick={v => set('eo_file', v)} error={shown.eo_file} />
+              <FilePick id="ct-eo_file" label="E&O certificate (optional)" file={f.eo_file} onPick={v => set('eo_file', v)} hint="The PDF your E&O carrier sent you, or a photo of it." />
             </>
           ) : f.eo_has === 'no' ? <p className="tr-ct-hint">That's OK for now. BIG will help you get E&amp;O before you're appointed.</p> : null}
           <div className="tr-field" id="ct-aml_done"><span>Have you finished AML (anti-money laundering) training?</span><YesNo value={f.aml_done} onChange={v => set('aml_done', v)} label="Finished AML training?" />{shown.aml_done ? <em className="tr-ct-err">{shown.aml_done}</em> : null}</div>
@@ -359,7 +390,7 @@ export function ContractingFormSheet({ user, settings, onClose, onSent }) {
                 <Field label="Provider (optional)"><input value={f.aml_provider} onChange={e => set('aml_provider', e.target.value)} maxLength={80} /></Field>
                 <Field label="Completed on (optional)"><input type="date" value={f.aml_date} max={today} onChange={e => set('aml_date', e.target.value)} /></Field>
               </div>
-              <FilePick id="ct-aml_file" label="AML certificate" file={f.aml_file} onPick={v => set('aml_file', v)} error={shown.aml_file} />
+              <FilePick id="ct-aml_file" label="AML certificate (optional)" file={f.aml_file} onPick={v => set('aml_file', v)} />
             </>
           ) : f.aml_done === 'no' ? <p className="tr-ct-hint">BIG will send you the training before you're appointed.</p> : null}
         </fieldset>

@@ -107,17 +107,20 @@ export async function sendContractingInfo({ settings, userId, fields, files, onP
   if (sealed.keyId !== settings.key_id) return { ok: false, error: 'key_changed' };
   const start = await rpc('contracting_start', { p_key_id: sealed.keyId, p_wrapped_key: sealed.wrappedKey });
   if (!start.ok) return start;
+  // Files are optional: one that doesn't go through is left out, and the
+  // info itself is still sent.
+  const skipped = [];
   for (let i = 0; i < sealed.files.length; i++) {
     const f = sealed.files[i];
     onProgress(`Sending file ${i + 1} of ${sealed.files.length}…`);
     const put = await rpc('contracting_put_file', { p_kind: f.kind, p_mime: f.mime, p_size: f.size, p_name: f.name, p_iv: f.iv, p_ct: f.ct });
-    if (!put.ok) { await supabase.rpc('contracting_discard_draft'); return put; }
+    if (!put.ok) skipped.push(files[i].name || 'A file');
   }
   onProgress('Sending…');
   const done = await rpc('contracting_submit', { p_fields: sealed.fields });
   if (!done.ok) { await supabase.rpc('contracting_discard_draft'); return done; }
   fn({ action: 'notify-sent' }); // emails the contracting team; nothing to wait for
-  return { ok: true, expiresAt: done.data };
+  return { ok: true, expiresAt: done.data, skipped };
 }
 export const withdrawContractingInfo = () => rpc('contracting_withdraw');
 
