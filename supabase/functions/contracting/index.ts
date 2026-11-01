@@ -84,6 +84,7 @@ export const FIELD_LABELS: Record<string, string> = {
 };
 const FILE_LABELS: Record<string, string> = {
   dl_front: "Driver's license photo", eo_certificate: 'E&O certificate', aml_certificate: 'AML certificate', background_doc: 'Background document',
+  bank_doc: 'Bank document',
 };
 
 // ---- Crypto (keep in step with src/lib/vault.js) ------------------------------

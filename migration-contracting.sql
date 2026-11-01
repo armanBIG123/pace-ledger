@@ -190,7 +190,7 @@ create table if not exists public.contracting_secrets (
 create table if not exists public.contracting_files (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.contracting_secrets(user_id) on delete cascade,
-  kind text not null check (kind in ('dl_front', 'eo_certificate', 'aml_certificate', 'background_doc')),
+  kind text not null check (kind in ('dl_front', 'eo_certificate', 'aml_certificate', 'background_doc', 'bank_doc')),
   mime text not null check (mime in ('image/jpeg', 'image/png', 'application/pdf')),
   size integer not null check (size between 1 and 4194304),
   name jsonb not null,
@@ -360,7 +360,7 @@ begin
   if not exists (select 1 from public.contracting_secrets where user_id = me and submitted_at is null and expires_at > now()) then
     raise exception 'no_draft';
   end if;
-  if p_kind not in ('dl_front', 'eo_certificate', 'aml_certificate', 'background_doc') then raise exception 'bad_file'; end if;
+  if p_kind not in ('dl_front', 'eo_certificate', 'aml_certificate', 'background_doc', 'bank_doc') then raise exception 'bad_file'; end if;
   if not public.pl_contracting_field_ok('file', p_name) then raise exception 'bad_file'; end if;
   if (select count(*) from public.contracting_files where user_id = me) >= 10 then raise exception 'too_many_files'; end if;
   if p_kind <> 'background_doc' and exists (select 1 from public.contracting_files where user_id = me and kind = p_kind) then

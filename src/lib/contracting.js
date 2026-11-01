@@ -36,6 +36,7 @@ export const FIELD_LABELS = {
 };
 export const FILE_LABELS = {
   dl_front: "Driver's license photo", eo_certificate: 'E&O certificate', aml_certificate: 'AML certificate', background_doc: 'Background document',
+  bank_doc: 'Bank document',
 };
 
 // How the contracting team sees them, in the order they're typed into SureLC.
@@ -44,7 +45,7 @@ export const SECTIONS = [
   { title: 'Contact', keys: ['email', 'phone'] },
   { title: 'Home address', keys: ['street', 'city', 'state', 'zip'] },
   { title: "Driver's license", keys: ['dl_number', 'dl_state', 'dl_expires'], files: ['dl_front'] },
-  { title: 'Commission deposits', keys: ['bank_name', 'account_type', 'routing', 'account'] },
+  { title: 'Commission deposits', keys: ['bank_name', 'account_type', 'routing', 'account'], files: ['bank_doc'] },
   { title: 'E&O', keys: ['eo_has', 'eo_carrier', 'eo_policy', 'eo_amount', 'eo_expires'], files: ['eo_certificate'] },
   { title: 'AML', keys: ['aml_done', 'aml_provider', 'aml_date'], files: ['aml_certificate'] },
   { title: 'Background questions', keys: ['background'], files: ['background_doc'] },
@@ -99,6 +100,21 @@ export const emailProblem = s => (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(s || 
 export const MAX_FILE_BYTES = 4 * 1024 * 1024;
 export const FILE_TYPES = ['image/jpeg', 'image/png', 'application/pdf'];
 
+// Checked the moment a file is picked, so a file that won't work is turned
+// away right there and never holds up the rest of the form. Every file is
+// optional. Photos (other than PNG) are shrunk before sending, so they may
+// start bigger.
+export function filePickProblem(file) {
+  if (!file) return '';
+  const type = String(file.type || '');
+  const isPdf = type === 'application/pdf';
+  const isImage = /^image\//.test(type);
+  if (!isPdf && !isImage) return 'Use a PDF or a photo (JPG or PNG).';
+  if ((isPdf || type === 'image/png') && file.size > MAX_FILE_BYTES) return `This ${isPdf ? 'PDF' : 'picture'} is over 4 MB. Pick a smaller one, or skip it: it's optional.`;
+  if (file.size > 25 * 1024 * 1024) return "That photo is too big. Pick a smaller one, or skip it: it's optional.";
+  return '';
+}
+
 // Every problem with a filled-in form, keyed by field (or 'bg_3', 'files').
 export function formProblems(f, today) {
   const p = {};
@@ -127,10 +143,8 @@ export function formProblems(f, today) {
     need('eo_carrier', 'Enter your E&O carrier.');
     need('eo_policy', 'Enter the policy number.');
     const ee = futureDateProblem(f.eo_expires, today, 'expiration date'); if (ee) p.eo_expires = ee;
-    if (!f.eo_file) p.eo_file = 'Add your E&O certificate.';
   }
   if (f.aml_done !== 'yes' && f.aml_done !== 'no') p.aml_done = 'Choose one.';
-  if (f.aml_done === 'yes' && !f.aml_file) p.aml_file = 'Add your AML certificate.';
   BACKGROUND_QUESTIONS.forEach((_, i) => {
     const a = (f.bg || [])[i];
     if (a !== 'yes' && a !== 'no') p[`bg_${i}`] = 'Answer this one.';
