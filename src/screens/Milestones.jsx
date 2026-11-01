@@ -442,7 +442,7 @@ export function LicensingTracker({ user, profile }) {
       {error && <div className="tr-error" style={{ marginTop: 8 }}>{error}</div>}
     </div>
     {inApp ? <AgreementHistory agreements={ct.agreements} /> : null}
-    {sheet === 'agreement' ? <AgreementSheet onClose={() => { setSheet(null); reloadCt(); loadProgress(); }} /> : null}
+    {sheet === 'agreement' ? <AgreementSheet name={user.displayName} onClose={() => { setSheet(null); reloadCt(); loadProgress(); }} /> : null}
     {sheet === 'form' ? <ContractingFormSheet user={user} settings={ct.settings} onClose={() => setSheet(null)} onSent={() => { setSheet(null); reloadCt(); loadProgress(); }} /> : null}
     </>
   );

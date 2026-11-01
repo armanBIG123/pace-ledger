@@ -77,7 +77,7 @@ function FileViewer({ file, onClose }) {
   );
 }
 
-function CountersignSheet({ agreement, onClose, onDone }) {
+function CountersignSheet({ agreement, signer, onClose, onDone }) {
   const [state, setState] = useState({ kind: 'loading' });
   useEffect(() => {
     let alive = true;
@@ -108,7 +108,7 @@ function CountersignSheet({ agreement, onClose, onDone }) {
       <div className="tr-fsheet-body">
         {state.kind === 'loading' || state.kind === 'saving' ? <p className="tr-empty">{state.kind === 'saving' ? 'Saving the signed agreement…' : 'Getting the agreement…'}</p> : null}
         {state.kind === 'error' ? <p className="tr-error">{state.message}</p> : null}
-        {state.kind === 'sign' ? <DocuSealForm src={state.src} email={state.email} onCompleted={finished} /> : null}
+        {state.kind === 'sign' ? <DocuSealForm src={state.src} email={state.email} signature={signer} remember onCompleted={finished} /> : null}
         {state.kind === 'done' ? (
           <div className="tr-ct-done"><ShieldCheck size={28} aria-hidden="true" /><p><strong>Countersigned.</strong> The signed PDF and audit certificate are saved. Their contracting form is open now.</p>
             <button type="button" className="tr-btn tr-btn-brass" onClick={onClose}>Done</button></div>
@@ -639,7 +639,7 @@ function Desk({ user }) {
             onKill={kill} onPause={pause} onReviewed={reviewed} />
         </>
       )}
-      {countersign ? <CountersignSheet agreement={countersign} onClose={() => { setCountersign(null); setNonce(n => n + 1); load(); }} onDone={load} /> : null}
+      {countersign ? <CountersignSheet agreement={countersign} signer={user.displayName} onClose={() => { setCountersign(null); setNonce(n => n + 1); load(); }} onDone={load} /> : null}
     </div>
   );
 }
