@@ -44,7 +44,12 @@ function loadDocuSeal() {
 }
 const DOCUSEAL_CSS = '#submit_form_button, .submit-form-button { background-color: #C49A3C !important; color: #13212E !important; } .base-button { border-radius: 8px !important; }';
 
-export function DocuSealForm({ src, email, onCompleted, onDeclined }) {
+// signature: their name, shown as a ready-made typed signature they can
+// accept with one tap (or draw their own). DocuSeal then reuses whatever they
+// adopt at every later signature and initials spot.
+// remember: keep the adopted signature in this browser for the next form
+// (the contracting team countersigns many).
+export function DocuSealForm({ src, email, signature, remember, onCompleted, onDeclined }) {
   const ref = useRef(null);
   const [state, setState] = useState('loading');
   const done = useRef(onCompleted);
@@ -67,6 +72,9 @@ export function DocuSealForm({ src, email, onCompleted, onDeclined }) {
     el.setAttribute('data-with-send-copy-button', 'false');
     el.setAttribute('data-with-download-button', 'false');
     el.setAttribute('data-language', 'en');
+    if (signature) el.setAttribute('data-signature', signature);
+    el.setAttribute('data-reuse-signature', 'true');
+    if (remember) el.setAttribute('data-remember-signature', 'true');
     el.setAttribute('data-custom-css', DOCUSEAL_CSS);
     const onDone = e => done.current && done.current(e.detail || {});
     const onNo = e => declined.current && declined.current(e.detail || {});
@@ -74,7 +82,7 @@ export function DocuSealForm({ src, email, onCompleted, onDeclined }) {
     el.addEventListener('declined', onNo);
     host.appendChild(el);
     return () => { el.removeEventListener('completed', onDone); el.removeEventListener('declined', onNo); host.innerHTML = ''; };
-  }, [state, src, email]);
+  }, [state, src, email, signature, remember]);
   if (state === 'failed') return <p className="tr-error">The signing form didn't load. Check your connection and try again.</p>;
   return (
     <div className="tr-ds">
@@ -85,7 +93,7 @@ export function DocuSealForm({ src, email, onCompleted, onDeclined }) {
 }
 
 // ---- Signing (agents) ---------------------------------------------------------------
-export function AgreementSheet({ onClose }) {
+export function AgreementSheet({ name, onClose }) {
   const [state, setState] = useState({ kind: 'loading' });
   const agreementId = useRef(null);
   useEffect(() => {
@@ -126,7 +134,7 @@ export function AgreementSheet({ onClose }) {
         {state.kind === 'sign' ? (
           <>
             <p className="tr-ct-note">Your name, email and today's date are filled in. Adopt your signature once, then tap each spot. Every tap is recorded with the time, your email and your IP address.</p>
-            <DocuSealForm src={state.src} email={state.email} onCompleted={finished} onDeclined={() => { contractingChanged(); setState({ kind: 'declined' }); }} />
+            <DocuSealForm src={state.src} email={state.email} signature={name} onCompleted={finished} onDeclined={() => { contractingChanged(); setState({ kind: 'declined' }); }} />
           </>
         ) : null}
         {state.kind === 'agent_signed' ? (
