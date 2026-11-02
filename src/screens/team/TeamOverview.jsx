@@ -9,6 +9,7 @@ import { fetchTeamOnboarding, onboardingDay, onboardingStepTitle, onboardingStep
 import { countsTowardPace, DATE_SET_OPTIONS, defaultDateSetOption, getStatus, WEEKLY_TOTAL_TARGET } from '../../lib/pace.js';
 import { addDays, fmtDate, fmtShortDate, parseDate, shiftWeekStr, todayStr, weekStartOf } from '../../lib/dates.js';
 import { shortMoney, tierInfo } from '../../lib/milestones.js';
+import { creditRows } from '../../lib/credit.js';
 import { fetchAppointmentsForWeek } from '../../data/appointments.js';
 import { fetchHierarchyPeople, fetchRecentSoldAppointments, fetchTeamAppointmentsImOnToday, promotionSubjects } from '../../data/team.js';
 import { bodyScale, CelestialBody, CelestialDefs, makeStars, PaceRing, ringRadius } from '../../components/CelestialBody.jsx';
@@ -146,7 +147,8 @@ export function buildTeamOverview({ user, people, thisWeek, lastWeek, sold, prog
     key: `lic-${p.id}`, Icon: BadgeCheck, person: p, what: 'newly licensed', text: <><strong>{p.display_name}</strong> is now licensed</>, congrats: 'Congratulations on getting licensed!',
   }));
   const salesBy = new Map();
-  sold.filter(a => teamIds.has(a.userId) && a.appointmentDate >= weekMonday && a.appointmentDate < weekEndIso).forEach(a => {
+  // A split sale counts for both people, each with their share of the premium.
+  creditRows(sold).filter(a => teamIds.has(a.userId) && a.appointmentDate >= weekMonday && a.appointmentDate < weekEndIso).forEach(a => {
     const cur = salesBy.get(a.userId) || { n: 0, premium: 0 };
     cur.n += 1; cur.premium += Number(a.targetPremium) || 0;
     salesBy.set(a.userId, cur);

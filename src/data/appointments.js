@@ -44,6 +44,11 @@ export function rowToRecord(row) {
     officiallyRecruited: row.officially_recruited || false,
     officiallySold: row.officially_sold || false,
     targetPremium: row.target_premium,
+    // A split sale: who shares it (the presenter) and their share, 1-99
+    // (lib/credit.js). splitReady: the database has the split columns.
+    splitUserId: row.split_user_id || '',
+    splitPercent: row.split_percent != null ? Number(row.split_percent) : null,
+    splitReady: Object.prototype.hasOwnProperty.call(row, 'split_user_id'),
     appointmentTimezone: row.appointment_timezone || '',
     appointmentAt: row.appointment_at || null,
     isFollowUp: row.is_follow_up || false,
@@ -228,6 +233,12 @@ export async function saveFollowUp(id, data, followUpTimezone) {
     // You logged it yourself (a presenter's "Logged by" note goes away).
     outcome_logged_by: null,
   };
+  // A split sale (only sent when the outcome window asked; the database
+  // drops it if it isn't a sale): { userId, percent } or null for none.
+  if (data.split !== undefined) {
+    updatePayload.split_user_id = data.officiallySold && data.split ? data.split.userId : null;
+    updatePayload.split_percent = data.officiallySold && data.split ? data.split.percent : null;
+  }
   // Only ever flips this on — never overwrites an existing "yes" back to
   // "no" if a follow-up is edited/re-saved later without touching this
   // question, so the candidate record it created is never orphaned.
@@ -479,6 +490,8 @@ export async function logPresentedAppointment(id, data) {
       outcome: data.outcome || '',
       officiallySold: !!data.officiallySold,
       targetPremium: data.officiallySold && Number(data.targetPremium) > 0 ? String(data.targetPremium) : '',
+      // Your share when you split it with the advisor ('' for no split).
+      splitPercent: data.officiallySold && data.split ? String(data.split.percent) : '',
       officiallyRecruited: !!data.officiallyRecruited,
       followUpScheduled: data.followUpScheduled,
       followUpDate: data.followUpScheduled === true ? data.followUpDate : '',
@@ -632,6 +645,10 @@ export function applyFollowUpToList(prev, id, data, followUpTimezone, newAppt) {
     followUpAppointmentTimezone: scheduled ? followUpTimezone : '',
     followUpAppointmentAt: newAppt ? newAppt.appointmentAt : a.followUpAppointmentAt,
     clientIntakeRequested: a.clientIntakeRequested || data.clientIntake === true,
+    ...(data.split !== undefined ? {
+      splitUserId: data.officiallySold && data.split ? data.split.userId : '',
+      splitPercent: data.officiallySold && data.split ? data.split.percent : null,
+    } : {}),
   } : a);
   return newAppt ? [...updated, newAppt] : updated;
 }

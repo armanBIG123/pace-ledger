@@ -35,8 +35,16 @@ export function winText(w, nameOf, meId) {
   const you = w.user_id === meId;
   const who = you ? 'You' : nameOf(w.user_id) || 'Someone';
   switch (w.kind) {
-    case 'first_sale': return <><strong>{who}</strong> made {you ? 'your' : 'their'} first sale!</>;
-    case 'sale': return <><strong>{who}</strong> made a sale</>;
+    case 'first_sale':
+    case 'sale': {
+      // A split sale names both people (migration-split-premium.sql).
+      const w2 = w.detail && w.detail.with;
+      if (w2) {
+        const other = w2 === meId ? 'you' : nameOf(w2) || 'a teammate';
+        return <><strong>{who}</strong> &amp; <strong>{other}</strong> made a sale{w.kind === 'first_sale' ? `: ${you ? 'your' : `${who}'s`} first!` : ''}</>;
+      }
+      return w.kind === 'first_sale' ? <><strong>{who}</strong> made {you ? 'your' : 'their'} first sale!</> : <><strong>{who}</strong> made a sale</>;
+    }
     case 'recruit': {
       // Who joined: from a sign-up ("Tasha recruited Marcus Reed. Welcome to
       // the team!"), or, for ones counted the old way, the name on the

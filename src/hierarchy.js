@@ -1,3 +1,4 @@
+import { creditRows } from './lib/credit.js';
 // ---------------------------------------------------------------------
 // hierarchy & promotion engine
 // ---------------------------------------------------------------------
@@ -283,7 +284,8 @@ export function downlineIds(rootId, childrenMap) {
 export function computeReadiness(people, soldAppointments, subjectIds) {
   const byUser = new Map(), byTrainee = new Map();
   const add = (m, k, a) => { if (!k) return; if (!m.has(k)) m.set(k, []); m.get(k).push(a); };
-  for (const a of soldAppointments) { add(byUser, a.userId, a); add(byTrainee, a.traineeId, a); }
+  // A split sale counts for both people, each with their share (lib/credit.js).
+  for (const a of creditRows(soldAppointments)) { add(byUser, a.userId, a); add(byTrainee, a.traineeId, a); }
   const children = buildChildrenMap(people);
   const byId = new Map(people.map(p => [p.id, p]));
   const out = [];

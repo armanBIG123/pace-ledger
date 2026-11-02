@@ -3,7 +3,7 @@
 // Plan behind the goal), Licensing, Incentives and the full promotion guide.
 // (Resources has its own tab, on computers and on the phone's bottom bar.)
 import { useEffect, useState } from 'react';
-import { fetchMyAppointments } from '../data/appointments.js';
+import { fetchAppointmentsImOn, fetchMyAppointments } from '../data/appointments.js';
 import { fetchBusinessPlan, rowToBusinessPlanFields } from '../businessPlan.js';
 import { PageHead, SkelBlock } from '../components/ui.jsx';
 import { PaycheckCard } from '../components/paycheck.jsx';
@@ -24,7 +24,9 @@ function Paycheck({ user, onPlan }) {
   const [data, setData] = useState(null);
   useEffect(() => {
     let alive = true;
-    Promise.all([fetchMyAppointments(user.id), fetchBusinessPlan(user.id)]).then(([appointments, row]) => {
+    // Yours, plus sales split with you on ones you presented.
+    Promise.all([fetchMyAppointments(user.id), fetchBusinessPlan(user.id), fetchAppointmentsImOn(user.id).catch(() => [])]).then(([mine, row, on]) => {
+      const appointments = [...mine, ...on.filter(a => a.splitUserId === user.id)];
       if (alive) setData({ appointments, plan: row && !row.loadError ? rowToBusinessPlanFields(row) : null });
     });
     return () => { alive = false; };

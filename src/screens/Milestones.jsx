@@ -16,6 +16,7 @@ import { AgreementHistory, AgreementSheet, ContractingFormSheet, contractingChan
 import { askConfirm } from '../components/confirm.jsx';
 import { contractingWords, withdrawContractingInfo } from '../data/contracting.js';
 import { agentStage, earlierContracting, fmtDay, fmtWhen } from '../lib/contracting.js';
+import { creditRows } from '../lib/credit.js';
 
 // The career ladder: one rung per tier, top of the ladder first. Rungs
 // already reached are marked done, your current one is highlighted, and the
@@ -162,9 +163,15 @@ export function MyProgressCard({ user }) {
     const downline = computeDownline(user.id, orgDirectory).filter(p => p.id !== user.id);
     const downlineAppts = await fetchAppointmentsForUserIds(downline.map(p => p.id));
     setNotSet(false); setAtTop(false);
-    const mine = computeTierProgress(person, orgDirectory, myAppts, downlineAppts, traineeAppts);
+    // Split sales count for both people, each with their share (lib/credit.js):
+    // yours, ones split with you, and your downline's.
+    const downIds = new Set(downline.map(p => p.id));
+    const credited = creditRows([...myAppts, ...presenting, ...downlineAppts]);
+    const myCredit = credited.filter(a => a.userId === user.id);
+    const downCredit = credited.filter(a => downIds.has(a.userId));
+    const mine = computeTierProgress(person, orgDirectory, myCredit, downCredit, traineeAppts);
     // How close each person who reports to you is, for "Closest: …".
-    const sold = [...myAppts, ...downlineAppts].filter(a => a.officiallySold);
+    const sold = [...myAppts, ...presenting, ...downlineAppts].filter(a => a.officiallySold);
     const directPct = new Map(computeReadiness(orgDirectory, sold, directs.map(d => d.id)).map(x => [x.member.id, progressPct(x.progress)]));
     setProgress(mine);
     setSummary(milestoneSummary(person, mine, {

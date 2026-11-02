@@ -6,6 +6,7 @@ import { prospectTotalChecked } from '../data/prospects.js';
 import { WEEKLY_TOTAL_TARGET } from './pace.js';
 import { fmtDate, todayStr, weekStartOf } from './dates.js';
 import { centralDate, tickboxRecruitCounts } from './recruitCounts.js';
+import { creditedTo } from './credit.js';
 
 // signups: { since, rows } from fetchRecruitSignups for this month. Recruits
 // are the people who signed up under you this month; before the switch,
@@ -28,7 +29,9 @@ export function pipelineSummary({ prospects, appointments, presenting, signups =
   const oldestDays = oldest ? Math.max(0, Math.round((now - new Date(`${oldest}T12:00:00`)) / 864e5)) : 0;
   const needs = past.filter(a => a.status === 'needs_follow_up').length;
   const followUpsBooked = mine.filter(a => a.isFollowUp && !isPastAppointment(a)).length;
-  const sold = mine.filter(a => a.officiallySold && (a.appointmentDate || '').slice(0, 7) === month);
+  // Your sales: your own, plus ones split with you (your share of the premium).
+  const credit = creditedTo([...mine, ...(presenting || []).filter(a => a.splitUserId === userId)], userId);
+  const sold = credit.filter(a => a.officiallySold && (a.appointmentDate || '').slice(0, 7) === month);
   const recruits = mine.filter(a => tickboxRecruitCounts(a, signups.since) && (a.appointmentDate || '').slice(0, 7) === month).length
     + (signups.rows || []).filter(s => s.uplineId === userId && centralDate(s.signedUpAt).slice(0, 7) === month).length;
   const waiting = mine.filter(a => a.officiallySold && !isPolicyIssued(a));
