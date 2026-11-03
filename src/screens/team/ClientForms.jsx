@@ -92,7 +92,7 @@ export function ClientFormsBody() {
 
       {loading ? <SkeletonTable rows={6} cols={4} /> : shown.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">
-          {rows.length === 0 ? 'No client intake forms yet. They show up here once an advisor sends one from Pipeline → Follow-up.'
+          {rows.length === 0 ? 'No client intake forms yet. They show up here once an advisor sends one from a client profile or follow-up card.'
             : status === 'submitted' ? 'No completed forms match.' : 'No forms waiting on a client match.'}
         </p></div>
       ) : (

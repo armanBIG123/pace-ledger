@@ -79,7 +79,7 @@ export function useNewMenu(user, go) {
     setOpen(false);
     if (kind === 'invite') setInviting(true);
     else if (kind === 'appointment') go('mine', 'new');
-    else if (kind === 'prospect') go('systems', 'new');
+    else if (kind === 'prospect') go('clients', { add: true });
     else if (kind === 'outcome') go('followup', 'nolog');
     else if (kind === 'intake') openIntakeSend({ pick: true });
   }
@@ -217,7 +217,7 @@ export function GlobalSearch({ user, go, withPeople }) {
       const appt = ((data && data.appts) || []).find(a => a.id === item.id);
       if (appt) openAppointment(appt); else go('mine', { search: item.search });
     }
-    else if (item.kind === 'prospect') go('systems', { search: item.search });
+    else if (item.kind === 'prospect') go('clients', { open: `p:${item.id}` });
   }
   function onKeyDown(e) {
     if (e.key === 'Escape') { setOpen(false); setOverlay(false); e.currentTarget.blur(); return; }

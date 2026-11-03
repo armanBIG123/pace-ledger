@@ -479,7 +479,7 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
     if (!res.ok) { setQuickErr(res.error || "Couldn't save. Try again."); return; }
     setProspects(prev => [res.record, ...prev]);
     setQuickFirst(''); setQuickLast('');
-    setFlash(`Added ${res.record.firstName} ${res.record.lastName}. Score them in Pipeline → Prospects when you have a minute.`);
+    setFlash(`Added ${res.record.firstName} ${res.record.lastName}. Score them from their profile in Clients when you have a minute.`);
   }
 
   if (loading) {

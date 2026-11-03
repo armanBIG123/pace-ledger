@@ -124,6 +124,8 @@ export function rowToProspect(row) {
     email: row.email || '',
     phone: row.phone || '',
     markedSold: row.marked_sold || false, markedRecruited: row.marked_recruited || false,
+    // Who on your list gave you this name (migration-client-referrals.sql).
+    referredById: row.referred_by_id || '',
   };
   ALL_CHARACTERISTICS.forEach(c => { rec[c.key] = !!row[c.dbCol]; });
   return rec;
@@ -157,7 +159,16 @@ export async function insertProspect(userId, form) {
     phone: (form.phone || '').trim() || null,
   };
   ALL_CHARACTERISTICS.forEach(c => { payload[c.dbCol] = !!form[c.key]; });
-  const { data, error } = await supabase.from('prospects').insert(payload).select().single();
+  // A referral (Clients → Referrals): linked to whoever gave you the name.
+  // Before migration-client-referrals.sql has run, the name goes in the
+  // notes instead.
+  if (form.referredById) payload.referred_by_id = form.referredById;
+  let { data, error } = await supabase.from('prospects').insert(payload).select().single();
+  if (error && payload.referred_by_id && /referred_by_id/.test(error.message || '')) {
+    delete payload.referred_by_id;
+    if (form.referredByName) payload.notes = [`Referred by ${form.referredByName}`, payload.notes].filter(Boolean).join('\n');
+    ({ data, error } = await supabase.from('prospects').insert(payload).select().single());
+  }
   if (error) return { ok: false, error: error.message };
   return { ok: true, record: rowToProspect(data) };
 }
