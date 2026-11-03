@@ -1,20 +1,22 @@
-// Pipeline: Prospecting, My Appointments and Follow Up as one flow. Five
-// stages a name moves through, left to right: Prospects → Appointments → Log outcome
-// → Follow-up → Won. Each stage opens the screen that does that job; the
-// counts on top come from the same rules those screens use.
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Award, CalendarDays, ChevronRight, ListChecks, MessageCircle, Users } from 'lucide-react';
+// My work → Clients (this tab was Pipeline). It opens on Clients: everyone,
+// one profile each (screens/Clients.jsx). The lists that were Pipeline's
+// five stage tabs (Prospects, Appointments, Log outcome, Follow-up, Won)
+// are still here, opened from Clients → Other lists, from Today, search and
+// + New, each with a way back to Clients.
+import { useCallback, useEffect, useState } from 'react';
+import { Award, CalendarDays, ChevronLeft, ListChecks, MessageCircle, Users } from 'lucide-react';
 import { fetchAppointmentsImOn, fetchMyAppointments } from '../data/appointments.js';
 import { fetchMyProspects, prospectToAppointmentPrefill } from '../data/prospects.js';
 import { fetchRecruitSignups } from '../data/recruits.js';
 import { pipelineSummary } from '../lib/pipeline.js';
 import { fmtDate, parseDate, todayStr } from '../lib/dates.js';
 import { fmtCurrency } from '../lib/format.js';
-import { TitleInfo } from '../components/ui.jsx';
 import { SystemsBody } from './Prospecting.jsx';
 import { MyAppointmentsBody, OpenRequirementsBody } from './Appointments.jsx';
 import { FollowUpBody } from './FollowUp.jsx';
+import { ClientsBody, OTHER_LISTS } from './Clients.jsx';
 
+// The older lists (no longer tabs): what each is called on its back bar.
 export const PIPELINE_STAGES = [
   { key: 'names', label: 'Prospects', Icon: Users },
   { key: 'booked', label: 'Appointments', Icon: CalendarDays },
@@ -48,10 +50,12 @@ function WonStage({ user, summary }) {
   );
 }
 
-// stage + onStage: which stage is open (kept by the app, so other screens can
-// open a stage directly). intentFor / clearIntent: requests from elsewhere
-// (search, + New, Today) for the screen behind a stage.
-export function PipelineBody({ user, stage, onStage, intentFor, clearIntent, prefillData, onPrefillConsumed, cameFrom, onReturn, onLogAppointment }) {
+// stage + onStage: what's open ('clients', or one of the lists above; kept
+// by the app, so other screens can open one directly). client / onClient:
+// the open profile on Clients. intentFor / clearIntent: requests from
+// elsewhere (search, + New, Today) for the screen behind a list. client is
+// { key, name } or null.
+export function PipelineBody({ user, stage, onStage, client, onClient, intentFor, clearIntent, prefillData, onPrefillConsumed, cameFrom, onReturn, onLogAppointment }) {
   const [summary, setSummary] = useState(null);
   const load = useCallback(async () => {
     const first = parseDate(`${todayStr().slice(0, 7)}-01`);
@@ -62,23 +66,15 @@ export function PipelineBody({ user, stage, onStage, intentFor, clearIntent, pre
     ]);
     setSummary(pipelineSummary({ prospects, appointments, presenting, signups, userId: user.id }));
   }, [user.id]);
-  // Fresh numbers whenever the stage changes or appointments are saved.
-  useEffect(() => { load(); }, [load, stage]);
-  useEffect(() => {
-    const again = () => load();
-    window.addEventListener('paceledger:appointments-changed', again);
-    return () => window.removeEventListener('paceledger:appointments-changed', again);
-  }, [load]);
+  // Submitted / Issued premium shows how many are waiting.
+  useEffect(() => { if (stage === 'won') load(); }, [load, stage]);
 
-  // Phones: keep the open stage in view on the sideways strip.
-  const strip = useRef(null);
-  useEffect(() => {
-    const el = strip.current;
-    const on = el && el.querySelector('.tr-stage-on');
-    if (!on || el.scrollWidth <= el.clientWidth) return;
-    const a = el.getBoundingClientRect(), b = on.getBoundingClientRect();
-    if (b.left < a.left || b.right > a.right) el.scrollLeft += b.left - a.left - 48;
-  }, [stage]);
+  if (stage === 'clients' || !PIPELINE_STAGES.some(s => s.key === stage)) {
+    return (
+      <ClientsBody user={user} selected={client ? client.key : null} onSelect={(key, name) => { onClient(key ? { key, name } : null); window.scrollTo(0, 0); }}
+        onLogAppointment={onLogAppointment} onOpenList={onStage} intent={intentFor('clients')} onIntentConsumed={clearIntent} />
+    );
+  }
 
   let body = null;
   if (stage === 'names') {
@@ -95,24 +91,13 @@ export function PipelineBody({ user, stage, onStage, intentFor, clearIntent, pre
   } else {
     body = <WonStage user={user} summary={summary} />;
   }
-
+  const here = PIPELINE_STAGES.find(s => s.key === stage);
   return (
     <div className="tr-pipeline">
-      <div className="tr-row-head tr-screen-head">
-        <TitleInfo title="Pipeline" info="Every name from first contact to a won sale or recruit, in one place. Tap a stage to see who is in it: your prospects, appointments, outcomes to log, follow-ups, and sales and recruits won." />
-      </div>
-      <div className="tr-stages" ref={strip} role="tablist" aria-label="Pipeline stages">
-        {PIPELINE_STAGES.map(({ key, label, Icon }, i) => (
-          <div key={key} className="tr-stage-wrap">
-            {i > 0 ? <ChevronRight size={16} className="tr-stage-arrow" aria-hidden="true" /> : null}
-            <button type="button" role="tab" aria-selected={stage === key} className={`tr-stage ${stage === key ? 'tr-stage-on' : ''}`} onClick={() => onStage(key)}>
-              <span className="tr-stage-top"><Icon size={14} aria-hidden="true" /> {label}</span>
-              <span className="tr-stage-n">{summary ? summary[key].n : '–'}</span>
-              <span className="tr-stage-sub">{summary ? summary[key].sub : ' '}</span>
-            </button>
-          </div>
-        ))}
-      </div>
+      <nav className="tr-cl-backbar" aria-label="Back to Clients">
+        <button type="button" className="tr-cl-back" data-android-back onClick={() => onStage('clients')}><ChevronLeft size={16} aria-hidden="true" /> {client && client.name ? client.name : 'Clients'}</button>
+        <span className="tr-cl-backbar-here"><here.Icon size={14} aria-hidden="true" /> {(OTHER_LISTS.find(o => o.stage === stage) || here).label}</span>
+      </nav>
       <div className="tr-flat" key={stage}>{body}</div>
     </div>
   );

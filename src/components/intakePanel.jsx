@@ -174,7 +174,7 @@ function IntakeSendWindow({ user, appointment, candidate: initial, onClose }) {
     return (
       <Frame title={`${appointment.client}'s intake form`} onClose={onClose} foot={<button type="button" className="tr-btn tr-btn-brass" onClick={onClose}>Done</button>}>
         <p className="tr-intake-status tr-intake-status-green"><Check size={15} aria-hidden="true" /> {first} filled it in {dayWord(cand.submitted_at)}.</p>
-        <p className="tr-empty">The answers are on their card in Pipeline → Follow-up.</p>
+        <p className="tr-empty">The answers are on their profile in Clients, and on their card in Clients → Other lists → Follow-up.</p>
       </Frame>
     );
   }

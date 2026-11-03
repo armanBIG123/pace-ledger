@@ -44,9 +44,11 @@ function Screens({ id, children }) {
 const MY_WORK_IDS = new Set(MY_WORK_TABS.map(t => t.id));
 
 // The old screen names still work everywhere (Today, search, + New, the
-// First 30 days checklist): each opens the part of Pipeline or Growth that
-// replaced it.
+// First 30 days checklist): each opens the part of Clients (the 'pipeline'
+// tab) or Growth that replaced it. 'clients' takes { open: key } for one
+// profile, or { add: true } for a new name.
 const ROUTES = {
+  clients: { tab: 'pipeline', stage: 'clients' },
   systems: { tab: 'pipeline', stage: 'names' },
   mine: { tab: 'pipeline', stage: 'booked' },
   followup: { tab: 'pipeline', stage: 'followup' },
@@ -68,10 +70,12 @@ function useViewNav() {
   // Where you were when you opened "Log appointment" from another screen,
   // so Cancel can take you back there.
   const [cameFrom, setCameFrom] = useState(null);
-  // Which Pipeline stage and Growth section are open.
-  const [stage, setStage] = useState('names');
+  // What's open on Clients (a list, and the profile you came from) and in
+  // Growth. client: { key, name } or null.
+  const [stage, setStage] = useState('clients');
+  const [client, setClient] = useState(null);
   const [growthView, setGrowthView] = useState('path');
-  const here = { group, tab, stage, growthView };
+  const here = { group, tab, stage, client, growthView };
   const onBooked = () => tab === 'pipeline' && stage === 'booked';
   const opensForm = (t, intent) => t === 'mine' && (intent === 'new' || (intent && typeof intent === 'object' && 'prefill' in intent));
   function go(t, intent = null) {
@@ -84,6 +88,7 @@ function useViewNav() {
       setGroup('team'); setNavIntent({ tab: 'pace', intent: 'promotion' }); setTab('pace'); window.scrollTo(0, 0); return;
     }
     const route = ROUTES[t];
+    setClient(null);
     setGroup(route || MY_WORK_IDS.has(t) ? 'mine' : 'team');
     if (t === 'mine' && intent === 'new') setPrefillData({});
     // Today's "Book" button hands over a prospect to prefill the form.
@@ -106,9 +111,10 @@ function useViewNav() {
   function logAppointment(p) { setCameFrom(!onBooked() ? here : null); setPrefillData(p); setGroup('mine'); setStage('booked'); setTab('pipeline'); }
   function goBack() {
     if (!cameFrom) return;
-    setGroup(cameFrom.group); setTab(cameFrom.tab); setStage(cameFrom.stage); setGrowthView(cameFrom.growthView); setCameFrom(null); window.scrollTo(0, 0);
+    setGroup(cameFrom.group); setTab(cameFrom.tab); setStage(cameFrom.stage); setClient(cameFrom.client || null); setGrowthView(cameFrom.growthView); setCameFrom(null); window.scrollTo(0, 0);
   }
-  function pickTab(t) { setCameFrom(null); setTab(t); }
+  // The Clients tab always opens on everyone.
+  function pickTab(t) { setCameFrom(null); if (t === 'pipeline') { setStage('clients'); setClient(null); setNavIntent(null); } setTab(t); }
   // A tapped "How did it go?" phone reminder opens that appointment's log
   // window on Today; the evening and 9 AM ones open "Log them all" there.
   useEffect(() => {
@@ -138,17 +144,17 @@ function useViewNav() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   function pickStage(k) { setCameFrom(null); setNavIntent(null); setStage(k); window.scrollTo(0, 0); }
-  return { group, tab, setTab: pickTab, stage, setStage: pickStage, growthView, setGrowthView, prefillData, setPrefillData, go, intentFor, clearIntent, selectGroup, logAppointment, cameFrom, goBack };
+  return { group, tab, setTab: pickTab, stage, setStage: pickStage, client, setClient, growthView, setGrowthView, prefillData, setPrefillData, go, intentFor, clearIntent, selectGroup, logAppointment, cameFrom, goBack };
 }
 
 // The My work tabs, the same for everyone.
 function MyWorkScreens({ user, nav }) {
-  const { tab, go, stage, setStage, growthView, setGrowthView, intentFor, clearIntent, prefillData, setPrefillData, logAppointment, cameFrom, goBack } = nav;
+  const { tab, go, stage, setStage, client, setClient, growthView, setGrowthView, intentFor, clearIntent, prefillData, setPrefillData, logAppointment, cameFrom, goBack } = nav;
   return (
     <>
       {tab === 'overview' && <TodayBody user={user} onNavigate={go} initialIntent={intentFor('overview')} onIntentConsumed={clearIntent} />}
       {tab === 'pipeline' && (
-        <PipelineBody user={user} stage={stage} onStage={setStage} intentFor={intentFor} clearIntent={clearIntent}
+        <PipelineBody user={user} stage={stage} onStage={setStage} client={client} onClient={setClient} intentFor={intentFor} clearIntent={clearIntent}
           prefillData={prefillData} onPrefillConsumed={() => setPrefillData(null)} cameFrom={cameFrom} onReturn={goBack}
           onLogAppointment={logAppointment} />
       )}

@@ -1,6 +1,6 @@
 // Tab lists, the tab bar / phone bottom bar, and the Android back button.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { BookUser, Calendar, ChevronDown, ChevronRight, ClipboardCheck, DollarSign, FolderOpen, Kanban, LayoutDashboard, Menu, Network, Plus, Sun, TrendingUp, UserCog, Users } from 'lucide-react';
+import { BookUser, Calendar, ChevronDown, ChevronRight, ClipboardCheck, DollarSign, FolderOpen, LayoutDashboard, Menu, Network, Plus, Sun, TrendingUp, UserCog, Users } from 'lucide-react';
 import { minimizeAndroidApp, onAndroidBack } from '../native.js';
 
 // ---------------------------------------------------------------------
@@ -9,12 +9,13 @@ import { minimizeAndroidApp, onAndroidBack } from '../native.js';
 // a "More" sheet, and a + in the middle for adding or logging anything), so
 // nothing hides off the edge of the screen.
 // ---------------------------------------------------------------------
-// Pipeline = Prospecting + My Appointments + Follow Up; Growth = Milestones
+// Clients = everyone you've prospected, booked, sold or recruited (with
+// Prospecting, My Appointments and Follow Up inside it); Growth = Milestones
 // + Business Plan + paycheck; Resources = Documents (PDFs, PowerPoints and
 // important links), on the phone's bottom bar too.
 export const MY_WORK_TABS = [
   { id: 'overview', label: 'Today', short: 'Today', Icon: Sun },
-  { id: 'pipeline', label: 'Pipeline', short: 'Pipeline', Icon: Kanban },
+  { id: 'pipeline', label: 'Clients', short: 'Clients', Icon: Users },
   { id: 'calendar', label: 'Calendar', short: 'Calendar', Icon: Calendar },
   { id: 'growth', label: 'Growth', short: 'Growth', Icon: TrendingUp },
   { id: 'resources', label: 'Resources', short: 'Resources', Icon: FolderOpen },

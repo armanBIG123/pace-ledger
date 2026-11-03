@@ -116,6 +116,9 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
   const [prospectId, setProspectId] = useState(editing?.prospectId || prefillData?.prospectId || '');
   // "Add them to your list" picked: saved as a new prospect along with this.
   const [addToList, setAddToList] = useState(false);
+  // A new name is added to your list on its own (every appointment belongs
+  // to someone's profile in Clients) unless you say not to.
+  const [keepOffList, setKeepOffList] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeIdx, setActiveIdx] = useState(-1);
   const clientInput = useRef(null);
@@ -182,6 +185,8 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
   const comboOptions = [...nameMatches.map(p => ({ key: p.id, p })), ...(typed.length >= 2 && !typedIsOnList ? [{ key: 'add' }] : [])];
   const showCombo = !forOther && menuOpen && !prospectId && !addToList && comboOptions.length > 0;
   const linked = prospectId ? myProspects.find(p => p.id === prospectId) : null;
+  // Booking someone who isn't on your list adds them when you save.
+  const autoAdd = !editing && !forOther && !prospectId && !addToList && !keepOffList && typed.length >= 2 && !typedIsOnList;
   function pickOption(o) {
     if (!o) return;
     if (o.p) {
@@ -191,6 +196,7 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
       fillFrom(o.p);
     } else {
       setAddToList(true);
+      setKeepOffList(false);
     }
     setMenuOpen(false);
     setActiveIdx(-1);
@@ -336,11 +342,12 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
     // picking it.
     const sameName = myProspects.filter(p => prospectNameKey(p) === normName(client));
     const linkId = prospectId || (!addToList && sameName.length === 1 ? sameName[0].id : '');
+    const adding = (addToList || (!editing && !forOther && !keepOffList && sameName.length === 0 && normName(client).length >= 2)) && !linkId;
     onSubmit({
       dateSetOption, appointmentDate, appointmentTime, timezone, durationMinutes: duration,
       presenter: presenterName, presenterId, trainee: traineeName, traineeId,
       client, clientEmail, clientPhone, notes, presentationType, presentationTypeSecondary, zoomHostId: zoomHostId || null,
-      inviteEmails, prospectId: linkId, addToList: addToList && !linkId,
+      inviteEmails, prospectId: linkId, addToList: adding,
       sendIntake: !editing && !forOther && sendIntake,
     });
   }
@@ -420,11 +427,11 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
               <span>Linked to <strong>{linked.firstName} {linked.lastName}</strong> on your list</span>
               <button type="button" className="tr-link-btn" onClick={changeLink}>Change</button>
             </div>
-          ) : addToList ? (
+          ) : addToList || (autoAdd && !showCombo) ? (
             <div className="tr-combo-linked tr-combo-linked-new">
               <UserPlus size={14} aria-hidden="true" />
               <span><strong>{client.trim() || 'They'}</strong> will be added to your list when you save</span>
-              <button type="button" className="tr-link-btn" onClick={() => setAddToList(false)}>Undo</button>
+              <button type="button" className="tr-link-btn" onClick={() => { setAddToList(false); setKeepOffList(true); }}>Don't add</button>
             </div>
           ) : null}
         </div>
@@ -772,7 +779,7 @@ async function addToListFirst(user, input) {
   ALL_CHARACTERISTICS.forEach(c => { blank[c.key] = false; });
   const pr = await insertProspect(user.id, blank);
   if (pr.ok) return { form: { ...input, prospectId: pr.record.id }, listNote: '' };
-  return { form: input, listNote: `Couldn't add ${input.client.trim()} to your list. Add them from Pipeline → Prospects.` };
+  return { form: input, listNote: `Couldn't add ${input.client.trim()} to your list. Add them from their profile in Clients.` };
 }
 
 // Saves changes to one of your appointments, from Pipeline or from the
