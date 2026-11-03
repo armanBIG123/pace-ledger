@@ -1,6 +1,6 @@
-// The numbers on My work → Pipeline's five stages (Prospects → Appointments → Log
-// outcome → Follow-up → Won), worked out from the same rules the screens
-// behind each stage use.
+// The numbers on the pipeline bar at the top of My work → Clients
+// (Prospects → Appointments → Log outcomes → Follow-up meetings → Results),
+// worked out from the same rules the screens behind each stage use.
 import { isPastAppointment, isPolicyIssued } from '../data/appointments.js';
 import { prospectTotalChecked } from '../data/prospects.js';
 import { WEEKLY_TOTAL_TARGET } from './pace.js';
@@ -35,6 +35,8 @@ export function pipelineSummary({ prospects, appointments, presenting, signups =
   const recruits = mine.filter(a => tickboxRecruitCounts(a, signups.since) && (a.appointmentDate || '').slice(0, 7) === month).length
     + (signups.rows || []).filter(s => s.uplineId === userId && centralDate(s.signedUpAt).slice(0, 7) === month).length;
   const waiting = mine.filter(a => a.officiallySold && !isPolicyIssued(a));
+  // Results: submitted (waiting to be issued) vs. issued this month.
+  const issued = mine.filter(a => a.officiallySold && isPolicyIssued(a) && (a.effectiveDate || '').slice(0, 7) === month).length;
   return {
     names: { n: active.length, sub: `${active.filter(p => prospectTotalChecked(p) > 0).length} scored` },
     booked: { n: upcoming.length, sub: `This week: ${setThisWeek} of ${WEEKLY_TOTAL_TARGET}` },
@@ -45,8 +47,9 @@ export function pipelineSummary({ prospects, appointments, presenting, signups =
     },
     followup: { n: needs, sub: followUpsBooked ? `${followUpsBooked} follow-up${followUpsBooked === 1 ? '' : 's'} booked` : 'Needs a next step' },
     won: {
-      n: sold.length + recruits,
-      sub: `${sold.length} sale${sold.length === 1 ? '' : 's'} · ${recruits} recruit${recruits === 1 ? '' : 's'} this month`,
+      n: waiting.length,
+      sub: `submitted · ${issued} issued in ${now.toLocaleDateString('en-US', { month: 'short' })}`,
+      sales: sold.length, recruits,
       waiting: waiting.length, waitingPremium: waiting.reduce((t, a) => t + (Number(a.targetPremium) || 0), 0),
     },
   };
