@@ -26,15 +26,6 @@ const firstOf = n => (n || '').trim().split(/\s+/)[0] || n;
 const NOT_SAME = 'pl_not_same';
 const readNotSame = () => { try { return new Set(JSON.parse(localStorage.getItem(NOT_SAME) || '[]')); } catch { return new Set(); } };
 
-// The older lists, still here for the jobs they do best.
-export const OTHER_LISTS = [
-  { stage: 'names', label: 'Prospect list & scoring', sub: 'Score names, the Memory Jogger' },
-  { stage: 'booked', label: "This week's appointments", sub: 'Your week toward 15, open requirements' },
-  { stage: 'outcome', label: 'Outcomes to log', sub: 'Log them all, you presented' },
-  { stage: 'followup', label: 'Follow-up, intake & recruit lists', sub: 'Intake forms, recruit sign-ups' },
-  { stage: 'won', label: 'Submitted & issued premium', sub: 'Effective dates and requirements' },
-];
-
 function StageChip({ stage, short = false }) {
   const s = CLIENT_STAGES[stage];
   return <span className={`tr-cl-chip tr-cl-chip-${stage}`}>{short && s.short ? s.short : s.label}</span>;
@@ -147,10 +138,10 @@ function PolicyCard({ pol, c, user, nameOf, onChanged }) {
 }
 
 // selected / onSelect(key, name): the open profile (kept by the app, so
-// Cancel on the appointment form comes back to it). onOpenList(stage): one
-// of the older lists. intent from elsewhere: { open: key } (search),
-// { search } or { add: true } (+ New → Add a prospect).
-export function ClientsBody({ user, selected, onSelect, onLogAppointment, onOpenList, intent, onIntentConsumed }) {
+// Cancel on the appointment form comes back to it). intent from elsewhere:
+// { open: key } (search), { search } or { add: true } (+ New → Add a
+// prospect). bar: the pipeline bar (Pipeline.jsx), under the heading.
+export function ClientsBody({ user, selected, onSelect, onLogAppointment, intent, onIntentConsumed, bar = null }) {
   const [data, setData] = useState(null);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
@@ -471,9 +462,10 @@ export function ClientsBody({ user, selected, onSelect, onLogAppointment, onOpen
   return (
     <div className="tr-clients">
       <div className="tr-row-head tr-screen-head">
-        <TitleInfo title="Clients" info="Everyone you've put on your list, booked, presented, sold or recruited, one profile each, with the next step on top. Stages set themselves from what you log; there's nothing to move by hand." />
+        <TitleInfo title="Clients" info="Up top: your pipeline, from first name to results; tap a stage for that list. Below: everyone you've put on your list, booked, presented, sold or recruited, one profile each, with the next step on top. Stages set themselves from what you log; there's nothing to move by hand." />
         <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => { setFormError(''); setForm({ editing: null }); }}><Plus size={14} aria-hidden="true" /> Add a name</button>
       </div>
+      {bar}
       {flashEl}
       <div className="tr-search-row tr-cl-search">
         <Search size={15} className="tr-search-icon" aria-hidden="true" />
@@ -521,19 +513,6 @@ export function ClientsBody({ user, selected, onSelect, onLogAppointment, onOpen
           ))}
         </ul>
       )}
-      <section className="tr-cl-other" aria-labelledby="cl-other-h">
-        <h3 className="tr-cl-h" id="cl-other-h">Other lists</h3>
-        <ul>
-          {OTHER_LISTS.map(o => (
-            <li key={o.stage}>
-              <button type="button" onClick={() => onOpenList(o.stage)}>
-                <span><strong>{o.label}</strong><span className="tr-cl-muted">{o.sub}</span></span>
-                <ChevronRight size={16} aria-hidden="true" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      </section>
       {modals}
     </div>
   );
