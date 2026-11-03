@@ -13,6 +13,7 @@ import { fmtApptDateTime } from '../lib/dates.js';
 import { fmtCurrency } from '../lib/format.js';
 import { FollowUpModal } from './followUpModal.jsx';
 import { Modal } from './ui.jsx';
+import { splitToSave, useSplitPartner } from './split.jsx';
 
 const QUICK = [
   { value: 'sold', label: 'Sold', Icon: DollarSign },
@@ -38,10 +39,37 @@ export function quickOutcome(appointment, kind, premium = '') {
 }
 
 function savedLabel(data, presenter, a) {
-  if (data.officiallySold) return Number(data.targetPremium) > 0 ? `Sold · ${fmtCurrency(Number(data.targetPremium))}` : 'Sold · add the premium later';
+  const split = data.officiallySold && data.split ? ` · split ${presenter ? data.split.percent : 100 - data.split.percent}/${presenter ? 100 - data.split.percent : data.split.percent}` : '';
+  if (data.officiallySold) return (Number(data.targetPremium) > 0 ? `Sold · ${fmtCurrency(Number(data.targetPremium))}` : 'Sold · add the premium later') + split;
   if (data.outcome === 'rescheduled') return presenter ? `Rescheduled · ${first(a.setByName) || 'the advisor'} picks the new time` : 'Rescheduled · on your Reschedule list';
   if (data.outcome === 'no_show') return presenter ? 'No show' : 'No show · rebook it from Didn\'t happen';
   return { went_well: 'Went well', not_interested: 'Not interested' }[data.outcome] || 'Logged';
+}
+
+// The premium box for a quick sale, with "Split 50/50 with Dana" when it
+// can be split.
+function QuickSale({ a, presenter, premium, setPremium, busy, onSave, onLater, onCancel }) {
+  const info = useSplitPartner(a, presenter);
+  const [on, setOn] = useState(null); // null: yes, when it can be split
+  const canSplit = info.applies && !info.loading && info.eligible;
+  return (
+    <form className="tr-logall-sale" onSubmit={e => onSave(e, info, on)}>
+      <label className="tr-logall-premium">
+        <span>Premium</span>
+        <input type="number" min="0" step="1" inputMode="decimal" autoFocus value={premium}
+          onChange={e => setPremium(e.target.value)} placeholder="e.g. 1200" aria-label={`Premium for ${a.client}`} />
+      </label>
+      <button type="submit" className="tr-btn tr-btn-brass tr-btn-sm" disabled={busy}>{busy ? 'Saving…' : 'Save sale'}</button>
+      <button type="button" className="tr-link-btn" disabled={busy} onClick={() => onLater(info, on)}>Add it later</button>
+      <button type="button" className="tr-link-btn tr-logall-cancel" onClick={onCancel}>Cancel</button>
+      {canSplit ? (
+        <label className="tr-check-inline tr-logall-split">
+          <input type="checkbox" checked={on === null ? true : on} onChange={e => setOn(e.target.checked)} />
+          Split 50/50 with {info.otherName} <span className="tr-empty">(More… for a different split)</span>
+        </label>
+      ) : null}
+    </form>
+  );
 }
 
 export function LogAllSheet({ user, items, presenter = false, onClose, onLogged, onMoved }) {
@@ -80,10 +108,18 @@ export function LogAllSheet({ user, items, presenter = false, onClose, onLogged,
     setSelling(null);
     save(a, quickOutcome(a, kind));
   }
-  function saveSale(e, a) {
+  // A quick sale is split 50/50 with whoever else was on it when it can
+  // be (the box below the premium); "More…" picks a different split.
+  function saleData(a, withPremium, splitInfo, splitOn) {
+    const data = quickOutcome(a, 'sold', withPremium ? premium : '');
+    const s = splitToSave(a, presenter, splitInfo, splitOn, 50, true);
+    if (s !== undefined) data.split = s;
+    return data;
+  }
+  function saveSale(e, a, splitInfo, splitOn) {
     e.preventDefault();
     if (!(Number(premium) > 0)) { setErr(a.id, 'Enter the premium, or tap "Add it later".'); return; }
-    save(a, quickOutcome(a, 'sold', premium));
+    save(a, saleData(a, true, splitInfo, splitOn));
   }
   async function saveFull(id, data) {
     const a = rows.find(x => x.id === id);
@@ -133,16 +169,9 @@ export function LogAllSheet({ user, items, presenter = false, onClose, onLogged,
                       {done.moved ? null : <button type="button" className="tr-link-btn" onClick={() => setFull(done.record)}>Change</button>}
                     </div>
                   ) : selling === a.id ? (
-                    <form className="tr-logall-sale" onSubmit={e => saveSale(e, a)}>
-                      <label className="tr-logall-premium">
-                        <span>Premium</span>
-                        <input type="number" min="0" step="1" inputMode="decimal" autoFocus value={premium}
-                          onChange={e => { setPremium(e.target.value); setErr(a.id, ''); }} placeholder="e.g. 1200" aria-label={`Premium for ${a.client}`} />
-                      </label>
-                      <button type="submit" className="tr-btn tr-btn-brass tr-btn-sm" disabled={busy === a.id}>{busy === a.id ? 'Saving…' : 'Save sale'}</button>
-                      <button type="button" className="tr-link-btn" disabled={busy === a.id} onClick={() => save(a, quickOutcome(a, 'sold'))}>Add it later</button>
-                      <button type="button" className="tr-link-btn tr-logall-cancel" onClick={() => { setSelling(null); setErr(a.id, ''); }}>Cancel</button>
-                    </form>
+                    <QuickSale a={a} presenter={presenter} premium={premium} setPremium={v => { setPremium(v); setErr(a.id, ''); }} busy={busy === a.id}
+                      onSave={(e, info, on) => saveSale(e, a, info, on)} onLater={(info, on) => save(a, saleData(a, false, info, on))}
+                      onCancel={() => { setSelling(null); setErr(a.id, ''); }} />
                   ) : (
                     <div className="tr-logall-acts" role="group" aria-label={`How did it go with ${a.client}?`}>
                       {QUICK.map(({ value, label, Icon }) => (

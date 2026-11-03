@@ -1,14 +1,16 @@
 // Today → Your paycheck: this month's estimated commission from your own
-// sales, against the monthly income goal in your Business Plan.
+// sales (your share of split ones), against the monthly income goal in your
+// Business Plan. appointments: yours plus any you're on (split ones count).
 import { Wallet } from 'lucide-react';
 import { computePaycheck } from '../lib/paycheck.js';
 import { todayStr } from '../lib/dates.js';
+import { creditedTo } from '../lib/credit.js';
 
 const money = n => `$${Math.round(Math.max(0, n || 0)).toLocaleString('en-US')}`;
 
 export function PaycheckCard({ user, appointments, plan, onNavigate }) {
   const today = todayStr();
-  const p = computePaycheck({ appointments: appointments.filter(a => a.userId === user.id), tierKey: user.hierarchyTier, plan, today });
+  const p = computePaycheck({ appointments: creditedTo(appointments, user.id), tierKey: user.hierarchyTier, plan, today });
   const monthName = new Date(`${today}T12:00:00`).toLocaleDateString('en-US', { month: 'long' });
   const earning = p.rate > 0;
 

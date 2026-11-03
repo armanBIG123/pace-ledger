@@ -558,6 +558,15 @@ export const CSS = `
 .tr-field input.tr-input-bad { border-color: var(--rust); box-shadow: 0 0 0 3px rgba(176,67,47,0.12); }
 .tr-check-inline { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; font-size: 13.5px; color: var(--ink); cursor: pointer; }
 .tr-check-inline input { width: 18px; height: 18px; accent-color: var(--ink); }
+.tr-split { display: flex; flex-direction: column; gap: 8px; padding-top: 10px; margin-top: 2px; border-top: 1px dashed var(--line); }
+.tr-split-row { display: grid; grid-template-columns: auto 1fr 1fr auto; align-items: center; gap: 8px; }
+.tr-split-side { display: flex; flex-direction: column; align-items: center; padding: 6px 8px; border-radius: var(--radius-sm); background: var(--card); border: 1px solid var(--line); line-height: 1.2; }
+.tr-split-side span { font-size: 12px; color: var(--slate-light); }
+.tr-split-side strong { font-size: 18px; color: var(--ink); font-variant-numeric: tabular-nums; }
+.tr-split-side em { font-style: normal; font-size: 12.5px; color: var(--slate); font-variant-numeric: tabular-nums; }
+.tr-split-hint, .tr-split-note { margin: 0; font-size: 12.5px; color: var(--slate-light); }
+.tr-split-note { padding-top: 8px; border-top: 1px dashed var(--line); }
+.tr-logall-split { flex-basis: 100%; font-size: 13px; }
 .tr-pillrow { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 5px; }
 .tr-pill-btn { font-family: inherit; font-size: 13px; font-weight: 500; padding: 6px 13px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--card); color: var(--slate); cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
 .tr-pill-static { cursor: default; }

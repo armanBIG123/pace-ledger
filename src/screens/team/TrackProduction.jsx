@@ -8,6 +8,7 @@ import { addDays, apptStartMs, fmtApptDateTime, fmtDate, parseDate, shiftWeekStr
 import { signupsFor, tickboxRecruitCounts } from '../../lib/recruitCounts.js';
 import { fetchRecruitSignups } from '../../data/recruits.js';
 import { downloadCSV, fmtCurrency } from '../../lib/format.js';
+import { creditRows, splitLabel } from '../../lib/credit.js';
 import { fetchAppointmentsHeldInWeek, isPolicyIssued } from '../../data/appointments.js';
 import { fetchTeamMembers } from '../../data/team.js';
 import { RefreshButton, SkeletonTable, TitleInfo, WeekNav } from '../../components/ui.jsx';
@@ -17,6 +18,8 @@ import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../.
 
 const byTime = list => list.slice().sort((a, b) => apptStartMs(a) - apptStartMs(b));
 const withWhom = a => (a.presenter && a.presenterId !== a.userId ? ` · with ${a.presenter}` : '');
+// A split sale's row: their share, and the policy's whole premium.
+const splitNote = (a, nameOf) => (a.credited ? ` · ${splitLabel(a, nameOf)}${Number(a.fullPremium) > 0 ? ` (${fmtCurrency(Number(a.fullPremium))} policy)` : ''}` : '');
 
 // Sorting Track Production's list.
 const PRODUCTION_SORTS = {
@@ -32,7 +35,7 @@ const signedUpWhen = iso => new Date(iso).toLocaleString('en-US', { weekday: 'sh
 // Tap a name: who they sold to and recruited this week. Sales show the
 // appointment; recruits show when they signed up (or, before the switch,
 // the appointment marked recruited).
-function ProductionDetail({ sold, recruited, joined, premium }) {
+function ProductionDetail({ sold, recruited, joined, premium, nameOf }) {
   return (
     <div className="tr-prod-detail">
       <section>
@@ -41,8 +44,8 @@ function ProductionDetail({ sold, recruited, joined, premium }) {
           <ul className="tr-prod-list">
             {byTime(sold).map(a => (
               <li key={a.id}>
-                <div className="tr-prod-line"><button type="button" className="tr-appt-client-btn" onClick={() => openAppointment(a)}><strong>{a.client}</strong></button><span className="tr-mono">{Number(a.targetPremium) > 0 ? fmtCurrency(Number(a.targetPremium)) : 'No premium entered'}</span></div>
-                <div className="tr-prod-sub">{fmtApptDateTime(a)}{withWhom(a)} · {isPolicyIssued(a) ? 'issued' : 'not issued yet'}</div>
+                <div className="tr-prod-line"><button type="button" className="tr-appt-client-btn" onClick={() => openAppointment(a.source || a)}><strong>{a.client}</strong></button><span className="tr-mono">{Number(a.targetPremium) > 0 ? fmtCurrency(Number(a.targetPremium)) : 'No premium entered'}</span></div>
+                <div className="tr-prod-sub">{fmtApptDateTime(a)}{withWhom(a)}{splitNote(a, nameOf)} · {isPolicyIssued(a) ? 'issued' : 'not issued yet'}</div>
               </li>
             ))}
           </ul>
@@ -103,10 +106,13 @@ export function TrackProductionBody({ user }) {
     else setWeekAppts(prev => applyAppointmentEdit(prev, change));
   });
 
+  const credited = creditRows(weekAppts);
+  const nameOf = id => ((members.find(x => x.id === id) || {}).display_name || '');
   function tally(m) {
-    const list = weekAppts.filter(a => a.userId === m.id);
+    // A split sale counts for both people, each with their share.
+    const list = credited.filter(a => a.userId === m.id);
     const sold = list.filter(a => a.officiallySold);
-    const recruited = list.filter(a => tickboxRecruitCounts(a, signups.since));
+    const recruited = weekAppts.filter(a => a.userId === m.id && tickboxRecruitCounts(a, signups.since));
     const joined = signupsFor(signups.rows, m.id);
     const premium = sold.reduce((t, a) => t + (Number(a.targetPremium) || 0), 0);
     const noPremium = sold.filter(a => !(Number(a.targetPremium) > 0)).length;
@@ -201,7 +207,7 @@ export function TrackProductionBody({ user }) {
                       {isOpen && (
                         <tr className="tr-expand-row">
                           <td colSpan={4}>
-                            <div className="tr-expand-inner"><ProductionDetail sold={sold} recruited={recruited} joined={joined} premium={premium} /></div>
+                            <div className="tr-expand-inner"><ProductionDetail sold={sold} recruited={recruited} joined={joined} premium={premium} nameOf={nameOf} /></div>
                           </td>
                         </tr>
                       )}

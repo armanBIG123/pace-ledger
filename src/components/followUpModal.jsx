@@ -18,6 +18,7 @@ import { knownRecruitsSince, recruitsFromSignupsSince } from '../data/recruits.j
 import { fetchInviteForAppointment, inviteState } from '../invites.js';
 import { detectTimezone, fmtApptDateTime } from '../lib/dates.js';
 import { Modal, openPicker, PillChoice } from './ui.jsx';
+import { initialSplit, SplitControl, splitToSave, useSplitPartner } from './split.jsx';
 
 const OUTCOMES = [
   { value: 'went_well', label: 'Went well', Icon: ThumbsUp },
@@ -69,6 +70,11 @@ export function FollowUpModal({ appointment, onClose, onSave, saving, onReschedu
   // A sale saved without a premium shows up on Today until it's added. One
   // already saved that way stays allowed; typing a premium is always open.
   const [premiumLater, setPremiumLater] = useState(appointment.officiallySold === true && !(Number(appointment.targetPremium) > 0));
+  // Splitting the premium with whoever else was on it (split.jsx).
+  const split = useSplitPartner(appointment, presenter);
+  const [splitStart] = useState(() => initialSplit(appointment, presenter));
+  const [splitOn, setSplitOn] = useState(splitStart.on);
+  const [splitMine, setSplitMine] = useState(splitStart.mine);
   const [interestedTax, setInterestedTax] = useState(boolToYesNo(appointment.interestedTax));
   const [interestedInsurance, setInterestedInsurance] = useState(boolToYesNo(appointment.interestedInsurance));
   const [clientIntake, setClientIntake] = useState(appointment.clientIntakeRequested ? 'yes' : '');
@@ -119,6 +125,7 @@ export function FollowUpModal({ appointment, onClose, onSave, saving, onReschedu
       officiallyRecruited: !askRecruited ? !!appointment.officiallyRecruited : full ? yesNoToBool(officiallyRecruited) : false,
       officiallySold: full ? yesNoToBool(officiallySold) : false,
       targetPremium: full && officiallySold === 'yes' && Number(targetPremium) > 0 ? targetPremium : '',
+      split: splitToSave(appointment, presenter, split, splitOn, splitMine, full && officiallySold === 'yes'),
       interestedTax: full ? yesNoToBool(interestedTax) : null,
       interestedInsurance: full ? yesNoToBool(interestedInsurance) : null,
       clientIntake: full && !presenter && clientIntake === 'yes',
@@ -171,6 +178,7 @@ export function FollowUpModal({ appointment, onClose, onSave, saving, onReschedu
                 <input type="checkbox" checked={premiumLater} onChange={e => { setPremiumLater(e.target.checked); setErr(''); }} />
                 I'll add it later <span className="tr-empty">(it stays on Today until you do)</span>
               </label>
+              <SplitControl info={split} on={splitOn} onChange={setSplitOn} mine={splitMine} onMine={setSplitMine} premium={targetPremium} />
             </div>
           )}
           {askRecruited ? (

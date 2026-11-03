@@ -9,6 +9,7 @@ import { computeAnnualGrossIncomeNeeded, computeCommissionPerTransaction, comput
 import { DATE_SET_OPTIONS, dateSetMeta, defaultDateSetOption, WEEKLY_TOTAL_TARGET } from '../lib/pace.js';
 import { addDays, apptClock, apptEndClock, apptEndMs, apptLocalDate, apptStartMs, fmtApptDateTime, fmtDate, fmtDisplayDate, fmtShortDate, greetingFor, parseDate, startsInLabel, todayStr, weekStartOf } from '../lib/dates.js';
 import { lowerFirst } from '../lib/format.js';
+import { creditedTo } from '../lib/credit.js';
 import { PaycheckCard } from '../components/paycheck.jsx';
 import { computePaycheck } from '../lib/paycheck.js';
 import { TeamWinsSection } from '../components/wins.jsx';
@@ -232,6 +233,9 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
   // Intake rows you've hidden (this device): { [formId]: until-ms }.
   const [intakeHidden, setIntakeHidden] = useState(() => { try { return JSON.parse(localStorage.getItem('pl_intake_hidden') || '{}'); } catch { return {}; } });
   const [presenting, setPresenting] = useState([]);
+  // Sales on appointments you presented that were split with you (they
+  // count toward your sales and your share of the premium).
+  const [sharedSales, setSharedSales] = useState([]);
   const [prospects, setProspects] = useState([]);
   const [plan, setPlan] = useState(null);
   const [facts, setFacts] = useState({ google: false, licensed: false, reminders: 'unsupported' });
@@ -304,6 +308,7 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
     setOnboardingRow(ob && !ob.error ? ob : null);
     setInvolvedToday(inv);
     setPresenting(pres);
+    setSharedSales(on.filter(x => x.splitUserId === user.id));
     setIntakes(forms || []);
     setLoading(false);
   }, [user.id]);
@@ -607,6 +612,7 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
     .forEach(x => {
       const result = loggedSummary(x);
       const counts = x.officiallySold && x.officiallyRecruited ? 'The sale and recruit count for you.'
+        : x.officiallySold && x.splitUserId ? `The sale counts for both of you; the premium is split ${100 - x.splitPercent}/${x.splitPercent}.`
         : x.officiallySold ? 'The sale counts for you.' : x.officiallyRecruited ? 'The recruit counts for you.' : '';
       mustDo.push({
         key: `lfm-${x.id}`, Icon: CheckCheck, tone: 'green',
@@ -754,7 +760,8 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const daysLeft = daysInMonth - now.getDate();
   const prospectsThisMonth = prospects.filter(x => x.createdAt && fmtDate(new Date(x.createdAt)).slice(0, 7) === monthPrefix).length;
-  const salesThisMonth = appointments.filter(x => x.officiallySold && (x.appointmentDate || '').slice(0, 7) === monthPrefix).length;
+  const credited = creditedTo([...appointments, ...sharedSales], user.id);
+  const salesThisMonth = credited.filter(x => x.officiallySold && (x.appointmentDate || '').slice(0, 7) === monthPrefix).length;
   const pct = (d, g) => (g > 0 ? Math.min(100, Math.round((d / g) * 100)) : 0);
   const goalNote = (d, g) => (d >= g ? 'Goal reached for the month' : `${g - d} more in the ${daysLeft === 0 ? 'last day' : `${daysLeft} day${daysLeft === 1 ? '' : 's'} left`}`);
 
@@ -785,7 +792,7 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
     : `${leftCount} thing${leftCount === 1 ? '' : 's'}${doneCount ? ` · ${doneCount} done today` : ''}`;
 
   // ---- the four tiles ------------------------------------------------
-  const pay = computePaycheck({ appointments: appointments.filter(x => x.userId === user.id), tierKey: user.hierarchyTier, plan, today });
+  const pay = computePaycheck({ appointments: credited, tierKey: user.hierarchyTier, plan, today });
   const money = n => `$${Math.round(Math.max(0, n || 0)).toLocaleString('en-US')}`;
   const nextUp = comingUp.find(x => apptStartMs(x) >= nowMs) || comingUp[0];
   const tiles = [
@@ -832,7 +839,7 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
         </div>
       );
     }
-    if (key === 'paycheck') return <PaycheckCard user={user} appointments={appointments} plan={plan} onNavigate={onNavigate} />;
+    if (key === 'paycheck') return <PaycheckCard user={user} appointments={[...appointments, ...sharedSales]} plan={plan} onNavigate={onNavigate} />;
     if (key === 'goals') {
       return (
         <div className="tr-card">
