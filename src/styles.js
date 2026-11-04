@@ -2056,6 +2056,12 @@ export const CSS = `
 .tr-cl-refs button:hover { border-color: var(--line-strong); }
 .tr-cl-card > .tr-btn { align-self: flex-start; }
 .tr-cl-form-modal { max-width: 720px; padding: 0; }
+/* Changing a training (Calendar). */
+.tr-training-edit-modal { max-width: 720px; padding: 0; }
+.tr-training-edit-modal .tr-training-post { border: none; box-shadow: none; margin: 0; }
+.tr-training-scope { margin-bottom: 14px; }
+.tr-training-scope .tr-field-hint { display: block; }
+.tr-training-acts { display: flex; gap: 4px; margin-top: 4px; }
 .tr-cl-form-modal .tr-form { border: none; box-shadow: none; margin: 0; }
 .tr-cl-form-modal > .tr-error, .tr-cl-form-modal > .tr-flash { margin: 16px 16px 0; }
 @media (max-width: 640px) {

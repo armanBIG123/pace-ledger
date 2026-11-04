@@ -1,14 +1,14 @@
 // Calendar: month and list views, trainings and manager availability.
 import { useCallback, useEffect, useState } from 'react';
-import { Ban, CalendarClock, CalendarDays, ChevronLeft, ChevronRight, GraduationCap, Plus, Settings, Trash2, Video, X } from 'lucide-react';
+import { Ban, CalendarClock, CalendarDays, ChevronLeft, ChevronRight, GraduationCap, Pencil, Plus, Settings, Trash2, Video, X } from 'lucide-react';
 import { isNativeApp } from '../native.js';
 import { createScheduleBlock, deleteScheduleBlock, deleteScheduleBlockSeries, fetchScheduleBlocksInRange } from '../schedule.js';
 import { addDays, addMinutesToTime, apptEndClock, apptLocalDate, apptLocalTimeKey, buildMonthGrid, detectTimezone, durationLabel, fmtApptDateTime, fmtDate, fmtDisplayDate, fmtTime, minutesBetweenTimes, monthStartOf, parseDate, shiftMonth, timezoneOptionsWithDetected, todayStr, trainingEndClock, trainingLocalDate, trainingLocalTimeKey } from '../lib/dates.js';
 import { fetchAppointmentsInRange, isRecruitType, isSaleType, typeLabel } from '../data/appointments.js';
-import { createTraining, deleteTraining, deleteTrainingSeries, fetchTrainingsInRange } from '../data/trainings.js';
+import { createTraining, deleteTraining, deleteTrainingSeries, fetchTrainingsInRange, updateTraining, updateTrainingSeries } from '../data/trainings.js';
 import { fetchTeamMembers, seesTeam } from '../data/team.js';
 import { fetchGoogleConnectionStatus, fetchGoogleEvents, googleEventTimeKey } from '../data/integrations.js';
-import { Modal, openPicker, PageHead, RefreshButton, SkeletonCalendar, useIsPhone } from '../components/ui.jsx';
+import { Modal, openPicker, PageHead, PillChoice, RefreshButton, SkeletonCalendar, useIsPhone } from '../components/ui.jsx';
 import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../components/appointmentPanel.jsx';
 import { isAdmin } from '../lib/roles.js';
 import { askChoice, askConfirm, undoable } from '../components/confirm.jsx';
@@ -21,15 +21,22 @@ import { fetchMyPresentingHours } from '../data/availability.js';
 // role or reporting structure, posted by super admins only
 // ---------------------------------------------------------------------
 // The form for posting a training; opened from the Calendar's "New training"
-// button. onClose: hide it.
-export function TrainingPostCard({ user, onPosted, onClose }) {
-  const [title, setTitle] = useState('');
-  const [date, setDate] = useState('');
-  const [time, setTime] = useState('');
-  const [endTime, setEndTime] = useState('');
-  const [timezone, setTimezone] = useState(detectTimezone());
-  const [zoomUrl, setZoomUrl] = useState('');
-  const [notes, setNotes] = useState('');
+// button. onClose: hide it. editing: a training to change instead (super
+// admins and Super Managers, from the training's window or the day's list);
+// onSaved(message) once it's changed. A weekly one can change just that
+// date or that date and every week after, for when the standing time moves.
+export function TrainingPostCard({ user, onPosted, onClose, editing = null, onSaved }) {
+  const startClock = editing ? String(editing.training_time || '').slice(0, 5) : '';
+  const [title, setTitle] = useState(editing ? editing.title || '' : '');
+  const [date, setDate] = useState(editing ? editing.training_date : '');
+  const [time, setTime] = useState(startClock);
+  const [endTime, setEndTime] = useState(editing && startClock ? addMinutesToTime(startClock, editing.duration_minutes || 60) : '');
+  const [timezone, setTimezone] = useState(editing && editing.timezone ? editing.timezone : detectTimezone());
+  const [zoomUrl, setZoomUrl] = useState(editing ? editing.zoom_url || '' : '');
+  const [notes, setNotes] = useState(editing ? editing.notes || '' : '');
+  const weekly = !!(editing && editing.recurring_group_id);
+  // Which weeks a change to a weekly training covers.
+  const [scope, setScope] = useState('series');
   const [recurring, setRecurring] = useState(false);
   const [repeatUntil, setRepeatUntil] = useState('');
   const [saving, setSaving] = useState(false);
@@ -48,6 +55,7 @@ export function TrainingPostCard({ user, onPosted, onClose }) {
   async function submit() {
     if (!title.trim() || !date || !time) { setErr('Fill in the title, date, and time.'); return; }
     if (!endTime || length < 5 || length > 720) { setErr('The end time needs to be after the start time.'); return; }
+    if (editing) { await saveChanges(); return; }
     if (recurring && (!repeatUntil || repeatUntil < date)) { setErr('Pick a "repeat until" date on or after the first training date.'); return; }
     setSaving(true); setErr('');
     const res = await createTraining({
@@ -60,13 +68,42 @@ export function TrainingPostCard({ user, onPosted, onClose }) {
     res.records.forEach(onPosted);
     onClose();
   }
+  async function saveChanges() {
+    const fields = { title: title.trim(), date, time, durationMinutes: length, timezone, zoomUrl: zoomUrl.trim(), notes: notes.trim() };
+    const from = fmtDisplayDate(editing.training_date);
+    const series = weekly && scope === 'series';
+    const shift = Math.round((parseDate(date) - parseDate(editing.training_date)) / 864e5);
+    if (series && Math.abs(shift) > 60) { setErr('To move every week by more than two months, remove it and post it again.'); return; }
+    setSaving(true); setErr('');
+    const res = series
+      ? await updateTrainingSeries(editing.recurring_group_id, editing.training_date, shift, fields)
+      : await updateTraining(editing.id, fields);
+    setSaving(false);
+    if (!res.ok) { setErr(res.error || "Couldn't save. Check your connection and try again."); return; }
+    const when = `${fmtTime(time)}${shift && series ? `, ${parseDate(date).toLocaleDateString('en-US', { weekday: 'long' })}s` : ''}`;
+    onSaved(series
+      ? `"${fields.title}" changed from ${from} on (${res.count} week${res.count === 1 ? '' : 's'}): ${when}. Earlier weeks stay as they were.`
+      : `"${fields.title}" changed for ${fmtDisplayDate(date)} only.`);
+  }
 
   return (
     <div className="tr-card tr-training-post">
       <div className="tr-row-head" style={{ marginBottom: 14 }}>
-        <h3 className="tr-h3" style={{ margin: 0 }}><GraduationCap size={16} aria-hidden="true" /> Post a training</h3>
+        <h3 className="tr-h3" style={{ margin: 0 }} id={editing ? 'tr-training-edit-title' : undefined}><GraduationCap size={16} aria-hidden="true" /> {editing ? 'Change training' : 'Post a training'}</h3>
         <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onClose}>Cancel</button>
       </div>
+      {weekly ? (
+        <div className="tr-field tr-training-scope">
+          <span>It repeats every week. Which weeks should change?</span>
+          <PillChoice value={scope} onChange={setScope} options={[
+            { value: 'series', label: `${fmtDisplayDate(editing.training_date)} and every week after` },
+            { value: 'one', label: `Just ${fmtDisplayDate(editing.training_date)}` },
+          ]} />
+          <small className="tr-field-hint">{scope === 'series'
+            ? 'Every later week gets the new time, length, title, Zoom link and notes. Pick a different date to move them all to that day of the week. Earlier weeks stay as history.'
+            : 'Only this date changes. The other weeks stay as they are.'}</small>
+        </div>
+      ) : null}
       <div className="tr-form-grid">
         <label className="tr-field tr-field-wide">
           <span>Title</span>
@@ -100,20 +137,24 @@ export function TrainingPostCard({ user, onPosted, onClose }) {
           <span>Notes (optional)</span>
           <input value={notes} onChange={e => setNotes(e.target.value)} placeholder="Anything else worth noting" />
         </label>
-        <label className="tr-field tr-field-wide tr-checkbox-field">
-          <input type="checkbox" checked={recurring} onChange={e => setRecurring(e.target.checked)} />
-          <span>Repeat weekly (same day of week and time)</span>
-        </label>
-        {recurring && (
+        {!editing ? (
+          <label className="tr-field tr-field-wide tr-checkbox-field">
+            <input type="checkbox" checked={recurring} onChange={e => setRecurring(e.target.checked)} />
+            <span>Repeat weekly (same day of week and time)</span>
+          </label>
+        ) : null}
+        {!editing && recurring && (
           <label className="tr-field">
             <span>Repeat until</span>
             <input type="date" value={repeatUntil} onChange={e => setRepeatUntil(e.target.value)} min={date || undefined} onClick={openPicker} />
           </label>
         )}
       </div>
-      {err && <div className="tr-error">{err}</div>}
+      {err && <div className="tr-error" role="alert">{err}</div>}
       <div className="tr-form-actions">
-        <button type="button" className="tr-btn tr-btn-brass" onClick={submit} disabled={saving}>{saving ? 'Posting…' : 'Post training'}</button>
+        <button type="button" className="tr-btn tr-btn-brass" onClick={submit} disabled={saving}>
+          {editing ? (saving ? 'Saving…' : 'Save changes') : (saving ? 'Posting…' : 'Post training')}
+        </button>
       </div>
     </div>
   );
@@ -257,7 +298,7 @@ export function CalendarDay({ cell, appts, googleEvents, trainings, scheduleBloc
 }
 
 // A training or a blocked-out time, opened from the list or the month grid.
-function CalendarItemInfo({ item, user, onClose, onDelete }) {
+function CalendarItemInfo({ item, user, onClose, onDelete, onEdit }) {
   const t = item.data;
   const training = item.kind === 'training';
   const canDelete = training ? isAdmin(user) : (user.id === t.user_id || isAdmin(user));
@@ -291,6 +332,7 @@ function CalendarItemInfo({ item, user, onClose, onDelete }) {
         </div>
       ) : null}
       <div className="tr-form-actions">
+        {training && canDelete && onEdit ? <button type="button" className="tr-btn tr-btn-ghost" onClick={onEdit}><Pencil size={15} aria-hidden="true" /> Change time or details</button> : null}
         {canDelete ? <button type="button" className="tr-btn tr-btn-ghost tr-appt-delete" onClick={onDelete}><Trash2 size={15} aria-hidden="true" /> {training ? 'Remove training' : 'Remove'}</button> : null}
         <button type="button" className="tr-btn tr-btn-ghost" onClick={onClose}>Close</button>
       </div>
@@ -313,6 +355,8 @@ export function CalendarBody({ user, onLogAppointment, intent = null, onIntentCo
   const [infoItem, setInfoItem] = useState(null);
   // Which form is open under the heading: 'training', 'block' or null.
   const [posting, setPosting] = useState(null);
+  // A training being changed (super admins and Super Managers).
+  const [editingTraining, setEditingTraining] = useState(null);
   const [googleStatus, setGoogleStatus] = useState({ connected: false });
   const [googleEvents, setGoogleEvents] = useState([]);
   const [googleConnecting, setGoogleConnecting] = useState(false);
@@ -670,7 +714,10 @@ export function CalendarBody({ user, onLogAppointment, intent = null, onIntentCo
                 {t.notes && <div className="tr-note">{t.notes}</div>}
                 <div className="tr-note">Posted by {t.created_by_name}</div>
                 {isAdmin(user) && (
-                  <button type="button" className="tr-icon-btn" style={{ marginTop: 4 }} onClick={() => handleDeleteTraining(t)} title="Remove training"><Trash2 size={13} /></button>
+                  <div className="tr-training-acts">
+                    <button type="button" className="tr-icon-btn" onClick={() => { setDayModal(null); setEditingTraining(t); }} title="Change time or details" aria-label={`Change ${t.title}`}><Pencil size={13} /></button>
+                    <button type="button" className="tr-icon-btn" onClick={() => handleDeleteTraining(t)} title="Remove training" aria-label={`Remove ${t.title}`}><Trash2 size={13} /></button>
+                  </div>
                 )}
               </div>
             ))}
@@ -712,11 +759,18 @@ export function CalendarBody({ user, onLogAppointment, intent = null, onIntentCo
       })()}
       {infoItem && (
         <CalendarItemInfo item={infoItem} user={user} onClose={() => setInfoItem(null)}
+          onEdit={infoItem.kind === 'training' ? () => { const t = infoItem.data; setInfoItem(null); setEditingTraining(t); } : null}
           onDelete={async () => {
             const ok = infoItem.kind === 'training' ? await handleDeleteTraining(infoItem.data) : await handleDeleteScheduleBlock(infoItem.data);
             if (ok) setInfoItem(null);
           }} />
       )}
+      {editingTraining && isAdmin(user) ? (
+        <Modal onClose={() => setEditingTraining(null)} labelledBy="tr-training-edit-title" className="tr-training-edit-modal">
+          <TrainingPostCard user={user} editing={editingTraining} onClose={() => setEditingTraining(null)}
+            onSaved={message => { setEditingTraining(null); setPosting(null); setHoursNote(message); load(true); }} />
+        </Modal>
+      ) : null}
     </>
   );
 }
