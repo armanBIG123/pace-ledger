@@ -2,10 +2,11 @@
 // (DocuSeal, inside PaceLedger), the secure contracting form, and their
 // signed agreements. The contracting team's side is screens/team/Contracting.jsx.
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Download, Eye, EyeOff, FileText, Lock, Paperclip, ShieldCheck, Trash2 } from 'lucide-react';
+import { Download, Eye, EyeOff, FileText, Lock, Paperclip, PenLine, ShieldCheck, Trash2 } from 'lucide-react';
 import { Sheet } from './ui.jsx';
+import { SignaturePad } from './signaturePad.jsx';
 import { askConfirm } from './confirm.jsx';
-import { agreementLink, contractingWords, fetchMyContracting, sendContractingInfo, startAgreement, syncAgreement } from '../data/contracting.js';
+import { adoptSignature, agreementLink, contractingWords, fetchMyContracting, sendContractingInfo, startAgreement, syncAgreement } from '../data/contracting.js';
 import { BACKGROUND_QUESTIONS, FILE_TYPES, filePickProblem, fmtDay, fmtWhen, formProblems, fieldsFromForm, MAX_FILE_BYTES } from '../lib/contracting.js';
 import { US_STATES } from '../lib/profiles.js';
 import { shrinkImage } from '../lib/vault.js';
@@ -44,12 +45,13 @@ function loadDocuSeal() {
 }
 const DOCUSEAL_CSS = '#submit_form_button, .submit-form-button { background-color: #C49A3C !important; color: #13212E !important; } .base-button { border-radius: 8px !important; }';
 
-// signature: their name, shown as a ready-made typed signature they can
-// accept with one tap (or draw their own). DocuSeal then reuses whatever they
-// adopt at every later signature and initials spot.
+// signature: a drawn signature (PNG data URL) or their name as a typed one,
+// ready to apply with one tap. DocuSeal then reuses whatever they adopt at
+// every later signature spot.
 // remember: keep the adopted signature in this browser for the next form
 // (the contracting team countersigns many).
-export function DocuSealForm({ src, email, signature, remember, onCompleted, onDeclined }) {
+// completeButton: a Complete button up top (everything's already filled in).
+export function DocuSealForm({ src, email, signature, remember, completeButton = false, onCompleted, onDeclined }) {
   const ref = useRef(null);
   const [state, setState] = useState('loading');
   const done = useRef(onCompleted);
@@ -75,6 +77,7 @@ export function DocuSealForm({ src, email, signature, remember, onCompleted, onD
     if (signature) el.setAttribute('data-signature', signature);
     el.setAttribute('data-reuse-signature', 'true');
     if (remember) el.setAttribute('data-remember-signature', 'true');
+    if (completeButton) el.setAttribute('data-with-complete-button', 'true');
     el.setAttribute('data-custom-css', DOCUSEAL_CSS);
     const onDone = e => done.current && done.current(e.detail || {});
     const onNo = e => declined.current && declined.current(e.detail || {});
@@ -82,7 +85,7 @@ export function DocuSealForm({ src, email, signature, remember, onCompleted, onD
     el.addEventListener('declined', onNo);
     host.appendChild(el);
     return () => { el.removeEventListener('completed', onDone); el.removeEventListener('declined', onNo); host.innerHTML = ''; };
-  }, [state, src, email, signature, remember]);
+  }, [state, src, email, signature, remember, completeButton]);
   if (state === 'failed') return <p className="tr-error">The signing form didn't load. Check your connection and try again.</p>;
   return (
     <div className="tr-ds">
@@ -93,8 +96,77 @@ export function DocuSealForm({ src, email, signature, remember, onCompleted, onD
 }
 
 // ---- Signing (agents) ---------------------------------------------------------------
+const initialsFrom = name => (name || '').trim().split(/\s+/).filter(Boolean).map(w => w[0]).join('').toUpperCase().slice(0, 4);
+
+// Before the agreement opens: their printed name, initials and a drawn
+// signature, once. The server puts them on every signature and initials spot
+// (and logs that they adopted them), so the agreement itself is one tap.
+function AdoptSignature({ defaultName, onAdopted, onSkip }) {
+  const [printed, setPrinted] = useState(defaultName || '');
+  const [initials, setInitials] = useState(initialsFrom(defaultName));
+  const [ownInitials, setOwnInitials] = useState(false);
+  const [agree, setAgree] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const pad = useRef(null);
+  function changeName(v) {
+    setPrinted(v);
+    if (!ownInitials) setInitials(initialsFrom(v));
+  }
+  async function adopt() {
+    const name = printed.replace(/\s+/g, ' ').trim();
+    const ini = initials.replace(/[^A-Za-z.\- ]/g, '').replace(/\s+/g, '').toUpperCase();
+    if (name.length < 2 || !/\s/.test(name)) { setErr('Type your full legal name, first and last.'); return; }
+    if (!ini) { setErr('Type your initials.'); return; }
+    if (!pad.current || !pad.current.hasEnoughInk()) { setErr('Draw your signature in the box.'); return; }
+    if (!agree) { setErr('Check the box to agree to use your signature and initials.'); return; }
+    setErr(''); setBusy(true);
+    const signature = pad.current.toDataUrl();
+    const res = await adoptSignature({ printedName: name, initials: ini, signature, consent: true });
+    setBusy(false);
+    if (!res.ok) { setErr(contractingWords(res.error)); return; }
+    onAdopted({ signature, printed: name, initials: ini });
+  }
+  return (
+    <div className="tr-adopt">
+      <p className="tr-ct-note">Set up how you sign, once. Your initials and signature go on every spot in the agreement, so after you read it, signing is one tap.</p>
+      <label className="tr-field">
+        <span>Printed name</span>
+        <input type="text" value={printed} onChange={e => { changeName(e.target.value); setErr(''); }} autoComplete="name" maxLength={80} />
+        <small className="tr-field-hint">Your full legal name, as it should appear on the agreement.</small>
+      </label>
+      <div className="tr-field">
+        <label htmlFor="tr-adopt-initials">Initials</label>
+        <div className="tr-adopt-ini-row">
+          <input id="tr-adopt-initials" type="text" value={initials} onChange={e => { setOwnInitials(true); setInitials(e.target.value.toUpperCase().slice(0, 6)); setErr(''); }} autoComplete="off" maxLength={6} />
+          {initials ? <span className="tr-adopt-preview" aria-hidden="true">{initials.replace(/[^A-Za-z.\- ]/g, '')}</span> : null}
+        </div>
+      </div>
+      <div className="tr-field">
+        <span id="tr-adopt-sig-label">Signature</span>
+        <SignaturePad ref={pad} label="Draw your signature" onChange={() => setErr('')} />
+        <small className="tr-field-hint">Use your finger, a stylus or your mouse.</small>
+      </div>
+      <label className="tr-checkbox-field tr-adopt-consent">
+        <input type="checkbox" checked={agree} onChange={e => { setAgree(e.target.checked); setErr(''); }} />
+        <span>I agree that this signature and these initials are my electronic signature and initials, and that they'll be placed on every signature and initial spot in this producer agreement. I'll read the agreement before I sign it.</span>
+      </label>
+      {err ? <p className="tr-error" role="alert">{err}</p> : null}
+      <div className="tr-adopt-actions">
+        <button type="button" className="tr-btn tr-btn-brass" onClick={adopt} disabled={busy}>
+          <PenLine size={15} aria-hidden="true" /> {busy ? 'Getting your agreement ready…' : 'Adopt and open my agreement'}
+        </button>
+        <button type="button" className="tr-link-btn" onClick={onSkip} disabled={busy}>Sign in the document instead</button>
+      </div>
+    </div>
+  );
+}
+
 export function AgreementSheet({ name, onClose }) {
   const [state, setState] = useState({ kind: 'loading' });
+  // What they adopted in this visit (for the signature box, if any spot
+  // wasn't filled in), and whether to skip straight to the document.
+  const [adopted, setAdopted] = useState(null);
   const agreementId = useRef(null);
   useEffect(() => {
     let alive = true;
@@ -103,11 +175,11 @@ export function AgreementSheet({ name, onClose }) {
       if (!res.ok) { setState({ kind: 'error', message: contractingWords(res.error) }); return; }
       const d = res.data;
       if (d.agreement) agreementId.current = d.agreement.id;
-      if (d.status === 'sent') setState({ kind: 'sign', src: d.src, email: d.email });
+      if (d.status === 'sent') setState({ kind: d.adopted ? 'sign' : 'adopt', src: d.src, email: d.email, name: d.name || name, prefilled: !!d.adopted });
       else setState({ kind: d.status });
     });
     return () => { alive = false; };
-  }, []);
+  }, [name]);
   async function finished() {
     setState({ kind: 'saving' });
     let status = 'agent_signed';
@@ -122,19 +194,33 @@ export function AgreementSheet({ name, onClose }) {
     contractingChanged();
     setState({ kind: status });
   }
+  const signing = state.kind === 'sign' || state.kind === 'adopt';
   return (
     <Sheet labelledBy="tr-ag-title" onClose={onClose}>
       <div className="tr-fsheet-head">
         <h2 id="tr-ag-title" className="tr-fsheet-title">Producer agreement</h2>
-        <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onClose}>{state.kind === 'sign' ? 'Finish later' : 'Close'}</button>
+        <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onClose}>{signing ? 'Finish later' : 'Close'}</button>
       </div>
       <div className="tr-fsheet-body">
         {state.kind === 'loading' || state.kind === 'saving' ? <p className="tr-empty">{state.kind === 'saving' ? 'Saving your signature…' : 'Getting your agreement ready…'}</p> : null}
         {state.kind === 'error' ? <p className="tr-error">{state.message}</p> : null}
+        {state.kind === 'adopt' ? (
+          <AdoptSignature defaultName={state.name}
+            onAdopted={a => { setAdopted(a); setState(s => ({ ...s, kind: 'sign', prefilled: true })); }}
+            onSkip={() => setState(s => ({ ...s, kind: 'sign', prefilled: false }))} />
+        ) : null}
         {state.kind === 'sign' ? (
           <>
-            <p className="tr-ct-note">Your name, email and today's date are filled in. Adopt your signature once, then tap each spot. Every tap is recorded with the time, your email and your IP address.</p>
-            <DocuSealForm src={state.src} email={state.email} signature={name} onCompleted={finished} onDeclined={() => { contractingChanged(); setState({ kind: 'declined' }); }} />
+            {state.prefilled ? (
+              <p className="tr-ct-note">
+                Your name, initials and signature are on every spot. Read it through, choose your agent type, then tap <strong>Complete</strong> to sign. Signing is recorded with the time, your email and your IP address.{' '}
+                <button type="button" className="tr-link-btn tr-cl-inline" onClick={() => setState(s => ({ ...s, kind: 'adopt' }))}>Redo my signature</button>
+              </p>
+            ) : (
+              <p className="tr-ct-note">Your name, email and today's date are filled in. Adopt your signature once, then tap each spot. Every tap is recorded with the time, your email and your IP address.</p>
+            )}
+            <DocuSealForm src={state.src} email={state.email} signature={(adopted && adopted.signature) || name} completeButton={state.prefilled}
+              onCompleted={finished} onDeclined={() => { contractingChanged(); setState({ kind: 'declined' }); }} />
           </>
         ) : null}
         {state.kind === 'agent_signed' ? (

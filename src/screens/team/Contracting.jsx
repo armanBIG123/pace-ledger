@@ -501,6 +501,7 @@ function SetupView({ user, settings, onBack, onChanged, setFlash, bootstrap }) {
                 <div className="tr-ct-check">
                   <p><span className="tr-ct-ok">DocuSeal works.</span> Template: <strong>{check.name || '(no name)'}</strong>. Roles: {check.roles.join(', ') || 'none'}.</p>
                   {check.warnings.length ? <ul className="tr-ct-warn">{check.warnings.map(w => <li key={w}>{w}</li>)}</ul> : <p className="tr-ct-ok">Roles and fields look right.</p>}
+                  {check.spots ? <p>Filled in from what agents adopt before signing: {check.spots.signature} signature and {check.spots.initials} initials spot{check.spots.initials === 1 ? '' : 's'}.</p> : null}
                   <p>{check.webhook ? 'Webhook token: set.' : <span className="tr-ct-warn">Webhook token (DOCUSEAL_WEBHOOK_TOKEN) isn't set.</span>} {check.email ? 'Emails: set.' : <span className="tr-ct-warn">Email keys aren't set, so the team won't get emails.</span>} {check.privateKey ? '' : <span className="tr-ct-warn">Private key isn't set.</span>}</p>
                 </div>
               ) : <p className="tr-error">{check.error === 'bad_api_key' ? "DocuSeal didn't accept the API key (DOCUSEAL_API_KEY)." : check.error === 'template_not_found' ? 'DocuSeal has no template with that number.' : contractingWords(check.error)}</p>

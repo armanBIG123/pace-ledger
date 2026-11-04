@@ -37,6 +37,13 @@ const WORDS = {
   bad_version: 'Use letters, numbers, dots and dashes for the version.',
   bad_template: 'Enter the DocuSeal template number.',
   network_error: "Couldn't reach PaceLedger. Check your connection and try again.",
+  consent_needed: 'Check the box to agree to use your signature and initials.',
+  printed_name_needed: 'Type your full legal name.',
+  initials_needed: 'Type your initials.',
+  signature_needed: 'Draw your signature in the box.',
+  agreement_not_open: 'This agreement is already signed. Close this and open it again.',
+  no_signature_spots: "This agreement has no signature or initials spots set up for agents. Tap \"Sign in the document instead\", and tell BIG.",
+  docuseal: "The signing service didn't take it. Try again, or tap \"Sign in the document instead\".",
 };
 export const contractingWords = code => WORDS[code] || (code && /^[a-z_]+$/.test(code) ? `Something went wrong (${code}).` : "Something went wrong. Try again.");
 
@@ -89,6 +96,9 @@ export async function fetchMyContracting(userId) {
 }
 export const startAgreement = () => fn({ action: 'agreement-session' });
 export const syncAgreement = agreementId => fn({ action: 'sync-agreement', agreementId });
+// Before the agreement opens: the printed name, initials and drawn signature
+// (a PNG data URL) to put on every spot. consent: they agreed to that.
+export const adoptSignature = ({ printedName, initials, signature, consent }) => fn({ action: 'adopt-signature', printedName, initials, signature, consent });
 export async function agreementLink(path) {
   const { data, error } = await supabase.storage.from('agreements').createSignedUrl(path, 120);
   return error || !data ? null : data.signedUrl;

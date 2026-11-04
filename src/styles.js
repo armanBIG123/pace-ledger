@@ -2062,6 +2062,24 @@ export const CSS = `
 .tr-training-scope { margin-bottom: 14px; }
 .tr-training-scope .tr-field-hint { display: block; }
 .tr-training-acts { display: flex; gap: 4px; margin-top: 4px; }
+/* Producer agreement: adopting a printed name, initials and a drawn
+   signature before the agreement opens. */
+.tr-adopt { display: flex; flex-direction: column; gap: 14px; max-width: 560px; }
+.tr-adopt .tr-field-hint { display: block; }
+.tr-adopt-ini-row { display: flex; align-items: center; gap: 16px; }
+.tr-adopt-ini-row input { flex: 0 0 120px; width: 120px; text-transform: uppercase; letter-spacing: .06em; }
+.tr-adopt-preview { font-family: 'Newsreader', serif; font-style: italic; font-size: 26px; line-height: 1; color: #16233a; }
+.tr-adopt-consent { align-items: flex-start; font-size: 13.5px; line-height: 1.45; }
+.tr-adopt-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; }
+.tr-sigpad { position: relative; border: 1px solid var(--line-strong); border-radius: var(--radius-sm); background: #fff; touch-action: none; }
+.tr-sigpad-canvas { display: block; width: 100%; cursor: crosshair; touch-action: none; border-radius: var(--radius-sm); }
+.tr-sigpad-line { position: absolute; left: 14px; right: 14px; bottom: 34px; border-bottom: 1px solid var(--line-strong); pointer-events: none; }
+.tr-sigpad-line span { position: absolute; left: 0; bottom: 2px; font-size: 13px; color: var(--slate-light); }
+.tr-sigpad-hint { position: absolute; left: 0; right: 0; top: 40%; text-align: center; color: var(--slate-light); font-size: 14px; pointer-events: none; }
+.tr-sigpad-clear { position: absolute; right: 10px; top: 6px; }
+@media (max-width: 640px) {
+  .tr-adopt-actions .tr-btn { flex: 1 1 100%; }
+}
 .tr-cl-form-modal .tr-form { border: none; box-shadow: none; margin: 0; }
 .tr-cl-form-modal > .tr-error, .tr-cl-form-modal > .tr-flash { margin: 16px 16px 0; }
 @media (max-width: 640px) {
