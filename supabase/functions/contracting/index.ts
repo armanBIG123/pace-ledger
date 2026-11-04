@@ -186,6 +186,40 @@ const centralDay = (d = new Date()) => d.toLocaleDateString('en-CA', { timeZone:
 async function sha256Hex(bytes: Uint8Array) { return hex(await crypto.subtle.digest('SHA-256', bytes)); }
 const roleIs = (s: any, role: string, id: number | null) => (id && Number(s.id) === Number(id)) || String(s.role || '').trim().toLowerCase() === role.toLowerCase();
 
+// ---- Signing with what the agent adopted up front -----------------------------
+// Before the agreement opens, the agent types their printed name and initials
+// and draws their signature in PaceLedger, and agrees to use them on every
+// spot. Those go on every Signature and Initials spot of the Agent role (by
+// field id, so separate spots with the same name all get them), and the
+// agreement opens with nothing left but Agent Type and Sign.
+async function agentSpots(templateId: number) {
+  const t = await ds(`/templates/${templateId}`);
+  const roles: any[] = Array.isArray(t.submitters) ? t.submitters : [];
+  const agent = roles.find(r => String(r.name || '').trim().toLowerCase() === AGENT_ROLE.toLowerCase());
+  const mine: any[] = agent && agent.uuid ? (Array.isArray(t.fields) ? t.fields : []).filter(f => f && f.submitter_uuid === agent.uuid) : [];
+  return {
+    signature: mine.filter(f => f.type === 'signature'),
+    initials: mine.filter(f => f.type === 'initials'),
+    name: mine.find(f => String(f.name || '').trim().toLowerCase() === 'agent name') || null,
+  };
+}
+const fieldKey = (f: any) => String(f.uuid || f.name || '');
+export function cleanPrintedName(v: unknown): string {
+  return String(v ?? '').replace(/[\u0000-\u001f<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
+}
+export function cleanInitials(v: unknown): string {
+  return String(v ?? '').replace(/[^A-Za-z.\- ]/g, '').replace(/\s+/g, '').toUpperCase().slice(0, 6);
+}
+const SIGNATURE_PNG = /^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/;
+function callerIp(req: Request): string {
+  const f = req.headers.get('cf-connecting-ip') || (req.headers.get('x-forwarded-for') || '').split(',')[0] || req.headers.get('x-real-ip') || '';
+  return f.trim().slice(0, 45);
+}
+async function adoptedSince(admin: any, userId: string, since: string): Promise<boolean> {
+  const { data } = await admin.from('contracting_log').select('id').eq('user_id', userId).eq('action', 'signature_adopted').gte('at', since).limit(1);
+  return !!(data && data.length);
+}
+
 function electionFrom(values: any): string | null {
   const list = Array.isArray(values) ? values : values && typeof values === 'object' ? Object.entries(values).map(([field, value]) => ({ field, value })) : [];
   for (const v of list) {
@@ -352,7 +386,9 @@ export async function handle(req: Request): Promise<Response> {
         if (row && row.status !== 'completed' && row.status !== 'voided') row = await syncAgreement(admin, row);
         if (row && row.status === 'completed') return json({ status: 'completed', agreement: row });
         if (row && row.status === 'agent_signed') return json({ status: 'agent_signed', agreement: row });
-        if (row && row.status === 'sent') return json({ status: 'sent', src: await signingUrl(row.agent_submitter_id), email: row.agent_email });
+        if (row && row.status === 'sent') {
+          return json({ status: 'sent', src: await signingUrl(row.agent_submitter_id), email: row.agent_email, name: row.agent_name, adopted: await adoptedSince(admin, me.id, row.created_at) });
+        }
 
         const name = (await nameOf(admin, me.id)) || me.email;
         const made = await ds('/submissions', {
@@ -379,7 +415,42 @@ export async function handle(req: Request): Promise<Response> {
         }).select().single();
         if (error) throw new Error(error.message);
         await log(admin, me.id, me.id, 'agreement_started', `Opened producer agreement ${settings.agreement_version} to sign`);
-        return json({ status: 'sent', src: a.embed_src || (await signingUrl(a.id)), email: me.email, agreement: saved });
+        return json({ status: 'sent', src: a.embed_src || (await signingUrl(a.id)), email: me.email, name, adopted: false, agreement: saved });
+      }
+
+      // ---- the agent adopts their printed name, initials and signature --------
+      case 'adopt-signature': {
+        if (!settings || !settings.agreement_version) return json({ error: 'agreement_not_set_up' }, 400);
+        const printed = cleanPrintedName(body.printedName);
+        const initials = cleanInitials(body.initials);
+        const signature = String(body.signature || '');
+        if (body.consent !== true) return json({ error: 'consent_needed' }, 400);
+        if (printed.length < 2 || !/[A-Za-z]/.test(printed)) return json({ error: 'printed_name_needed' }, 400);
+        if (!initials || !/[A-Z]/.test(initials)) return json({ error: 'initials_needed' }, 400);
+        if (!SIGNATURE_PNG.test(signature) || signature.length < 200 || signature.length > 400000) return json({ error: 'signature_needed' }, 400);
+        const { data: rows } = await admin.from('producer_agreements').select('*').eq('user_id', me.id)
+          .eq('version', settings.agreement_version).order('created_at', { ascending: false }).limit(1);
+        const row = rows && rows[0];
+        if (!row || row.status !== 'sent') return json({ error: 'agreement_not_open' }, 400);
+        const spots = await agentSpots(Number(row.docuseal_template_id || settings.docuseal_template_id));
+        if (!spots.signature.length && !spots.initials.length) return json({ error: 'no_signature_spots' }, 400);
+        const values: Record<string, string> = {};
+        const put = async (sig: string) => {
+          spots.signature.forEach(f => { values[fieldKey(f)] = sig; });
+          spots.initials.forEach(f => { values[fieldKey(f)] = initials; });
+          if (spots.name) values[fieldKey(spots.name)] = printed;
+          await ds(`/submitters/${row.agent_submitter_id}`, { method: 'PUT', body: JSON.stringify({ values, send_email: false }) });
+        };
+        try { await put(signature); } catch (e) {
+          // Some DocuSeal versions want the image without the "data:" prefix.
+          if (!(e instanceof DsError) || e.status !== 422) throw e;
+          await put(signature.replace(/^data:image\/png;base64,/, ''));
+        }
+        await admin.from('producer_agreements').update({ agent_name: printed }).eq('id', row.id).eq('status', 'sent');
+        const ip = callerIp(req);
+        await log(admin, me.id, me.id, 'signature_adopted',
+          `Adopted a drawn signature and initials "${initials}" as ${printed} for ${settings.agreement_version} (${spots.signature.length} signature, ${spots.initials.length} initials spots)${ip ? ` from ${ip}` : ''}`);
+        return json({ ok: true, signatures: spots.signature.length, initials: spots.initials.length });
       }
 
       // ---- the contracting team countersigns ----------------------------------
@@ -484,7 +555,12 @@ export async function handle(req: Request): Promise<Response> {
         if (!roles.some(r => r.toLowerCase() === AGENT_ROLE.toLowerCase())) warnings.push(`No role named "${AGENT_ROLE}".`);
         if (!roles.some(r => r.toLowerCase() === BIG_ROLE.toLowerCase())) warnings.push(`No role named "${BIG_ROLE}".`);
         for (const f of ['Agent Name', 'Agent Email', 'Agreement Date', 'Agent Type']) if (!fields.includes(f)) warnings.push(`No field named "${f}".`);
-        return json({ ok: true, name: t.name || '', roles, fields, warnings, webhook: !!DOCUSEAL_WEBHOOK_TOKEN, email: !!(RESEND_API_KEY && INVITE_FROM_EMAIL), privateKey: !!(await privateKey()) });
+        // The spots filled in from what agents adopt before signing.
+        const agentRole = (t.submitters || []).find((r: any) => String(r.name || '').trim().toLowerCase() === AGENT_ROLE.toLowerCase());
+        const agentFields = agentRole && agentRole.uuid ? (t.fields || []).filter((f: any) => f && f.submitter_uuid === agentRole.uuid) : [];
+        const spots = { signature: agentFields.filter((f: any) => f.type === 'signature').length, initials: agentFields.filter((f: any) => f.type === 'initials').length };
+        if (agentRole && !spots.signature) warnings.push(`The "${AGENT_ROLE}" role has no Signature field.`);
+        return json({ ok: true, name: t.name || '', roles, fields, warnings, spots, webhook: !!DOCUSEAL_WEBHOOK_TOKEN, email: !!(RESEND_API_KEY && INVITE_FROM_EMAIL), privateKey: !!(await privateKey()) });
       }
 
       default:
