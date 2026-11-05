@@ -11,6 +11,9 @@ import { BACKGROUND_QUESTIONS, FILE_TYPES, filePickProblem, fmtDay, fmtWhen, for
 import { US_STATES } from '../lib/profiles.js';
 import { shrinkImage } from '../lib/vault.js';
 import { todayStr } from '../lib/dates.js';
+import { fmtPhone } from '../lib/phone.js';
+import { phoneDigits } from '../lib/personEdits.js';
+import { setMyPhone } from '../data/team.js';
 import { isNativeApp, openInBrowserSheet } from '../native.js';
 
 // ---- Loading an agent's status --------------------------------------------------
@@ -300,7 +303,7 @@ export function ContractingFormSheet({ user, settings, onClose, onSent }) {
   const [parts] = useState(() => String(user.displayName || '').trim().split(/\s+/));
   const [f, setF] = useState(() => ({
     first_name: parts[0] || '', middle_name: '', last_name: parts.length > 1 ? parts[parts.length - 1] : '',
-    ssn: '', dob: '', gender: '', email: user.email || '', phone: '',
+    ssn: '', dob: '', gender: '', email: user.email || '', phone: user.phone ? fmtPhone(user.phone) : '',
     street: '', city: '', state: '', zip: '', dl_number: '', dl_state: '', dl_expires: '',
     bank_name: '', account_type: 'Checking', routing: '', account: '', account2: '',
     eo_has: '', eo_carrier: '', eo_policy: '', eo_amount: '', eo_expires: '', eo_file: null,
@@ -354,6 +357,11 @@ export function ContractingFormSheet({ user, settings, onClose, onSent }) {
     if (!res.ok) { setError(res.error === 'encrypt_failed' ? "This device couldn't encrypt the form. Update your browser or app and try again." : contractingWords(res.error)); return; }
     contractingChanged();
     window.dispatchEvent(new Event('paceledger:onboarding-changed'));
+    // No phone number on their account yet: keep the one they just typed, so
+    // their upline and admins can reach them (Your account changes it).
+    if (user.phone === '' && phoneDigits(f.phone)) {
+      setMyPhone(phoneDigits(f.phone)).then(r => { if (r.ok) window.dispatchEvent(new CustomEvent('paceledger:profile-changed', { detail: { phone: r.phone } })); });
+    }
     const missed = [...skipped, ...(res.skipped || [])];
     if (missed.length) { touched.current = false; setLeftOut({ names: missed, expiresAt: res.expiresAt }); return; }
     onSent(res.expiresAt);

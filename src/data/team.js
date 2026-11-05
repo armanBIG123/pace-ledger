@@ -187,12 +187,6 @@ export async function fetchAllUsers() {
   return data;
 }
 
-export async function changeUserRole(id, newRole) {
-  clearSharedPeople();
-  const { error } = await supabase.from('profiles').update({ role: newRole }).eq('id', id);
-  return !error ? null : error.message;
-}
-
 // Permanently deletes someone's account (login and everything they own)
 // through the delete-account function, which only super admins may use on
 // someone else. Their direct reports move up to their upline.
@@ -216,12 +210,6 @@ export async function deleteUserProfile(id) {
   }
 }
 
-export async function changeUserManager(id, newManagerId) {
-  clearSharedPeople();
-  const { error } = await supabase.from('profiles').update({ manager_id: newManagerId || null }).eq('id', id);
-  return !error ? null : error.message;
-}
-
 export async function changeUserTier(id, newTier) {
   clearSharedPeople();
   const { error } = await supabase.from('profiles').update({ hierarchy_tier: newTier || null }).eq('id', id);
@@ -232,10 +220,85 @@ export async function logAuditEvent(actorId, actorName, action, targetName, deta
   await supabase.from('audit_log').insert({ actor_id: actorId, actor_name: actorName, action, target_name: targetName, details });
 }
 
-export async function fetchAuditLog() {
-  const { data, error } = await supabase.from('audit_log').select('*').order('created_at', { ascending: false }).limit(50);
-  if (error) { console.error(error); return []; }
-  return data;
+// Newest first, a page at a time: { rows, more }.
+export const AUDIT_PAGE = 50;
+export async function fetchAuditLog({ offset = 0 } = {}) {
+  const { data, error } = await supabase.from('audit_log').select('*').order('created_at', { ascending: false }).order('id')
+    .range(offset, offset + AUDIT_PAGE);
+  if (error) { console.error(error); return { rows: [], more: false }; }
+  return { rows: data.slice(0, AUDIT_PAGE), more: data.length > AUDIT_PAGE };
+}
+
+// One person's recent changes, for the Edit window. Entries from before
+// migration-manage-team-edits.sql only have their name.
+export async function fetchPersonHistory(id, name) {
+  const byId = supabase.from('audit_log').select('*').eq('target_id', id).order('created_at', { ascending: false }).limit(10);
+  const byName = name ? supabase.from('audit_log').select('*').eq('target_name', name).order('created_at', { ascending: false }).limit(10) : null;
+  const [a, b] = await Promise.all([byId, byName || Promise.resolve({ data: [] })]);
+  // No target_id column yet: just the name.
+  const rows = [...(a.error ? [] : a.data || []), ...(b.error ? [] : (b.data || []).filter(r => !r.target_id || r.target_id === id))];
+  const seen = new Set();
+  return rows.filter(r => !seen.has(r.id) && seen.add(r.id))
+    .sort((x, y) => String(y.created_at).localeCompare(String(x.created_at))).slice(0, 10);
+}
+
+// ---------------------------------------------------------------------
+// Phone numbers, and saving one person in Manage Team
+// (migration-manage-team-edits.sql)
+// ---------------------------------------------------------------------
+const missingTable = e => !!e && (e.code === '42P01' || e.code === 'PGRST205' || /does not exist|could not find the table/i.test(e.message || ''));
+const missingFunction = e => !!e && (e.code === 'PGRST202' || e.code === '42883' || /could not find the function|does not exist/i.test(e.message || ''));
+export const NEEDS_UPDATE = "This needs the database update (migration-manage-team-edits.sql) to be run first.";
+
+// The phone numbers this viewer may see (their own, their downline's, and
+// for admins everyone's), as Map(id -> 10 digits). null before the
+// database update: phones stay hidden.
+export async function fetchPhones() {
+  const { data, error } = await selectAll(o => supabase.from('person_contacts').select('user_id, phone', o).order('user_id'));
+  if (error) { if (!missingTable(error)) console.error(error); return null; }
+  return new Map(data.filter(r => r.phone).map(r => [r.user_id, r.phone]));
+}
+
+// Yours: '' when not added yet, null before the database update.
+export async function fetchMyPhone(userId) {
+  const { data, error } = await supabase.from('person_contacts').select('phone').eq('user_id', userId).maybeSingle();
+  if (error) { if (!missingTable(error)) console.error(error); return null; }
+  return (data && data.phone) || '';
+}
+
+export async function setMyPhone(phone) {
+  const { data, error } = await supabase.rpc('set_my_phone', { p_phone: phone });
+  if (!error) return { ok: true, phone: data || '' };
+  if (/phone_digits/.test(error.message || '')) return { ok: false, error: 'Enter a 10-digit phone number, with the area code.' };
+  if (missingFunction(error)) return { ok: false, error: NEEDS_UPDATE };
+  console.error(error);
+  return { ok: false, error: "Couldn't save your phone number. Check your connection and try again." };
+}
+
+const SAVE_ERRORS = [
+  [/reason_required/, 'Add a reason for the change.'],
+  [/reason_too_long/, 'Keep the reason under 500 characters.'],
+  [/name_required/, 'Enter their first and last name.'],
+  [/name_too_long/, 'That name is too long.'],
+  [/phone_digits/, 'Enter a 10-digit phone number, with the area code.'],
+  [/bad_level/, "That comp level isn't on the list."],
+  [/bad_upline/, 'They can only report to someone else in their solar system.'],
+  [/upline_loop/, "They can't report to someone on their own team."],
+  [/last_admin/, "They're the only super admin. Make someone else a super admin first."],
+  [/not_allowed_role/, 'Only super admins can make someone a Super Manager or super admin.'],
+  [/not_allowed/, "You can't change this person's account."],
+];
+// changes: any of { display_name, phone, role, manager_id, hierarchy_tier }.
+export async function adminSavePerson(id, changes, reason) {
+  clearSharedPeople();
+  const { data, error } = await supabase.rpc('pl_admin_save_person', { p_user: id, p_changes: changes, p_reason: reason || null });
+  if (!error) return { ok: true, person: data || {} };
+  const m = error.message || '';
+  const hit = SAVE_ERRORS.find(([re]) => re.test(m));
+  if (hit) return { ok: false, error: hit[1] };
+  if (missingFunction(error)) return { ok: false, error: NEEDS_UPDATE };
+  console.error(error);
+  return { ok: false, error: "Couldn't save. Check your connection and try again." };
 }
 
 // Documents + Important Links data-layer functions now live in

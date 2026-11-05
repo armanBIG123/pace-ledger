@@ -506,7 +506,7 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
     <>
       <div className="tr-row-head tr-screen-head">
         <TitleInfo title="Promotion readiness" info={<>
-          Live progress toward each person's next tier, the same numbers their own Growth page shows them.
+          Live progress toward each person's next comp level, the same numbers their own Growth page shows them.
           {noSubmissions
             ? (isAdmin ? ' Approve a promotion here when someone is ready.' : ' Super admins approve promotions.')
             : (isAdmin
@@ -520,7 +520,7 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
       {isLoading ? <SkeletonTable rows={5} cols={4} /> : members.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">{emptyMessage}</p></div>
       ) : progressList.length === 0 ? (
-        <div className="tr-card"><p className="tr-empty">No one here has a hierarchy tier set yet, or everyone's already at the top of the ladder.</p></div>
+        <div className="tr-card"><p className="tr-empty">No one here has a comp level set yet, or everyone's already at the top of the ladder.</p></div>
       ) : (
         <>
           <p className="tr-count-line"><strong>{readyCount}</strong> ready · <strong>{waitingCount}</strong> waiting for approval</p>

@@ -1,6 +1,6 @@
 // Today: four number tiles, one "Do next" list (appointments coming up, then what needs you), folds for the rest of the week, and team wins.
 import { Children, useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, Award, CalendarDays, Check, CheckCheck, CheckCircle2, ChevronDown, ChevronRight, ChevronUp, ClipboardCheck, FileText, GraduationCap, List as ListIcon, Pencil, Plus, Presentation, Sparkles, Target, UserPlus, Users, Video, Wallet, X } from 'lucide-react';
+import { Activity, Award, CalendarDays, Check, CheckCheck, CheckCircle2, ChevronDown, ChevronRight, ChevronUp, ClipboardCheck, FileText, GraduationCap, List as ListIcon, Pencil, Phone, Plus, Presentation, Sparkles, Target, UserPlus, Users, Video, Wallet, X } from 'lucide-react';
 import { examWhen, fetchLicensingProgress, licensingStatus } from '../licensing.js';
 import { computeOnboarding, fetchMyOnboarding, ONBOARDING_DAYS, ONBOARDING_WEEKS, onboardingDay, saveOnboardingSnapshot, setOnboardingVisibility, shouldShowOnboarding, weekForDay } from '../onboarding.js';
 import { isNativeApp, onAppResume, reminderPermission, requestReminderPermission } from '../native.js';
@@ -783,7 +783,15 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
     meta: 'So your team can tell you apart. You can also tap your name at the top.',
     action: { label: 'Add', run: () => window.dispatchEvent(new CustomEvent('paceledger:open-account', { detail: { focus: 'name' } })) },
   } : null;
-  const doNext = [...needs.promos, ...open, ...(needs.licensing ? [needs.licensing] : []), ...(nameTask ? [nameTask] : [])];
+  // No phone number yet (user.phone is '' then; null before the database
+  // update): ask once, so their upline and admins can reach them.
+  const phoneTask = user.phone === '' ? {
+    key: 'phone', Icon: Phone, tone: 'brass',
+    title: <>Add your phone number</>,
+    meta: 'So your upline and admins can reach you. Only they can see it.',
+    action: { label: 'Add', run: () => window.dispatchEvent(new CustomEvent('paceledger:open-account', { detail: { focus: 'phone' } })) },
+  } : null;
+  const doNext = [...needs.promos, ...open, ...(needs.licensing ? [needs.licensing] : []), ...(nameTask ? [nameTask] : []), ...(phoneTask ? [phoneTask] : [])];
   // Only the first thing gets the gold button; the rest are plain.
   const firstPrimaryKey = (doNext.find(t => t.primary && t.action) || {}).key;
   const leftCount = doNext.length;

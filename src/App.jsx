@@ -1,7 +1,7 @@
 // The app's entry point: loads the session and profile, then shows the right layout.
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { supabase } from './supabaseClient.js';
-import { hasDirectReports, seesTeam } from './data/team.js';
+import { fetchMyPhone, hasDirectReports, seesTeam } from './data/team.js';
 import { connectGoogleCalendar, connectZoom, finishGoogleConnect, isGoogleOAuthReturn } from './data/integrations.js';
 import { Shell, Spinner } from './components/ui.jsx';
 import { AndroidBackLeavesApp } from './components/navigation.jsx';
@@ -146,13 +146,13 @@ export default function App() {
 
     setProfileLoading(true);
     setProfileError('');
-    Promise.all([supabase.from('profiles').select('*').eq('id', userId).single(), hasDirectReports(userId), fetchSolarSystems(), fetchContractingSettings(true)])
-      .then(([{ data, error }, leads, systems, contracting]) => {
+    Promise.all([supabase.from('profiles').select('*').eq('id', userId).single(), hasDirectReports(userId), fetchSolarSystems(), fetchContractingSettings(true), fetchMyPhone(userId)])
+      .then(([{ data, error }, leads, systems, contracting, phone]) => {
         if (cancelled) return;
         // Contracting in PaceLedger, once a super admin turns it on (Profiles -> Contracting).
         setContractingInApp(!!(contracting && contracting.enabled));
         if (error) setProfileError('Could not load your profile. Try refreshing the page.');
-        setProfile(data ? { ...data, _leads: leads, _systems: systems } : null);
+        setProfile(data ? { ...data, _leads: leads, _systems: systems, _phone: phone } : null);
         setProfileLoading(false);
         fetchedForUserId.current = userId;
       });
@@ -163,7 +163,7 @@ export default function App() {
   useEffect(() => {
     const changed = e => {
       const d = (e && e.detail) || {};
-      setProfile(p => (p ? { ...p, ...(d.display_name ? { display_name: d.display_name } : {}), npn: d.npn ?? p.npn, fg_writing_number: d.fg_writing_number ?? p.fg_writing_number, licensed_at: d.licensed_at ?? p.licensed_at, avatar_path: d.avatar_path !== undefined ? d.avatar_path : p.avatar_path } : p));
+      setProfile(p => (p ? { ...p, ...(d.display_name ? { display_name: d.display_name } : {}), npn: d.npn ?? p.npn, fg_writing_number: d.fg_writing_number ?? p.fg_writing_number, licensed_at: d.licensed_at ?? p.licensed_at, avatar_path: d.avatar_path !== undefined ? d.avatar_path : p.avatar_path, _phone: d.phone !== undefined ? d.phone : p._phone } : p));
     };
     window.addEventListener('paceledger:profile-changed', changed);
     return () => window.removeEventListener('paceledger:profile-changed', changed);
@@ -188,6 +188,9 @@ export default function App() {
     id: session.user.id, email: session.user.email || profile.email || '', displayName: profile.display_name, role: profile.role,
     hierarchyTier: profile.hierarchy_tier, managerId: profile.manager_id, createdAt: profile.created_at, isLeader: !!profile._leads,
     avatarPath: profile.avatar_path || '',
+    // Their phone number: '' not added yet, null before the database update
+    // (migration-manage-team-edits.sql).
+    phone: profile._phone === undefined ? null : profile._phone,
     // Solar systems: theirs (where their new posts and uploads go), and
     // for super admins every one, for the Org Chart and Manage Team tabs.
     solarSystemId: profile.solar_system_id || null, solarSystemName: (home && home.name) || '',
