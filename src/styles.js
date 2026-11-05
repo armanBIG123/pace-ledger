@@ -199,7 +199,40 @@ export const CSS = `
 .tr-mt-move-menu span { font-size: 11.5px; font-weight: 600; color: var(--slate); padding: 4px 8px 2px; }
 .tr-mt-move-menu button { font: inherit; font-size: 13.5px; text-align: left; background: none; border: none; border-radius: 7px; padding: 8px; cursor: pointer; color: var(--ink); }
 .tr-mt-move-menu button:hover { background: var(--brass-tint); }
-.tr-mt-del { white-space: nowrap; }
+.tr-mt-del { white-space: nowrap; text-align: right; }
+.tr-mt-del > * { vertical-align: middle; }
+.tr-mt-edit { margin-right: 4px; }
+.tr-mt-head-btns { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.tr-mt-name-btn { font: inherit; font-weight: 600; color: var(--ink); background: none; border: none; padding: 0; cursor: pointer; text-align: left; }
+.tr-mt-name-btn:hover { color: var(--brass-dark); text-decoration: underline; }
+.tr-mt-contact { overflow-wrap: anywhere; }
+.tr-mt-phone { display: inline-block; margin-top: 2px; font-size: 12.5px; color: var(--slate); text-decoration: none; font-variant-numeric: tabular-nums; }
+a.tr-mt-phone:hover { color: var(--brass-dark); text-decoration: underline; }
+.tr-mt-none { color: var(--slate-light); font-size: 12.5px; }
+.tr-mt-log { margin-bottom: 14px; }
+.tr-mt-log .tr-h3 { display: flex; align-items: center; gap: 6px; }
+.tr-audit-reason { display: block; margin-top: 2px; font-size: 12.5px; color: var(--slate); font-style: italic; }
+.tr-edit-person > form > .tr-row-head { flex-wrap: nowrap; align-items: flex-start; }
+.tr-ep-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 14px; margin-top: 16px; }
+.tr-ep-wide { grid-column: 1 / -1; }
+.tr-ep-fields .tr-field-hint { display: block; }
+.tr-ep-fields select:disabled { background-color: var(--paper); color: var(--slate); }
+.tr-ep-changes { margin-top: 16px; padding: 12px 14px; border-radius: 10px; background: var(--brass-tint); border: 1px solid rgba(176,138,62,0.28); }
+.tr-ep-changes-h { font-size: 12px; font-weight: 600; letter-spacing: .02em; color: var(--slate); }
+.tr-ep-changes ul { margin: 6px 0 12px; padding-left: 18px; font-size: 13.5px; line-height: 1.5; }
+.tr-ep-changes .tr-field textarea { min-height: 64px; }
+.tr-edit-person .tr-error { margin-top: 12px; }
+.tr-ep-history { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--line); }
+.tr-ep-history-h { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--slate); }
+.tr-ep-history ul { list-style: none; margin: 6px 0 0; padding: 0; }
+.tr-ep-history li { display: flex; gap: 10px; font-size: 13px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.tr-ep-history li:last-child { border-bottom: none; }
+.tr-ep-history .tr-empty { margin: 6px 0 0; }
+@media (max-width: 640px) {
+  .tr-ep-fields { grid-template-columns: 1fr; }
+  .tr-ep-history li { flex-direction: column; gap: 0; }
+  .tr-mt-head-btns .tr-btn { padding-left: 10px; padding-right: 10px; }
+}
 /* Log them all: one list, one tap per appointment */
 .tr-modal-card.tr-logall { max-width: 680px; }
 .tr-logall .tr-subtitle { margin: 4px 0 0; }
@@ -1683,15 +1716,15 @@ export const CSS = `
   .tr-table-stack .tr-expand-inner { position: static; width: auto; }
   .tr-table-wrap .tr-table.tr-table-stack .tr-row-open td:first-child { background: transparent; }
   .tr-table.tr-table-stack .tr-row-open { background: #faf7ef; }
-  /* Manage Team: name and delete on top, then email, then each picker on
-     its own line (so "Super Admin" and long names fit). */
-  .tr-table.tr-manage-table tbody tr { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; grid-template-areas: "name name del" "email email email" "role role role" "mgr mgr mgr" "tier tier tier"; }
+  /* Manage Team: name and Edit on top, then email and phone, then role,
+     reports-to and comp level side by side. */
+  .tr-table.tr-manage-table tbody tr { grid-template-columns: minmax(0, .8fr) minmax(0, 1fr) minmax(0, 1.25fr); grid-template-areas: "name name del" "email email email" "role mgr tier"; align-items: start; }
   .tr-table-wrap .tr-table.tr-manage-table td.tr-mt-name { grid-area: name; }
   .tr-manage-table td.tr-mt-email { grid-area: email; color: var(--slate); overflow-wrap: anywhere; }
   .tr-manage-table td.tr-mt-role { grid-area: role; }
   .tr-manage-table td.tr-mt-mgr { grid-area: mgr; }
   .tr-manage-table td.tr-mt-tier { grid-area: tier; }
-  .tr-manage-table td.tr-mt-del { grid-area: del; align-self: start; margin: -10px 0 0 0; }
+  .tr-manage-table td.tr-mt-del { grid-area: del; align-self: start; justify-self: end; margin: -4px 0 0 0; }
   .tr-table-wrap .tr-table.tr-manage-table td select { width: 100%; max-width: none; min-height: 40px; }
   .tr-table.tr-manage-table tbody tr { padding-left: 0; padding-right: 0; } /* (the card's own padding is enough; more room for the pickers) */
   /* Tables that still scroll sideways fade at the edge, so you can tell

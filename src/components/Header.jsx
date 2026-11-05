@@ -6,7 +6,9 @@ import { fetchMyOnboarding, onboardingDay, setOnboardingVisibility, shouldShowOn
 import { isNativeApp, PUBLIC_SITE_URL } from '../native.js';
 import { disconnectZoom, fetchZoomConnectionStatus, startZoomConnect } from '../data/integrations.js';
 import { deleteMyAccount, signOut } from '../data/auth.js';
-import { fetchMyLicensing, updateMyProfile } from '../data/team.js';
+import { fetchMyLicensing, fetchMyPhone, setMyPhone, updateMyProfile } from '../data/team.js';
+import { fmtPhone } from '../lib/phone.js';
+import { phoneDigits } from '../lib/personEdits.js';
 import { avatarUrl, removeAllMyAvatarFiles } from '../data/avatars.js';
 import { InviteShare } from './invites.jsx';
 import { ProfilePhoto } from './profilePhoto.jsx';
@@ -49,13 +51,13 @@ function useHeaderFits(ref) {
 export function Header({ user, nav, search, onNew, chat }) {
   const [accountOpen, setAccountOpen] = useState(false);
   const [connOpen, setConnOpen] = useState(false);
-  const [focusName, setFocusName] = useState(false);
+  const [focusName, setFocusName] = useState(false); // false, or 'name' / 'phone'
   const rowRef = useRef(null);
   const tight = useHeaderFits(rowRef);
   // Other screens can open Your account (e.g. Today's "Add your last name"),
   // and Calendar & Zoom.
   useEffect(() => {
-    const open = e => { setFocusName(!!(e.detail && e.detail.focus === 'name')); setAccountOpen(true); };
+    const open = e => { setFocusName((e.detail && e.detail.focus) || false); setAccountOpen(true); };
     const conn = () => setConnOpen(true);
     window.addEventListener('paceledger:open-account', open);
     window.addEventListener('paceledger:open-connections', conn);
@@ -257,50 +259,70 @@ function ZoomAccountRow() {
   );
 }
 
-// Your name, NPN (license number) and F&G writing number, editable by you.
-// Saving updates the name everywhere it shows, and the same numbers as
-// Milestones -> Licensing.
+// Your name, phone, NPN (license number) and F&G writing number, editable
+// by you. Saving updates the name everywhere it shows, and the same numbers
+// as Milestones -> Licensing. Your phone shows to your upline and admins.
+// focusName: 'name' or 'phone' puts the cursor there.
 const words = s => (s || '').trim().split(/\s+/).filter(Boolean);
 const cleanNpn = s => (s || '').replace(/[\s-]/g, '');
 
 export function ProfileForm({ user, focusName }) {
-  const [saved, setSaved] = useState(null); // { name, npn, fg }
+  const [saved, setSaved] = useState(null); // { name, npn, fg, phone }; phone null = not switched on yet
   const [name, setName] = useState(user.displayName || '');
+  const [phone, setPhone] = useState('');
   const [npn, setNpn] = useState('');
   const [fg, setFg] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
   const nameRef = useRef(null);
+  const phoneRef = useRef(null);
   useEffect(() => {
     let alive = true;
-    fetchMyLicensing(user.id).then(d => {
+    Promise.all([fetchMyLicensing(user.id), fetchMyPhone(user.id)]).then(([d, ph]) => {
       if (!alive) return;
       const n = (d && d.npn) || '', f = (d && d.fg_writing_number) || '';
-      setSaved({ name: user.displayName || '', npn: n, fg: f });
-      setNpn(n); setFg(f);
+      setSaved({ name: user.displayName || '', npn: n, fg: f, phone: ph });
+      setNpn(n); setFg(f); setPhone(ph ? fmtPhone(ph) : '');
     });
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user.id]);
   useEffect(() => {
-    if (focusName && saved && nameRef.current) nameRef.current.focus();
+    if (!focusName || !saved) return;
+    const el = focusName === 'phone' ? phoneRef.current : nameRef.current;
+    if (el) el.focus();
   }, [focusName, saved]);
 
-  const changed = !!saved && (name.trim() !== saved.name.trim() || cleanNpn(npn) !== cleanNpn(saved.npn) || fg.trim() !== saved.fg.trim());
+  const phonesOn = !!saved && saved.phone !== null;
+  const phoneNow = phoneDigits(phone);
+  const phoneChanged = phonesOn && phoneNow !== (saved.phone || '');
+  const restChanged = !!saved && (name.trim() !== saved.name.trim() || cleanNpn(npn) !== cleanNpn(saved.npn) || fg.trim() !== saved.fg.trim());
+  const changed = restChanged || phoneChanged;
   const oneWord = words(name).length < 2;
 
   async function save() {
     setError(''); setDone(false);
     if (oneWord) { setError('Enter your first and last name.'); if (nameRef.current) nameRef.current.focus(); return; }
     if (cleanNpn(npn) && !/^[0-9]+$/.test(cleanNpn(npn))) { setError('Your NPN is numbers only.'); return; }
+    if (phonesOn && phoneNow === null) { setError('Enter a 10-digit phone number, with the area code.'); if (phoneRef.current) phoneRef.current.focus(); return; }
     setBusy(true);
-    const res = await updateMyProfile({ displayName: name, npn, fgWritingNumber: fg });
+    let p = {};
+    if (restChanged) {
+      const res = await updateMyProfile({ displayName: name, npn, fgWritingNumber: fg });
+      if (!res.ok) { setBusy(false); setError(res.error); return; }
+      p = res.profile;
+    }
+    let ph = saved.phone;
+    if (phoneChanged) {
+      const res = await setMyPhone(phoneNow);
+      if (!res.ok) { setBusy(false); setError(res.error); return; }
+      ph = res.phone || '';
+      p = { ...p, phone: ph };
+    }
     setBusy(false);
-    if (!res.ok) { setError(res.error); return; }
-    const p = res.profile;
-    const next = { name: p.display_name || name.trim(), npn: p.npn || '', fg: p.fg_writing_number || '' };
-    setSaved(next); setName(next.name); setNpn(next.npn); setFg(next.fg);
+    const next = restChanged ? { name: p.display_name || name.trim(), npn: p.npn || '', fg: p.fg_writing_number || '', phone: ph } : { ...saved, phone: ph };
+    setSaved(next); setName(next.name); setNpn(next.npn); setFg(next.fg); setPhone(ph ? fmtPhone(ph) : '');
     setDone(true);
     window.dispatchEvent(new CustomEvent('paceledger:profile-changed', { detail: p }));
     window.dispatchEvent(new Event('paceledger:onboarding-changed'));
@@ -313,6 +335,13 @@ export function ProfileForm({ user, focusName }) {
         <input ref={nameRef} value={name} onChange={e => { setName(e.target.value); setDone(false); setError(''); }} placeholder="First and last name" autoComplete="name" maxLength={80} />
         {oneWord && name.trim() ? <small className="tr-field-hint">Add your last name so your team can tell you apart.</small> : null}
       </label>
+      {phonesOn ? (
+        <label className="tr-field">
+          <span>Phone</span>
+          <input ref={phoneRef} type="tel" inputMode="tel" value={phone} onChange={e => { setPhone(e.target.value); setDone(false); setError(''); }} placeholder="Not added yet" autoComplete="tel" maxLength={20} />
+          <small className="tr-field-hint">Your upline and admins can see it, so they can reach you.</small>
+        </label>
+      ) : null}
       <div className="tr-form-grid">
         <label className="tr-field">
           <span>NPN (license number)</span>

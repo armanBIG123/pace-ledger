@@ -186,7 +186,7 @@ export function MyProgressCard({ user }) {
   if (loading) return <SkeletonCards count={2} />;
   const heroEl = hero && user.hierarchyTier ? <MyPathHero tierKey={user.hierarchyTier} pace={hero.pace} moons={hero.moons} /> : null;
   if (notSet) {
-    return <div className="tr-card"><p className="tr-empty">Your hierarchy tier hasn't been set yet — ask a super admin to set it in Manage Team.</p></div>;
+    return <div className="tr-card"><p className="tr-empty">Your comp level hasn't been set yet. Ask a super admin to set it in Manage Team.</p></div>;
   }
   if (atTop) {
     return <>{heroEl}<div className="tr-card"><p className="tr-empty">You've reached the top of the ladder — Executive Vice Chairman.</p></div></>;

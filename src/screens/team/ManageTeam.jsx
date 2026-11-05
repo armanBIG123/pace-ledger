@@ -1,15 +1,19 @@
 // Manage Team (super admins, and Super Managers for their own solar
-// system): roles, reporting lines, tiers, deleting accounts and the
+// system): everyone's name, phone, role, reports-to and comp level, edited
+// one person at a time (EditPerson.jsx), deleting accounts and the
 // activity log. Super admins get a tab for each solar system, can move
 // people between them, and make sign-up links for a solar system's Super
 // Manager.
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowRightLeft, Download, Trash2, UserPlus } from 'lucide-react';
+import { ArrowRightLeft, CheckCircle2, Download, History, Pencil, Trash2, UserPlus, X } from 'lucide-react';
 import { computeDownline, computeUpline, HIERARCHY_TIERS, hierarchyTierLabel, isLicensed } from '../../hierarchy.js';
 import { joinedDate, todayStr } from '../../lib/dates.js';
 import { downloadCSV } from '../../lib/format.js';
-import { changeUserManager, changeUserRole, changeUserTier, deleteUserProfile, fetchAllUsers, fetchAuditLog, logAuditEvent } from '../../data/team.js';
+import { deleteUserProfile, fetchAllUsers, fetchAuditLog, fetchPhones, logAuditEvent } from '../../data/team.js';
 import { SkeletonRows, SkeletonTable } from '../../components/ui.jsx';
+import { fmtPhone, telHref } from '../../lib/phone.js';
+import { auditAction } from '../../lib/personEdits.js';
+import { EditPersonSheet, logTime } from './EditPerson.jsx';
 import { InviteShare } from '../../components/invites.jsx';
 import { createLeaderInvite, moveToSystem } from '../../data/solarSystems.js';
 import { isGalaxyAdmin, roleLabel } from '../../lib/roles.js';
@@ -28,25 +32,33 @@ export function ManageUsersView({ user = null, currentUserId, currentUserName })
   const tabSystem = tabs.systems.find(x => x.id === tabs.current) || null;
   const systemName = id => (systems.find(x => x.id === id) || {}).short_name || '';
   const [users, setUsers] = useState([]);
+  const [phones, setPhones] = useState(null); // Map(id -> digits); null before the database update
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState(null);
   const [movingId, setMovingId] = useState(null);
+  const [editing, setEditing] = useState(null); // the person whose Edit window is open
+  const [saved, setSaved] = useState('');
+  const [logOpen, setLogOpen] = useState(false);
+  const [logKey, setLogKey] = useState(0);
   const [error, setError] = useState('');
   const nameById = id => (users.find(x => x.id === id) || {}).display_name || '';
   const sorter = useSort('manage', {
     name: { label: 'Name', value: u => u.display_name, dir: 'asc' },
     role: { label: 'Role', value: u => ROLE_RANK[u.role] ?? 9, dir: 'asc', options: [['asc', 'Role: admins first'], ['desc', 'Role: advisors first']] },
     reportsTo: { label: 'Reports to', value: u => nameById(u.manager_id) || '~', dir: 'asc', options: [['asc', 'Reports to: A–Z'], ['desc', 'Reports to: Z–A']] },
-    tier: { label: 'Tier', value: u => tierRank(u.hierarchy_tier), dir: 'desc', options: [['desc', 'Tier: highest first'], ['asc', 'Tier: lowest first']] },
+    tier: { label: 'Comp level', value: u => tierRank(u.hierarchy_tier), dir: 'desc', options: [['desc', 'Comp level: highest first'], ['asc', 'Comp level: lowest first']] },
     joined: { label: 'Joined', value: u => u.created_at || '', dir: 'desc', options: [['desc', 'Newest first'], ['asc', 'Oldest first']] },
   });
-  const view = usePeopleRows(users, { sorter });
+  // Phones ride along on each row so the search finds people by number.
+  const rows = phones ? users.map(u => (phones.has(u.id) ? { ...u, phone: phones.get(u.id) } : u)) : users;
+  const view = usePeopleRows(rows, { sorter });
 
   // Super admins: only the solar system whose tab is open.
   const refresh = useCallback(async () => {
     setLoading(true);
-    const all = await fetchAllUsers();
+    const [all, ph] = await Promise.all([fetchAllUsers(), fetchPhones()]);
     setUsers(tabSystem ? all.filter(u => u.solar_system_id === tabSystem.id) : all);
+    setPhones(ph);
     setLoading(false);
   }, [tabSystem && tabSystem.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -79,7 +91,7 @@ export function ManageUsersView({ user = null, currentUserId, currentUserName })
   }
 
   function handleExportRoster() {
-    const rows = [['Name', 'Email', 'Role', 'Hierarchy Tier', 'Reports To', 'Top-Level Team', 'Licensed', 'Member Since']];
+    const out = [['Name', 'Email', ...(phones ? ['Phone'] : []), 'Role', 'Comp Level', 'Reports To', 'Top-Level Team', 'Licensed', 'Member Since']];
     users.forEach(u => {
       const reportsTo = u.manager_id ? (users.find(m => m.id === u.manager_id)?.display_name || '') : '';
       // The root of the upline chain — whichever top-level manager or
@@ -88,9 +100,10 @@ export function ManageUsersView({ user = null, currentUserId, currentUserName })
       // this one column show everyone under a given leader at any depth.
       const upline = computeUpline(u.id, users);
       const topLevelTeam = upline.length > 0 ? upline[upline.length - 1].display_name : u.display_name;
-      rows.push([
+      out.push([
         u.display_name,
         u.email || '',
+        ...(phones ? [phones.has(u.id) ? fmtPhone(phones.get(u.id)) : ''] : []),
         roleLabel(u.role),
         u.hierarchy_tier ? hierarchyTierLabel(u.hierarchy_tier) : '',
         reportsTo,
@@ -99,41 +112,30 @@ export function ManageUsersView({ user = null, currentUserId, currentUserName })
         u.created_at ? new Date(u.created_at).toLocaleDateString('en-US') : '',
       ]);
     });
-    downloadCSV(`team-roster-${tabSystem ? `${tabSystem.short_name}-` : ''}${todayStr()}.csv`, rows);
+    downloadCSV(`team-roster-${tabSystem ? `${tabSystem.short_name}-` : ''}${todayStr()}.csv`, out);
   }
 
-  async function handleChange(id, newRole) {
-    const target = users.find(u => u.id === id);
-    setSavingId(id);
-    setError('');
-    const err = await changeUserRole(id, newRole);
-    setSavingId(null);
-    if (err) { setError(err); return; }
-    setUsers(prev => prev.map(u => u.id === id ? { ...u, role: newRole } : u));
-    logAuditEvent(currentUserId, currentUserName, 'Changed role', target?.display_name, `${target?.role || '?'} → ${newRole}`);
+  // The Edit window saved: show it in the list and say what changed.
+  function handleSaved(person, changes) {
+    const id = editing.id;
+    setEditing(null);
+    setUsers(prev => prev.map(u => (u.id === id ? { ...u,
+      display_name: person.display_name ?? u.display_name, role: person.role ?? u.role,
+      manager_id: person.manager_id !== undefined ? person.manager_id : u.manager_id,
+      hierarchy_tier: person.hierarchy_tier !== undefined ? person.hierarchy_tier : u.hierarchy_tier } : u)));
+    if (changes.some(c => c.key === 'phone')) {
+      setPhones(prev => { const m = new Map(prev || []); if (person.phone) m.set(id, person.phone); else m.delete(id); return m; });
+    }
+    const said = changes.map(c => (c.key === 'phone' ? `phone ${c.to === 'none' ? 'removed' : 'saved'}` : `${c.label.toLowerCase()} ${c.from} → ${c.to}`));
+    setSaved(`Saved ${person.display_name || 'their account'}: ${said.join(', ')}.`);
+    setLogKey(k => k + 1);
   }
 
-  async function handleManagerChange(id, newManagerId) {
-    const target = users.find(u => u.id === id);
-    const newManagerName = newManagerId ? users.find(u => u.id === newManagerId)?.display_name : 'nobody';
-    setSavingId(id);
-    setError('');
-    const err = await changeUserManager(id, newManagerId);
-    setSavingId(null);
-    if (err) { setError(err); return; }
-    setUsers(prev => prev.map(u => u.id === id ? { ...u, manager_id: newManagerId || null } : u));
-    logAuditEvent(currentUserId, currentUserName, 'Changed reports-to', target?.display_name, `now reports to ${newManagerName || 'nobody'}`);
-  }
-
-  async function handleTierChange(id, newTier) {
-    const target = users.find(u => u.id === id);
-    setSavingId(id);
-    setError('');
-    const err = await changeUserTier(id, newTier);
-    setSavingId(null);
-    if (err) { setError(err); return; }
-    setUsers(prev => prev.map(u => u.id === id ? { ...u, hierarchy_tier: newTier || null } : u));
-    logAuditEvent(currentUserId, currentUserName, 'Changed hierarchy tier', target?.display_name, `${target?.hierarchy_tier || 'none'} → ${newTier || 'none'}`);
+  function roleOptionsFor(u) {
+    const opts = [['advisor', 'Advisor'], ['manager', 'Manager']];
+    if ((galaxy && systems.length > 0) || u.role === 'super_manager') opts.push(['super_manager', 'Super Manager']);
+    if (galaxy || u.role === 'super_admin') opts.push(['super_admin', 'Super Admin']);
+    return opts;
   }
 
   async function handleSystemChange(id, systemId) {
@@ -154,6 +156,7 @@ export function ManageUsersView({ user = null, currentUserId, currentUserName })
     setSavingId(null);
     if (err) { setError(err); return; }
     logAuditEvent(currentUserId, currentUserName, 'Moved to solar system', target.display_name, `${systemName(target.solar_system_id)} → ${to.short_name}${team ? ` (with ${team} on their team)` : ''}`);
+    setLogKey(k => k + 1);
     refresh();
   }
 
@@ -180,6 +183,7 @@ export function ManageUsersView({ user = null, currentUserId, currentUserName })
     setSavingId(null);
     if (err) { setError(err); return; }
     logAuditEvent(currentUserId, currentUserName, 'Deleted account', name, reports ? `${reports} direct report(s) moved to ${upline ? upline.display_name : 'top level'}` : null);
+    setLogKey(k => k + 1);
     refresh();
   }
 
@@ -187,13 +191,25 @@ export function ManageUsersView({ user = null, currentUserId, currentUserName })
     <>
     <div className="tr-row-head">
       <h2 className="tr-h2">Manage Team</h2>
-      <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={handleExportRoster} disabled={users.length === 0}>
-        <Download size={14} /> Export CSV
-      </button>
+      <div className="tr-mt-head-btns">
+        <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setLogOpen(v => !v)} aria-expanded={logOpen}>
+          <History size={14} /> Activity log
+        </button>
+        <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={handleExportRoster} disabled={users.length === 0}>
+          <Download size={14} /> Export CSV
+        </button>
+      </div>
     </div>
     <SystemTabs tabs={tabs} />
+    {logOpen ? <AuditLogView key={`log-${tabs.current || 'own'}-${logKey}`} onClose={() => setLogOpen(false)} /> : null}
+    {saved ? (
+      <div className="tr-card tr-ph-saved" role="status">
+        <CheckCircle2 size={16} aria-hidden="true" /><span>{saved}</span>
+        <button type="button" className="tr-icon-btn" onClick={() => setSaved('')} aria-label="Dismiss"><X size={14} /></button>
+      </div>
+    ) : null}
     {tabs.other && tabSystem ? <LeaderInviteCard key={`invite-${tabSystem.id}`} user={user} system={tabSystem} hasLeader={users.some(u => u.role === 'super_manager')} /> : null}
-    {!loading && users.length > 0 ? <PeopleToolbar total={view.total} matched={view.matched} sorter={sorter} placeholder="Find someone by name or email…" /> : null}
+    {!loading && users.length > 0 ? <PeopleToolbar total={view.total} matched={view.matched} sorter={sorter} placeholder={phones ? "Find someone by name, email or phone…" : "Find someone by name or email…"} /> : null}
     <div className="tr-card tr-summary-card">
       {error && <div className="tr-error" style={{ margin: 16 }}>{error}</div>}
       {loading ? <SkeletonTable rows={6} cols={5} /> : users.length === 0 ? (
@@ -203,42 +219,36 @@ export function ManageUsersView({ user = null, currentUserId, currentUserName })
           <table className="tr-table tr-table-summary tr-table-stack tr-manage-table">
             <thead><tr>
               <SortHeader label="Name" sortKey="name" sorter={sorter} />
-              <th>Email</th>
+              <th>Contact</th>
               <SortHeader label="Role" sortKey="role" sorter={sorter} />
               <SortHeader label="Reports To" sortKey="reportsTo" sorter={sorter} />
-              <SortHeader label="Tier" sortKey="tier" sorter={sorter} />
+              <SortHeader label="Comp level" sortKey="tier" sorter={sorter} />
               <th><span className="tr-sr-only">Actions</span></th>
             </tr></thead>
             <tbody>
               {view.shown.map(u => (
                 <tr key={u.id}>
                   <td className="tr-mt-name">
-                    {u.display_name}{u.id === currentUserId ? ' (you)' : ''}
+                    <button type="button" className="tr-mt-name-btn" onClick={() => { setSaved(''); setEditing(u); }}>{u.display_name}</button>{u.id === currentUserId ? ' (you)' : ''}
                     <div className="tr-tenure">Joined {joinedDate(u.created_at)}</div>
                   </td>
-                  <td className="tr-mt-email">{u.email || '—'}</td>
-                  <td className="tr-mt-role" data-label="Role">
-                    <select value={u.role} disabled={savingId === u.id || !canEditRole(u)} onChange={e => handleChange(u.id, e.target.value)} aria-label={`Role for ${u.display_name}`}>
-                      <option value="advisor">Advisor</option>
-                      <option value="manager">Manager</option>
-                      {(galaxy && systems.length > 0) || u.role === 'super_manager' ? <option value="super_manager">Super Manager</option> : null}
-                      {galaxy || u.role === 'super_admin' ? <option value="super_admin">Super Admin</option> : null}
-                    </select>
+                  <td className="tr-mt-email">
+                    <div className="tr-mt-contact">{u.email || '—'}</div>
+                    {phones ? (u.phone
+                      ? <a className="tr-mt-phone" href={telHref(u.phone)}>{fmtPhone(u.phone)}</a>
+                      : <span className="tr-mt-phone tr-mt-none">No phone yet</span>) : null}
                   </td>
+                  <td className="tr-mt-role" data-label="Role">{roleLabel(u.role)}</td>
                   <td className="tr-mt-mgr" data-label="Reports to">
-                    {u.role === 'advisor' || u.role === 'manager' || u.role === 'super_manager' ? (
-                      <select value={u.manager_id || ''} disabled={savingId === u.id || !canEditRow(u)} onChange={e => handleManagerChange(u.id, e.target.value)} aria-label={`Who ${u.display_name} reports to`}>
-                        {uplineChoices(u)}
-                      </select>
-                    ) : '—'}
+                    {u.role === 'advisor' || u.role === 'manager' || u.role === 'super_manager' ? (nameById(u.manager_id) || 'Nobody') : '—'}
                   </td>
-                  <td className="tr-mt-tier" data-label="Tier">
-                    <select value={u.hierarchy_tier || ''} disabled={savingId === u.id || !canEditRow(u)} onChange={e => handleTierChange(u.id, e.target.value)} aria-label={`Tier for ${u.display_name}`}>
-                      <option value="">— none —</option>
-                      {HIERARCHY_TIERS.map(t => <option key={t.key} value={t.key}>{t.key} — {t.name}</option>)}
-                    </select>
+                  <td className="tr-mt-tier" data-label="Comp level">
+                    {u.hierarchy_tier ? <span title={hierarchyTierLabel(u.hierarchy_tier)}><span className="tr-org-tier">{u.hierarchy_tier}</span> {(HIERARCHY_TIERS.find(t => t.key === u.hierarchy_tier) || {}).name}</span> : <span className="tr-mt-none">Not set</span>}
                   </td>
                   <td className="tr-mt-del">
+                    <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm tr-mt-edit" onClick={() => { setSaved(''); setEditing(u); }} aria-label={`Edit ${u.display_name}`}>
+                      <Pencil size={13} aria-hidden="true" /> Edit
+                    </button>
                     {tabSystem && u.id !== currentUserId ? (() => {
                       // Two solar systems: straight to "Move them to the other
                       // one?". More: a short list to pick from.
@@ -280,44 +290,68 @@ export function ManageUsersView({ user = null, currentUserId, currentUserName })
         </div>
       )}
     </div>
-    <AuditLogView key={`log-${tabs.current || 'own'}`} />
+    {editing ? (
+      <EditPersonSheet
+        key={editing.id}
+        person={editing}
+        phone={phones ? phones.get(editing.id) || '' : ''}
+        phonesOn={!!phones}
+        nameOf={nameById}
+        roleOptions={roleOptionsFor(editing)}
+        roleLocked={!canEditRole(editing)}
+        uplineOptions={uplineChoices(editing)}
+        lockOwn={!canEditRow(editing)}
+        onClose={() => setEditing(null)}
+        onSaved={handleSaved}
+      />
+    ) : null}
     </>
   );
 }
 
-// Read-only history of role changes, reports-to changes, and removals —
-// lives right under the user table above since it's really an extension
-// of Manage Team, not a separate feature.
-export function AuditLogView() {
+// Who changed what, newest first, with the reason when one was given.
+// Opened from the Activity log button at the top of Manage Team.
+export function AuditLogView({ onClose = null }) {
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [open, setOpen] = useState(false);
+  const [more, setMore] = useState(false);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!open) return;
-    setLoading(true);
-    fetchAuditLog().then(rows => { setEntries(rows); setLoading(false); });
-  }, [open]);
+    let alive = true;
+    fetchAuditLog().then(({ rows, more: m }) => { if (!alive) return; setEntries(rows); setMore(m); setLoading(false); });
+    return () => { alive = false; };
+  }, []);
+  async function showMore() {
+    setBusy(true);
+    const { rows, more: m } = await fetchAuditLog({ offset: entries.length });
+    setEntries(prev => { const seen = new Set(prev.map(e => e.id)); return [...prev, ...rows.filter(r => !seen.has(r.id))]; });
+    setMore(m); setBusy(false);
+  }
 
   return (
-    <div className="tr-card" style={{ marginTop: 16 }}>
-      <button type="button" className="tr-more-toggle" style={{ padding: 0 }} onClick={() => setOpen(v => !v)}>
-        {open ? '▲ Hide activity log' : '▾ Show activity log'}
-      </button>
-      {open && (
-        loading ? <SkeletonRows count={4} /> : entries.length === 0 ? (
-          <p className="tr-empty">No activity recorded yet.</p>
-        ) : (
-          <div className="tr-audit-list">
-            {entries.map(e => (
-              <div key={e.id} className="tr-audit-row">
-                <span className="tr-audit-time">{new Date(e.created_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</span>
-                <span><strong>{e.actor_name}</strong> {e.action.toLowerCase()}{e.target_name ? ` — ${e.target_name}` : ''}{e.details ? <span className="tr-note"> ({e.details})</span> : ''}</span>
-              </div>
-            ))}
-          </div>
-        )
+    <div className="tr-card tr-mt-log">
+      <div className="tr-row-head">
+        <h3 className="tr-h3" style={{ margin: 0 }}><History size={15} aria-hidden="true" /> Activity log</h3>
+        {onClose ? <button type="button" className="tr-icon-btn" onClick={onClose} aria-label="Close the activity log"><X size={15} /></button> : null}
+      </div>
+      <p className="tr-subtitle" style={{ margin: '2px 0 0' }}>Every change made in Manage Team: who made it, when, and why.</p>
+      {loading ? <SkeletonRows count={4} /> : entries.length === 0 ? (
+        <p className="tr-empty">No activity recorded yet.</p>
+      ) : (
+        <div className="tr-audit-list">
+          {entries.map(e => (
+            <div key={e.id} className="tr-audit-row">
+              <span className="tr-audit-time">{logTime(e.created_at)}</span>
+              <span>
+                <strong>{e.actor_name}</strong> {auditAction(e.action).toLowerCase()}{e.target_name ? ` — ${e.target_name}` : ''}{e.details ? <span className="tr-note"> ({e.details})</span> : ''}
+                {e.reason ? <span className="tr-audit-reason">“{e.reason}”</span> : null}
+              </span>
+            </div>
+          ))}
+        </div>
       )}
+      {more ? <button type="button" className="tr-link-btn" style={{ marginTop: 8 }} onClick={showMore} disabled={busy}>{busy ? 'Loading…' : 'Show older'}</button> : null}
     </div>
   );
 }

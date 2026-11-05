@@ -44,7 +44,10 @@ export function personMatches(person, q) {
   const words = name.split(/[\s\-'.]+/).filter(Boolean);
   if (typed.split(/\s+/).every(t => words.some(w => w.startsWith(t)))) return true;
   const email = fold(person.email || '');
-  return !!email && email.startsWith(typed);
+  if (email && email.startsWith(typed)) return true;
+  // A phone number, or part of one (Manage Team).
+  const digits = typed.replace(/\D/g, '');
+  return !!person.phone && digits.length >= 3 && !/[a-z]/i.test(typed) && String(person.phone).includes(digits);
 }
 
 // ---- Sorting -----------------------------------------------------------------------
