@@ -1,6 +1,8 @@
-// Presenting hours: when your team can book you to present. Opened from
-// Calendar. Your team sees the open times (these hours, less what's booked
-// or blocked out) when they log an appointment with you presenting.
+// Schedule availability (was "Presenting hours"): the days and times your
+// team can book appointments with you. Opened from Calendar. Your team sees
+// the open times (these hours, less what's booked or blocked out) when they
+// log an appointment with you. Wording from Pam's review, Nov 2026:
+// appointments aren't always presentations.
 import { useEffect, useMemo, useState } from 'react';
 import { CalendarClock, Copy, Plus, Trash2 } from 'lucide-react';
 import { DEFAULT_PRESENTING, fetchMyPresentingHours, savePresentingHours } from '../data/availability.js';
@@ -20,7 +22,7 @@ const NEW_RANGE = { start: '18:00', end: '21:00' };
 const LENGTHS = [30, 45, 60, 75, 90, 120];
 const STEPS = [15, 30, 60];
 const BREAKS = [0, 10, 15, 30];
-const NOTICE = [[0, 'Any time'], [60, '1 hour ahead'], [120, '2 hours ahead'], [240, '4 hours ahead'], [1440, 'A day ahead']];
+const NOTICE = [[0, 'None'], [60, '1 hour'], [120, '2 hours'], [240, '4 hours'], [1440, '1 day']];
 const HORIZON = [[7, '1 week'], [14, '2 weeks'], [21, '3 weeks'], [28, '4 weeks'], [42, '6 weeks'], [56, '8 weeks']];
 
 const toMin = t => { const [h, m] = String(t || '').split(':').map(Number); return h * 60 + m; };
@@ -97,7 +99,7 @@ export function PresentingHoursCard({ user, googleConnected = false, onClose, on
   }
 
   // How many start times a week that adds up to, and any range too short
-  // to fit one presentation.
+  // to fit one appointment.
   const summary = useMemo(() => {
     let starts = 0;
     const short = [];
@@ -123,18 +125,18 @@ export function PresentingHoursCard({ user, googleConnected = false, onClose, on
 
   const head = (
     <div className="tr-row-head" style={{ marginBottom: 6 }}>
-      <h3 className="tr-h3" style={{ margin: 0 }}><CalendarClock size={16} aria-hidden="true" /> Presenting hours</h3>
+      <h3 className="tr-h3" style={{ margin: 0 }}><CalendarClock size={16} aria-hidden="true" /> Schedule availability</h3>
       <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onClose}>Cancel</button>
     </div>
   );
   if (!loaded) {
-    return <div className="tr-card tr-training-post tr-ph" aria-busy="true">{head}<p className="tr-ph-intro">Loading your hours…</p></div>;
+    return <div className="tr-card tr-training-post tr-ph" aria-busy="true">{head}<p className="tr-ph-intro">Loading your availability…</p></div>;
   }
   if (loaded.unavailable || loaded.error) {
     return (
       <div className="tr-card tr-training-post tr-ph">
         {head}
-        <p className="tr-ph-intro">{loaded.unavailable ? 'Presenting hours need a quick database update before they can be set. Ask your admin to run it.' : 'Couldn’t load your presenting hours. Check your connection and try again.'}</p>
+        <p className="tr-ph-intro">{loaded.unavailable ? 'Availability needs a quick database update before it can be set. Ask your admin to run it.' : 'Couldn’t load your availability. Check your connection and try again.'}</p>
       </div>
     );
   }
@@ -145,11 +147,11 @@ export function PresentingHoursCard({ user, googleConnected = false, onClose, on
   return (
     <div className="tr-card tr-training-post tr-ph">
       {head}
-      <p className="tr-ph-intro">When your team can book you to present. When they log an appointment with you presenting, they see your open times: these hours, less anything already booked or blocked out.</p>
+      <p className="tr-ph-intro">Set the days and times your team can book appointments with you. Your availability will automatically exclude existing appointments and blocked times.</p>
 
       <label className="tr-ph-accept">
         <input type="checkbox" checked={settings.accepting} onChange={e => set('accepting', e.target.checked)} />
-        <span><strong>Taking bookings</strong><small className="tr-field-hint">{settings.accepting ? 'Your team sees your open times.' : 'Your team is told you’re not taking new bookings right now.'}</small></span>
+        <span><strong>Accepting appointments</strong><small className="tr-field-hint">{settings.accepting ? 'Your team sees your open times.' : 'Your team is told you’re not accepting new appointments right now.'}</small></span>
       </label>
 
       <div className="tr-ph-week" role="group" aria-label="Weekly hours">
@@ -159,11 +161,11 @@ export function PresentingHoursCard({ user, googleConnected = false, onClose, on
           return (
             <div key={d.weekday} className={`tr-ph-day ${on ? 'tr-ph-day-on' : ''}`} data-weekday={d.weekday}>
               <label className="tr-ph-dayname">
-                <input type="checkbox" checked={on} onChange={() => toggleDay(d.weekday)} aria-label={`Present on ${d.label}s`} />
+                <input type="checkbox" checked={on} onChange={() => toggleDay(d.weekday)} aria-label={`Available on ${d.label}s`} />
                 <span>{d.label}</span>
               </label>
               <div className="tr-ph-ranges">
-                {!on ? <span className="tr-ph-off">Not presenting</span> : list.map((r, i) => (
+                {!on ? <span className="tr-ph-off">Unavailable</span> : list.map((r, i) => (
                   <div key={i} className="tr-ph-range">
                     <input type="time" step="900" value={r.start} aria-label={`${d.label} from`} onChange={e => changeRange(d.weekday, i, 'start', e.target.value)} />
                     <span className="tr-ph-to" aria-hidden="true">to</span>
@@ -183,33 +185,33 @@ export function PresentingHoursCard({ user, googleConnected = false, onClose, on
 
       <div className="tr-form-grid tr-ph-rules">
         <label className="tr-field">
-          <span>Each presentation</span>
+          <span>Appointment duration</span>
           <select value={settings.slotMinutes} onChange={e => set('slotMinutes', Number(e.target.value))}>
             {LENGTHS.map(n => <option key={n} value={n}>{minLabel(n)}</option>)}
           </select>
         </label>
         <label className="tr-field">
-          <span>Start times every</span>
+          <span>Start time intervals</span>
           <select value={settings.stepMinutes} onChange={e => set('stepMinutes', Number(e.target.value))}>
             {STEPS.map(n => <option key={n} value={n}>{minLabel(n)}</option>)}
           </select>
         </label>
         <label className="tr-field">
-          <span>Break between</span>
+          <span>Buffer between appointments</span>
           <select value={settings.bufferMinutes} onChange={e => set('bufferMinutes', Number(e.target.value))}>
-            {BREAKS.map(n => <option key={n} value={n}>{n ? minLabel(n) : 'No break'}</option>)}
+            {BREAKS.map(n => <option key={n} value={n}>{n ? minLabel(n) : 'No buffer'}</option>)}
           </select>
         </label>
         <label className="tr-field">
-          <span>Booked at least</span>
+          <span>Minimum advance notice</span>
           <select value={settings.noticeMinutes} onChange={e => set('noticeMinutes', Number(e.target.value))}>
             {NOTICE.map(([n, l]) => <option key={n} value={n}>{l}</option>)}
           </select>
         </label>
         <label className="tr-field">
-          <span>Up to</span>
+          <span>Booking window</span>
           <select value={settings.horizonDays} onChange={e => set('horizonDays', Number(e.target.value))}>
-            {HORIZON.map(([n, l]) => <option key={n} value={n}>{l} ahead</option>)}
+            {HORIZON.map(([n, l]) => <option key={n} value={n}>{l}</option>)}
           </select>
         </label>
         <label className="tr-field">
@@ -221,20 +223,20 @@ export function PresentingHoursCard({ user, googleConnected = false, onClose, on
         </label>
         <label className="tr-checkbox-field tr-field-wide tr-ph-google">
           <input type="checkbox" checked={settings.useGoogle && googleConnected} disabled={!googleConnected} onChange={e => set('useGoogle', e.target.checked)} />
-          <span>Leave out times I’m busy on Google Calendar
+          <span>Exclude busy times from Google Calendar
             <small className="tr-field-hint">{googleConnected ? 'Only whether you’re busy is read. Event names and details stay private.' : 'Connect Google Calendar on this page to use this.'}</small>
           </span>
         </label>
       </div>
 
       <p className="tr-ph-summary" role="status">
-        {!anyHours ? 'No hours yet. Tick a day to add some.'
-          : `That’s ${summary.starts} start time${summary.starts === 1 ? '' : 's'} a week for ${minLabel(settings.slotMinutes)} presentations${settings.bufferMinutes ? `, with ${minLabel(settings.bufferMinutes)} between` : ''}, before anything’s booked.`}
-        {summary.short.length ? ` ${summary.short.join(', ')} ${summary.short.length === 1 ? 'is' : 'are'} shorter than one presentation, so nothing opens then.` : ''}
+        {!anyHours ? 'No availability yet. Tick a day to add some times.'
+          : `That’s ${summary.starts} start time${summary.starts === 1 ? '' : 's'} a week for ${minLabel(settings.slotMinutes)} appointments${settings.bufferMinutes ? `, with ${minLabel(settings.bufferMinutes)} between` : ''}, before anything’s booked.`}
+        {summary.short.length ? ` ${summary.short.join(', ')} ${summary.short.length === 1 ? 'is' : 'are'} shorter than one appointment, so nothing opens then.` : ''}
       </p>
       {err && <div className="tr-error">{err}</div>}
       <div className="tr-form-actions">
-        <button type="button" className="tr-btn tr-btn-brass" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save presenting hours'}</button>
+        <button type="button" className="tr-btn tr-btn-brass" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save availability'}</button>
       </div>
     </div>
   );

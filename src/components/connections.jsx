@@ -123,13 +123,13 @@ export function ConnectionsSheet({ user, onClose, onEditHours }) {
           : <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" disabled={busy === 'zoom'} onClick={() => { if (!isNativeApp()) setBusy('zoom'); startZoomConnect(() => { loadZoom(); connectionsChanged(); }); }}>{busy === 'zoom' ? 'Opening…' : 'Connect'}</button>}
       </Row>
       {presents ? (
-        <Row Icon={CalendarClock} title="Presenting hours"
+        <Row Icon={CalendarClock} title="Schedule availability"
           sub={hours === undefined ? 'Checking…'
             : !hours || hours.unavailable || hours.error ? 'Not available yet.'
-            : hoursSet ? <>{summarizeHours(hours.hours)}{hours.settings.accepting ? '' : <strong className="tr-conn-paused"> · Not taking bookings</strong>}</>
-            : 'Not set yet. Set them and your team sees your open times when they log an appointment with you.'}>
+            : hoursSet ? <>{summarizeHours(hours.hours)}{hours.settings.accepting ? '' : <strong className="tr-conn-paused"> · Not accepting appointments</strong>}</>
+            : 'Not set yet. Set it and your team sees your open times when they log an appointment with you.'}>
           {hours && !hours.unavailable && !hours.error && onEditHours
-            ? <button type="button" className={`tr-btn tr-btn-sm ${hoursSet ? 'tr-btn-ghost' : 'tr-btn-brass'}`} onClick={() => { onClose(); onEditHours(); }}>{hoursSet ? 'Edit' : 'Set hours'}</button>
+            ? <button type="button" className={`tr-btn tr-btn-sm ${hoursSet ? 'tr-btn-ghost' : 'tr-btn-brass'}`} onClick={() => { onClose(); onEditHours(); }}>{hoursSet ? 'Edit' : 'Set availability'}</button>
             : null}
         </Row>
       ) : null}

@@ -106,7 +106,7 @@ export function OpenTimes({ presenterId, presenterName = '', timezone, excludeId
     return (
       <div className="tr-open tr-open-note" role="note">
         <CalendarClock size={16} aria-hidden="true" />
-        <span>{first} hasn’t set presenting hours yet, so pick the time below. The app still stops a double-booking.</span>
+        <span>{first} hasn’t set their availability yet, so pick the time below. The app still stops a double-booking.</span>
       </div>
     );
   }
@@ -114,7 +114,7 @@ export function OpenTimes({ presenterId, presenterName = '', timezone, excludeId
     return (
       <div className="tr-open tr-open-note tr-open-note-warn" role="note">
         <CalendarClock size={16} aria-hidden="true" />
-        <span>{first} isn’t taking new bookings right now. Check with {first === 'They' ? 'them' : first} before you pick a time.</span>
+        <span>{first} isn’t accepting new appointments right now. Check with {first === 'They' ? 'them' : first} before you pick a time.</span>
       </div>
     );
   }
