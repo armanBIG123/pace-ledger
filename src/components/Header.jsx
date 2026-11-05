@@ -143,7 +143,7 @@ function AccountMenu({ user, onProfile, onConnections }) {
           </div>
           {item('My profile', UserRound, onProfile)}
           {item('Calendar & Zoom', CalendarDays, onConnections)}
-          {presentsForTeam(user) ? item('Presenting hours', CalendarClock, () => window.dispatchEvent(new Event('paceledger:edit-presenting-hours'))) : null}
+          {presentsForTeam(user) ? item('Schedule availability', CalendarClock, () => window.dispatchEvent(new Event('paceledger:edit-presenting-hours'))) : null}
           <a role="menuitem" className="tr-acct-item" ref={el => items.current.push(el)} href={`${PUBLIC_SITE_URL}/support.html`} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>
             <LifeBuoy size={16} aria-hidden="true" /><span>Help &amp; support</span>
           </a>
@@ -403,7 +403,7 @@ export function AccountSheet({ user, focusName = false, onClose, onConnections =
           <div className="tr-account-toggle">
             <div>
               <div className="tr-account-toggle-title">Calendar &amp; Zoom</div>
-              <div className="tr-account-toggle-sub">Google Calendar, Zoom{presentsForTeam(user) ? ' and your presenting hours' : ''}.</div>
+              <div className="tr-account-toggle-sub">Google Calendar, Zoom{presentsForTeam(user) ? ' and your availability' : ''}.</div>
             </div>
             <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onConnections}>Open</button>
           </div>

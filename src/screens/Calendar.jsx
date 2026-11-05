@@ -540,9 +540,9 @@ export function CalendarBody({ user, onLogAppointment, intent = null, onIntentCo
           onSaved={({ settings, hours }) => {
             setPosting(null);
             setHoursSet(hours.length > 0);
-            setHoursNote(!hours.length ? 'Presenting hours cleared. Your team picks times by hand.'
-              : settings.accepting ? 'Presenting hours saved. Your team sees your open times when they log an appointment with you.'
-                : 'Saved. Your team is told you’re not taking new bookings right now.');
+            setHoursNote(!hours.length ? 'Availability cleared. Your team picks times by hand.'
+              : settings.accepting ? 'Availability saved. Your team sees your open times when they log an appointment with you.'
+                : 'Saved. Your team is told you’re not accepting new appointments right now.');
           }} />
       ) : null}
       {hoursNote && posting !== 'hours' ? (
@@ -552,14 +552,14 @@ export function CalendarBody({ user, onLogAppointment, intent = null, onIntentCo
           <button type="button" className="tr-icon-btn" aria-label="Dismiss" onClick={() => setHoursNote('')}><X size={16} /></button>
         </div>
       ) : null}
-      {/* One line at most: presenting hours for anyone who presents and
+      {/* One line at most: schedule availability for anyone who presents and
           hasn't set them, otherwise Google Calendar if it isn't connected.
           Both live in Calendar settings too. */}
       {presents && hoursSet === false && !nudgeHidden && posting !== 'hours' && !hoursNote ? (
         <div className="tr-cal-hint">
           <CalendarClock size={16} aria-hidden="true" />
-          <span className="tr-cal-hint-text"><strong>Let your team book you to present.</strong> <span className="tr-cal-hint-more">Set your presenting hours and they see your open times.</span></span>
-          <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={() => { setHoursNote(''); setPosting('hours'); }}>Set hours</button>
+          <span className="tr-cal-hint-text"><strong>Let your team book appointments with you.</strong> <span className="tr-cal-hint-more">Set your availability and they see your open times.</span></span>
+          <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={() => { setHoursNote(''); setPosting('hours'); }}>Set availability</button>
           <button type="button" className="tr-icon-btn" aria-label="Not now" title="Not now" onClick={hideNudge}><X size={15} /></button>
         </div>
       ) : !loading && !googleStatus.connected && !googleHintHidden && posting !== 'hours' && !hoursNote ? (
