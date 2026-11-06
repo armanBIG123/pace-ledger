@@ -19,6 +19,8 @@ import { FollowUpModal } from '../components/followUpModal.jsx';
 import { openAppointment, useAppointmentEdits } from '../components/appointmentPanel.jsx';
 import { askText } from '../components/confirm.jsx';
 import { ProspectForm } from './Prospecting.jsx';
+import { AppointmentsCard, LinksCard } from './clientProfileParts.jsx';
+import { QUICK_NOTE_TAGS } from '../lib/quickNotes.js';
 
 const firstOf = n => (n || '').trim().split(/\s+/)[0] || n;
 // "Not the same person" on a possible match, remembered on this device
@@ -153,6 +155,7 @@ export function ClientsBody({ user, selected, onSelect, onLogAppointment, intent
   const [formSaving, setFormSaving] = useState(false);
   const [formError, setFormError] = useState('');
   const [notSame, setNotSame] = useState(readNotSame);
+  const [noting, setNoting] = useState(false);
   useEffect(() => { if (!flash) return undefined; const t = setTimeout(() => setFlash(''), 6000); return () => clearTimeout(t); }, [flash]);
   // A message about one person doesn't follow you to the next.
   useEffect(() => { setFlash(''); }, [selected]);
@@ -198,6 +201,12 @@ export function ClientsBody({ user, selected, onSelect, onLogAppointment, intent
     return list;
   }, [data, user.id, nameOf, notSame]);
   const byKey = useMemo(() => new Map(clients.map(c => [c.key, c])), [clients]);
+  // Each appointment's intake form (the newest, if there are two).
+  const intakeByAppt = useMemo(() => {
+    const m = new Map();
+    ((data && data.intakes) || []).forEach(x => { if (x.source_appointment_id && !m.has(x.source_appointment_id)) m.set(x.source_appointment_id, x); });
+    return m;
+  }, [data]);
 
   if (!data) return <div className="tr-clients"><SkelBlock w="100%" h="320px" /></div>;
   const open = selected ? byKey.get(selected) : null;
@@ -237,9 +246,14 @@ export function ClientsBody({ user, selected, onSelect, onLogAppointment, intent
     window.dispatchEvent(new Event('paceledger:appointments-changed'));
   }
   async function addNote(c) {
-    const target = c.lastPast || c.appts[c.appts.length - 1];
     const text = await askText({ title: `Note about ${firstOf(c.name)}`, label: 'Note', placeholder: 'Called, left a voicemail…', confirmLabel: 'Save note' });
     if (!text || !text.trim()) return;
+    await saveNote(c, text);
+  }
+  // On their latest appointment that's started (or the next one), or, with
+  // none, on your list's notes for them.
+  async function saveNote(c, text) {
+    const target = c.lastPast || c.appts[c.appts.length - 1];
     if (target && !c.presented) {
       const res = await addFollowUpNote({ appointmentId: target.id, authorId: user.id, authorName: user.displayName, note: text });
       if (!res.ok) { setFlash("Couldn't save the note. Check your connection and try again."); return; }
@@ -388,11 +402,23 @@ export function ClientsBody({ user, selected, onSelect, onLogAppointment, intent
 
         {c.policies.slice().reverse().map(pol => <PolicyCard key={pol.appt.id} pol={pol} c={c} user={user} nameOf={nameOf} onChanged={load} />)}
 
+        <AppointmentsCard c={c} user={user} intakeByAppt={intakeByAppt} onBook={() => onLogAppointment(bookingFor(c))}
+          onLog={(a, presenter) => setOutcome({ appt: a, presenter })} />
+        {!c.presented ? <LinksCard key={c.key} c={c} user={user} intakeByAppt={intakeByAppt} /> : null}
+
         <section className="tr-card tr-cl-card" aria-labelledby="cl-tl-h">
           <div className="tr-row-head">
             <h3 className="tr-cl-h" id="cl-tl-h">Everything so far</h3>
             {!c.presented && (c.appts.length || p) ? <button type="button" className="tr-link-btn" onClick={() => addNote(c)}>Add a note</button> : null}
           </div>
+          {!c.presented && (c.appts.length || p) ? (
+            <div className="tr-fu-quicktags tr-cl-quicktags" role="group" aria-label="Quick notes">
+              {QUICK_NOTE_TAGS.map(tag => (
+                <button key={tag} type="button" className="tr-pill-btn" disabled={noting} title={`Log "${tag}" with today's date`}
+                  onClick={async () => { setNoting(true); await saveNote(c, tag); setNoting(false); }}>+ {tag}</button>
+              ))}
+            </div>
+          ) : null}
           {c.timeline.length ? (
             <ol className="tr-cl-timeline">
               {c.timeline.map((t, i) => (

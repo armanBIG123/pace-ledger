@@ -1,7 +1,7 @@
 // Recruit sign-up links: share, copy or email them.
 import { useEffect, useState } from 'react';
 import { Check, Copy, Mail, UserPlus } from 'lucide-react';
-import { buildInviteLink, createInvite, emailInvite, fetchInviteForAppointment, inviteState } from '../invites.js';
+import { buildInviteLink, createInvite, emailInvite, fetchInviteForAppointment, fetchInviteForPerson, inviteState } from '../invites.js';
 import { isNativeApp, shareOrCopy } from '../native.js';
 import { fmtSentStamp } from '../lib/dates.js';
 import { isValidEmail } from '../lib/format.js';
@@ -81,15 +81,22 @@ export function InviteShare({ invite, recruitName, defaultEmail, leads = '' }) {
   );
 }
 
-export function RecruitSignupSection({ user, recruitName, recruitEmail, joined, appointmentId }) {
+// One recruit appointment's link (Follow-up), or with appointmentIds, one
+// person's on Clients: the newest made for any of their appointments, and a
+// new one goes on appointmentId (their latest; none yet is fine too).
+export function RecruitSignupSection({ user, recruitName, recruitEmail, joined, appointmentId, appointmentIds = null }) {
   const [invite, setInvite] = useState(undefined); // undefined = loading
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const idsKey = appointmentIds ? appointmentIds.join(',') : null;
   useEffect(() => {
     let alive = true;
-    fetchInviteForAppointment(appointmentId).then(inv => { if (alive) setInvite(inv); });
+    const ask = appointmentIds
+      ? fetchInviteForPerson({ appointmentIds, name: recruitName, createdBy: user.id })
+      : fetchInviteForAppointment(appointmentId);
+    ask.then(inv => { if (alive) setInvite(inv); });
     return () => { alive = false; };
-  }, [appointmentId]);
+  }, [appointmentId, idsKey, recruitName, user.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const state = inviteState(invite);
   const signedUp = joined || state === 'used';
   async function makeLink() {
