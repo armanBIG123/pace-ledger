@@ -54,6 +54,7 @@ const ROUTES = {
   followup: { tab: 'pipeline', stage: 'followup' },
   bizplan: { tab: 'growth', growth: 'plan' },
   milestones: { tab: 'growth', growth: 'path' },
+  pay: { tab: 'growth', growth: 'pay' },
   documents: { tab: 'resources' },
 };
 const OUTCOME_INTENTS = new Set(['nolog', 'presented', 'reschedule']);

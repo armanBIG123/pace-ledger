@@ -1,5 +1,5 @@
 // Growth: everything about moving up, in one tab. My path (where you are and
-// the next level), Paycheck & plan (this month's paycheck and the Business
+// the next level), Commissions (real pay from the commission system), Paycheck & plan (this month's paycheck and the Business
 // Plan behind the goal), Licensing, Incentives and the full promotion guide.
 // (Resources has its own tab, on computers and on the phone's bottom bar.)
 import { useEffect, useState } from 'react';
@@ -9,10 +9,12 @@ import { PageHead, SkelBlock } from '../components/ui.jsx';
 import { PaycheckCard } from '../components/paycheck.jsx';
 import { IncentivesBody, LicensingBody, MyProgressCard, TierLadder } from './Milestones.jsx';
 import { BusinessPlanBody } from './BusinessPlan.jsx';
+import { CommissionsBody } from './Commissions.jsx';
 import { hierarchyTierLabel, HIERARCHY_TIERS } from '../hierarchy.js';
 
 export const GROWTH_VIEWS = [
   { key: 'path', label: 'My path' },
+  { key: 'pay', label: 'Commissions' },
   { key: 'plan', label: 'Paycheck & plan' },
   { key: 'licensing', label: 'Licensing' },
   { key: 'incentives', label: 'Incentives' },
@@ -65,6 +67,7 @@ export function GrowthBody({ user, view, onView }) {
                 <BusinessPlanBody user={user} />
               </>
             )}
+            {current === 'pay' && <CommissionsBody user={user} />}
             {current === 'licensing' && <LicensingBody user={user} />}
             {current === 'incentives' && <IncentivesBody />}
             {current === 'guide' && (
