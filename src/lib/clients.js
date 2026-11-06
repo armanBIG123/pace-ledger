@@ -225,7 +225,8 @@ function describe(g, { userId, nameOf, now, notesBy, intakeBy, signups, byId, re
     const kind = apptWord(a);
     (notesBy.get(a.id) || []).forEach(n => add(ms(n.created_at), 'note', n.note, n.author_id && n.author_id !== userId ? `Note by ${n.author_name || nameOf(n.author_id) || 'your team'}` : 'Note', { noteId: n.id }));
     if (!isPastAppointment(a)) {
-      add(start, a.isFollowUp ? 'followup' : 'booked', `${kind} coming up`, `${whenOf(a, now)}${withWho(a)}`, { appt: a, act: presented ? null : 'change' });
+      // The day is already in front of it ("Mon, Nov 9 · 6:00 PM with Dana").
+      add(start, a.isFollowUp ? 'followup' : 'booked', `${kind} coming up`, `${apptClock(a)}${withWho(a)}`, { appt: a, act: presented ? null : 'change' });
       return;
     }
     if (!a.isFollowUp) add(ms(a.createdAt), 'booked', 'Booked', `For ${whenOf(a, now)}${withWho(a)}`);

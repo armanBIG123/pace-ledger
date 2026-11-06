@@ -28,6 +28,24 @@ export async function fetchInviteForAppointment(appointmentId) {
   return data && data[0] ? data[0] : null;
 }
 
+// The newest link for one person on Clients: made for one of their
+// appointments, or (made from their profile before they had one) by name.
+export async function fetchInviteForPerson({ appointmentIds = [], name = '', createdBy = '' }) {
+  const asks = [];
+  if (appointmentIds.length) {
+    asks.push(supabase.from('recruit_invites').select('*').in('appointment_id', appointmentIds)
+      .order('created_at', { ascending: false }).limit(1));
+  }
+  const n = tidyName(name || '');
+  if (n && createdBy) {
+    asks.push(supabase.from('recruit_invites').select('*').eq('created_by', createdBy).is('appointment_id', null)
+      .eq('invitee_name', n).order('created_at', { ascending: false }).limit(1));
+  }
+  const res = await Promise.all(asks);
+  const rows = res.flatMap(r => { if (r.error) { console.error(r.error); return []; } return r.data || []; });
+  return rows.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)))[0] || null;
+}
+
 // Creates a new link that puts the person directly under `uplineId`.
 export async function createInvite({ uplineId, createdBy, inviteeName, appointmentId }) {
   // The database fills in the token, dates and status itself.
