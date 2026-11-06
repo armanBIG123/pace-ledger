@@ -20,7 +20,9 @@ import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../c
 import { askConfirm, confirmDelete, newestFirst } from '../components/confirm.jsx';
 
 // One-tap note starters, so logging a touch takes a second.
-export const QUICK_NOTE_TAGS = ['Called', 'Left voicemail', 'Texted', 'Emailed', 'Met in person', 'No answer'];
+import { QUICK_NOTE_TAGS } from '../lib/quickNotes.js';
+
+export { QUICK_NOTE_TAGS };
 
 export const FOLLOW_UP_VIEW_TITLES = {
   all: 'All past appointments', nolog: 'Outcome not logged', presented: 'You presented', needs: 'Needs follow-up', reschedule: 'Needs reschedule',
