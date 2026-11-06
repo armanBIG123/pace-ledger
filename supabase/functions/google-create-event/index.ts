@@ -13,7 +13,17 @@
 // calendar's owner, so the response lists exactly who Google invited and
 // the app emails anyone else (usually the advisor's own "Me" address).
 //
+// Time zones: the event keeps the appointment's own time zone, so it sits
+// at the right time on the advisor's calendar. Google writes each invitation
+// in the *guest's* Google Calendar time zone, though, and a guest who never
+// set one (common for clients) sees UTC ("10pm (Coordinated Universal
+// Time)" for a 5pm Eastern meeting). So the first line of the description,
+// which every invitation shows, gives the time in the appointment's zone:
+// "When: Friday, November 6, 5:00 – 6:00 PM EST".
+//
 // Deploy with: supabase functions deploy google-create-event
+// (or Supabase -> Edge Functions -> google-create-event -> Code -> paste
+// this file -> Deploy updates).
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -36,6 +46,44 @@ const CORS_HEADERS = {
 };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+// The agency's home zone, if an appointment somehow has none (never UTC).
+const DEFAULT_TZ = 'America/Chicago';
+const WALL_RE = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/;
+
+export function validZone(tz: unknown): tz is string {
+  if (!tz || typeof tz !== 'string') return false;
+  try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true; } catch { return false; }
+}
+
+// "2026-11-06T17:00:00" in America/New_York -> the real moment (22:00 UTC),
+// daylight saving included.
+export function zonedInstant(wall: string, tz: string): Date | null {
+  const m = WALL_RE.exec(String(wall || ''));
+  if (!m) return null;
+  const want = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+  const fmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+  let guess = want;
+  for (let i = 0; i < 3; i++) {
+    const p = Object.fromEntries(fmt.formatToParts(new Date(guess)).map(x => [x.type, x.value]));
+    const shown = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute);
+    if (shown === want) break;
+    guess += want - shown;
+  }
+  return new Date(guess);
+}
+
+// "Friday, November 6, 5:00 – 6:00 PM EST" (or "11:30 AM – 12:30 PM EST").
+export function whenText(startWall: string, endWall: string, tz: string): string {
+  const start = zonedInstant(startWall, tz);
+  const end = zonedInstant(endWall, tz);
+  if (!start) return '';
+  const clock = (d: Date, zone: boolean) => d.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit', ...(zone ? { timeZoneName: 'short' } : {}) });
+  const day = start.toLocaleDateString('en-US', { timeZone: tz, weekday: 'long', month: 'long', day: 'numeric' });
+  if (!end) return `${day}, ${clock(start, true)}`;
+  const ampm = (d: Date) => (clock(d, false).match(/[AP]M$/) || [''])[0];
+  const from = ampm(start) === ampm(end) ? clock(start, false).replace(/\s*[AP]M$/, '') : clock(start, false);
+  return `${day}, ${from} – ${clock(end, true)}`;
+}
 
 // Google's refresh tokens don't rotate (unlike Zoom's) — only the access
 // token needs updating after a refresh.
@@ -95,7 +143,7 @@ async function createEventFor(admin: any, targetUserId: string, event: any, send
   return { pushed: true, organizer };
 }
 
-Deno.serve(async (req: Request) => {
+export async function handle(req: Request): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS });
 
   try {
@@ -111,12 +159,15 @@ Deno.serve(async (req: Request) => {
     const { title, description, location, attendees, startDateTime, endDateTime, timezone, managerHostId } = await req.json();
 
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+    // The appointment's own time zone (the one it was set in).
+    const tz = validZone(timezone) ? timezone : DEFAULT_TZ;
+    const when = whenText(startDateTime, endDateTime, tz);
     const event: any = {
       summary: title || 'PaceLedger appointment',
-      description: description || undefined,
+      description: [when ? `When: ${when}` : '', description || ''].filter(Boolean).join('\n\n') || undefined,
       location: location || undefined,
-      start: { dateTime: startDateTime, timeZone: timezone || 'UTC' },
-      end: { dateTime: endDateTime, timeZone: timezone || 'UTC' },
+      start: { dateTime: startDateTime, timeZone: tz },
+      end: { dateTime: endDateTime, timeZone: tz },
     };
 
     // Invitees (client, the advisor, anyone else they listed) — validated
@@ -151,4 +202,6 @@ Deno.serve(async (req: Request) => {
       status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
     });
   }
-});
+}
+
+if (typeof Deno !== 'undefined' && typeof Deno.serve === 'function') Deno.serve(handle);
