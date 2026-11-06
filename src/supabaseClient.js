@@ -6,7 +6,7 @@ import { systemScope } from './lib/systemScope.js';
 // controlled entirely by the Row Level Security policies in
 // supabase-schema.sql. Nothing sensitive is exposed by shipping this in
 // the built site.
-const SUPABASE_URL = 'https://ifiqjixvvexaiooozjaa.supabase.co';
+export const SUPABASE_URL = 'https://ifiqjixvvexaiooozjaa.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_81KcqnQ8_GB9QnCIDwDAcg_D7bLj7zc';
 
 // A super admin on another solar system's tab in Org Chart or Manage Team:
