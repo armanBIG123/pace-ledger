@@ -216,7 +216,7 @@ export function classifyAgentFields(mine: any[]) {
   out.left = mine.filter(f => !filled.has(f)).map(f => nm(f) || `(unnamed ${f.type})`);
   return out;
 }
-async function agentSpots(templateId: number) {
+async function templateSpots(templateId: number) {
   const t = await ds(`/templates/${templateId}`);
   const roles: any[] = Array.isArray(t.submitters) ? t.submitters : [];
   const agent = roles.find(r => String(r.name || '').trim().toLowerCase() === AGENT_ROLE.toLowerCase());
@@ -224,6 +224,53 @@ async function agentSpots(templateId: number) {
   return classifyAgentFields(mine);
 }
 const fieldKey = (f: any) => String(f.uuid || f.name || '');
+const hasValue = (v: unknown) => (Array.isArray(v) ? v.length > 0 : v !== null && v !== undefined && String(v).trim() !== '');
+
+// The agent's spots in their own agreement, and which already hold
+// something. DocuSeal keeps each agreement's fields as they were when it was
+// opened, so a template edited since (new or renamed initials boxes) no
+// longer lines up with it: values for fields it doesn't have are dropped
+// without an error. So this reads the agreement's own copy, and only falls
+// back to the template when DocuSeal doesn't return it.
+export function spotsFromSubmission(sub: any, agentSubmitterId: number | null) {
+  const subs: any[] = sub && Array.isArray(sub.submitters) ? sub.submitters : [];
+  const agent = subs.find(s => roleIs(s, AGENT_ROLE, agentSubmitterId));
+  const all: any[] | null = sub && Array.isArray(sub.fields) ? sub.fields : null;
+  if (!all || !agent || !agent.uuid) return null;
+  const mine = all.filter(f => f && f.submitter_uuid === agent.uuid);
+  const filled = new Set<string>();
+  if (Array.isArray(agent.fields)) {
+    agent.fields.forEach((f: any) => { if (f && f.uuid && hasValue(f.value)) filled.add(String(f.uuid)); });
+  } else {
+    // Only the values by field name: every field with a filled name counts.
+    const named = new Set((Array.isArray(agent.values) ? agent.values : []).filter((v: any) => v && hasValue(v.value)).map((v: any) => String(v.field || '')));
+    mine.forEach(f => { if (named.has(String(f.name || ''))) filled.add(fieldKey(f)); });
+  }
+  return { ...classifyAgentFields(mine), filled };
+}
+async function agreementSpots(row: any) {
+  try {
+    const got = spotsFromSubmission(await ds(`/submissions/${row.docuseal_submission_id}?include=fields`), row.agent_submitter_id);
+    if (got) return got;
+  } catch (e) { if (!(e instanceof DsError)) throw e; console.error('could not read the agreement fields', e); }
+  return { ...(await templateSpots(Number(row.docuseal_template_id))), filled: null as Set<string> | null };
+}
+
+// What goes in each spot. skip: spots that already hold something (left as
+// they are).
+export function spotValues(spots: any, what: { signature?: string; initials?: string; printed?: string; today?: string; email?: string }, skip?: Set<string> | null) {
+  const values: Record<string, string> = {};
+  const put = (list: any[], v?: string) => list.forEach(f => {
+    const k = fieldKey(f);
+    if (k && v && !(skip && skip.has(k))) values[k] = v;
+  });
+  put(spots.signature, what.signature);
+  put(spots.initials, what.initials);
+  put(spots.names, what.printed);
+  put(spots.dates, what.today);
+  put(spots.emails, what.email);
+  return values;
+}
 export function cleanPrintedName(v: unknown): string {
   return String(v ?? '').replace(/[\u0000-\u001f<>]/g, '').replace(/\s+/g, ' ').trim().slice(0, 80);
 }
@@ -235,9 +282,32 @@ function callerIp(req: Request): string {
   const f = req.headers.get('cf-connecting-ip') || (req.headers.get('x-forwarded-for') || '').split(',')[0] || req.headers.get('x-real-ip') || '';
   return f.trim().slice(0, 45);
 }
-async function adoptedSince(admin: any, userId: string, since: string): Promise<boolean> {
-  const { data } = await admin.from('contracting_log').select('id').eq('user_id', userId).eq('action', 'signature_adopted').gte('at', since).limit(1);
-  return !!(data && data.length);
+// The log line from when they adopted for this agreement (null if they
+// haven't).
+async function adoptedSince(admin: any, userId: string, since: string): Promise<string | null> {
+  const { data } = await admin.from('contracting_log').select('detail').eq('user_id', userId).eq('action', 'signature_adopted')
+    .gte('at', since).order('at', { ascending: false }).limit(1);
+  return data && data.length ? String(data[0].detail || '') : null;
+}
+export const initialsFromLog = (detail: string) => cleanInitials((String(detail || '').match(/initials "([^"]{1,12})"/) || [])[1]);
+
+// An agent who adopted before every spot could be filled (an older
+// PaceLedger, or a template changed since) gets the rest when they come
+// back: their initials (from the log) and printed name go in the spots that
+// are still empty. Nothing already in the form changes. False means a
+// signature or initials spot is still empty, so they adopt once more.
+async function fillTheRest(admin: any, row: any, me: any, detail: string): Promise<boolean> {
+  const spots = await agreementSpots(row);
+  if (!spots.filled) return true; // can't tell what's empty: leave it
+  const initials = initialsFromLog(detail);
+  const values = spotValues(spots, { initials, printed: cleanPrintedName(row.agent_name), today: centralDay(), email: String(row.agent_email || me.email || '') }, spots.filled);
+  const n = Object.keys(values).length;
+  if (n) {
+    await ds(`/submitters/${row.agent_submitter_id}`, { method: 'PUT', body: JSON.stringify({ values, send_email: false }) });
+    await log(admin, me.id, me.id, 'spots_filled', `Filled ${n} more spot${n === 1 ? '' : 's'} with their adopted initials and name`);
+  }
+  const empty = (list: any[]) => list.some(f => !spots.filled!.has(fieldKey(f)) && !values[fieldKey(f)]);
+  return !empty(spots.signature) && !empty(spots.initials);
 }
 
 // The agent's Exclusive / Non-Exclusive choice: a picker whose value says
@@ -414,7 +484,12 @@ export async function handle(req: Request): Promise<Response> {
         if (row && row.status === 'completed') return json({ status: 'completed', agreement: row });
         if (row && row.status === 'agent_signed') return json({ status: 'agent_signed', agreement: row });
         if (row && row.status === 'sent') {
-          return json({ status: 'sent', src: await signingUrl(row.agent_submitter_id), email: row.agent_email, name: row.agent_name, adopted: await adoptedSince(admin, me.id, row.created_at) });
+          const detail = await adoptedSince(admin, me.id, row.created_at);
+          let adopted = detail !== null;
+          if (adopted) {
+            try { adopted = await fillTheRest(admin, row, me, detail as string); } catch (e) { console.error('could not fill the rest', e); }
+          }
+          return json({ status: 'sent', src: await signingUrl(row.agent_submitter_id), email: row.agent_email, name: row.agent_name, adopted });
         }
 
         const name = (await nameOf(admin, me.id)) || me.email;
@@ -459,16 +534,13 @@ export async function handle(req: Request): Promise<Response> {
           .eq('version', settings.agreement_version).order('created_at', { ascending: false }).limit(1);
         const row = rows && rows[0];
         if (!row || row.status !== 'sent') return json({ error: 'agreement_not_open' }, 400);
-        const spots = await agentSpots(Number(row.docuseal_template_id || settings.docuseal_template_id));
+        // The agreement's own fields, so every spot in the form they'll see
+        // gets filled (not the template's, which may have changed since).
+        const spots = await agreementSpots(row);
         if (!spots.signature.length && !spots.initials.length) return json({ error: 'no_signature_spots' }, 400);
-        const values: Record<string, string> = {};
-        const today = centralDay();
+        const what = { initials, printed, today: centralDay(), email: String(row.agent_email || me.email || '') };
         const put = async (sig: string) => {
-          spots.signature.forEach(f => { values[fieldKey(f)] = sig; });
-          spots.initials.forEach(f => { values[fieldKey(f)] = initials; });
-          spots.names.forEach(f => { values[fieldKey(f)] = printed; });
-          spots.dates.forEach(f => { values[fieldKey(f)] = today; });
-          spots.emails.forEach(f => { values[fieldKey(f)] = String(row.agent_email || me.email || ''); });
+          const values = spotValues(spots, { ...what, signature: sig });
           await ds(`/submitters/${row.agent_submitter_id}`, { method: 'PUT', body: JSON.stringify({ values, send_email: false }) });
         };
         try { await put(signature); } catch (e) {

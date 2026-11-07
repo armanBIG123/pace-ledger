@@ -244,5 +244,6 @@ export const LOG_WORDS = {
   agreement_started: 'Opened the agreement to sign', agreement_signed: 'Signed the producer agreement', agreement_completed: 'Agreement countersigned and saved',
   agreement_declined: 'Declined the agreement', new_key: 'New encryption key', key_verified: 'Checked the encryption key', agreement: 'Agreement set',
   turned_on: 'Turned contracting on', turned_off: 'Turned contracting off', paused: 'Paused the form', unpaused: 'Unpaused the form',
+  signature_adopted: 'Adopted their signature and initials', spots_filled: 'Filled in the rest of their agreement',
   staff_added: 'Added to the contracting team', staff_removed: 'Removed from the contracting team', access_review: 'Access review done',
 };
