@@ -2151,6 +2151,28 @@ a.tr-mt-phone:hover { color: var(--brass-dark); text-decoration: underline; }
   .tr-cl-appt { flex-direction: column; align-items: stretch; gap: 8px; }
   .tr-cl-appt-acts { justify-content: flex-start; }
 }
+/* Team overview: email reports (super admins) */
+.tr-er-sub { margin: 0 0 10px; font-size: 13px; line-height: 1.45; color: var(--slate); }
+.tr-er-kinds { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.tr-er-kinds label { font-size: 13.5px; line-height: 1.4; color: var(--ink); align-items: flex-start !important; cursor: pointer; }
+.tr-er-kinds input { margin-top: 2px; flex: none; }
+.tr-er-kinds small { display: block; margin: 2px 0 0 24px; font-size: 12px; color: var(--slate-light); }
+.tr-er-h4 { margin: 12px 0 6px; font-size: 13px; font-weight: 600; color: var(--ink); }
+.tr-er-list { list-style: none; margin: 0 0 8px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.tr-er-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 2px 2px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); font-size: 13.5px; color: var(--ink); }
+.tr-er-list li span { min-width: 0; overflow-wrap: anywhere; }
+.tr-er-add { display: flex; align-items: flex-end; gap: 8px; }
+.tr-er-add .tr-field { flex: 1; }
+.tr-er-add input { min-height: 36px; padding: 7px 10px; }
+.tr-er-add .tr-btn { min-height: 36px; }
+.tr-er-ok { margin: 8px 0 0; font-size: 13px; color: var(--green); }
+.tr-er-err { margin: 0 0 10px; }
+.tr-er-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.tr-er-modal { max-width: 760px; padding: 20px; }
+.tr-er-subject { margin: 4px 0 0; font-size: 13px; color: var(--slate); overflow-wrap: anywhere; }
+.tr-er-frame { display: block; width: 100%; height: min(64vh, 720px); border: 1px solid var(--line); border-radius: var(--radius-sm); background: #EBEEF2; }
+.tr-er-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.tr-er-note { font-size: 12.5px; color: var(--slate); }
 .tr-cl-refs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .tr-cl-refs button { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--card); font-family: inherit; font-size: 14px; color: var(--ink); cursor: pointer; text-align: left; }
 .tr-cl-refs button:hover { border-color: var(--line-strong); }
