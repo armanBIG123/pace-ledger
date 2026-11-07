@@ -192,16 +192,36 @@ const roleIs = (s: any, role: string, id: number | null) => (id && Number(s.id) 
 // spot. Those go on every Signature and Initials spot of the Agent role (by
 // field id, so separate spots with the same name all get them), and the
 // agreement opens with nothing left but Agent Type and Sign.
+// Which of the agent's spots PaceLedger fills from what they adopted up
+// front, so the form only stops where the agent has a real choice to make.
+// Templates mark initials two ways: DocuSeal "Initials" fields, or Text
+// fields named for them ("Guidelines acknowledgement", "Benefits Initial").
+// The Exclusive / Non-Exclusive election initials are never filled: the
+// agent picks one. Checkboxes, address, email and codes are left to them.
+const ELECTION_RE = /exclusive|election|agent\s*type/i;
+const INITIALS_RE = /initial|acknowledg/i;
+const NAME_RE = /^(print(ed)?\s+)?(agent('s)?\s+)?(full\s+)?name$|part(y|ies)$|^independent\s+agent$/i;
+const EMAIL_RE = /^(agent('s)?\s+)?e-?mail(\s+address)?$/i;
+export function classifyAgentFields(mine: any[]) {
+  const nm = (f: any) => String(f.name || '').trim();
+  const out = {
+    signature: mine.filter(f => f.type === 'signature'),
+    initials: mine.filter(f => !ELECTION_RE.test(nm(f)) && (f.type === 'initials' || (f.type === 'text' && INITIALS_RE.test(nm(f))))),
+    names: mine.filter(f => f.type === 'text' && NAME_RE.test(nm(f)) && !ELECTION_RE.test(nm(f))),
+    emails: mine.filter(f => f.type === 'text' && EMAIL_RE.test(nm(f))),
+    dates: mine.filter(f => f.type === 'date'),
+    left: [] as string[],
+  };
+  const filled = new Set([...out.signature, ...out.initials, ...out.names, ...out.emails, ...out.dates]);
+  out.left = mine.filter(f => !filled.has(f)).map(f => nm(f) || `(unnamed ${f.type})`);
+  return out;
+}
 async function agentSpots(templateId: number) {
   const t = await ds(`/templates/${templateId}`);
   const roles: any[] = Array.isArray(t.submitters) ? t.submitters : [];
   const agent = roles.find(r => String(r.name || '').trim().toLowerCase() === AGENT_ROLE.toLowerCase());
   const mine: any[] = agent && agent.uuid ? (Array.isArray(t.fields) ? t.fields : []).filter(f => f && f.submitter_uuid === agent.uuid) : [];
-  return {
-    signature: mine.filter(f => f.type === 'signature'),
-    initials: mine.filter(f => f.type === 'initials'),
-    name: mine.find(f => String(f.name || '').trim().toLowerCase() === 'agent name') || null,
-  };
+  return classifyAgentFields(mine);
 }
 const fieldKey = (f: any) => String(f.uuid || f.name || '');
 export function cleanPrintedName(v: unknown): string {
@@ -220,15 +240,22 @@ async function adoptedSince(admin: any, userId: string, since: string): Promise<
   return !!(data && data.length);
 }
 
-function electionFrom(values: any): string | null {
+// The agent's Exclusive / Non-Exclusive choice: a picker whose value says
+// it ("Agent Type": "Non-Exclusive"), or one initials box per choice
+// ("Exclusive initial", "Non-exclusive initial"), whichever they initialed.
+export function electionFrom(values: any): string | null {
   const list = Array.isArray(values) ? values : values && typeof values === 'object' ? Object.entries(values).map(([field, value]) => ({ field, value })) : [];
+  const initialed = new Set<string>();
   for (const v of list) {
-    if (!/agent\s*type|election|exclusive/i.test(String(v.field || ''))) continue;
-    const s = String(v.value ?? '').toLowerCase();
+    const field = String(v.field || '');
+    if (!/agent\s*type|election|exclusive/i.test(field)) continue;
+    const raw = String(v.value ?? '').trim();
+    const s = raw.toLowerCase();
     if (s.includes('non')) return 'Non-Exclusive';
     if (s.includes('exclusive')) return 'Exclusive';
+    if (raw && /initial/i.test(field) && /exclusive/i.test(field)) initialed.add(/non[\s-]*exclusive/i.test(field) ? 'Non-Exclusive' : 'Exclusive');
   }
-  return null;
+  return initialed.size === 1 ? [...initialed][0] : null;
 }
 
 async function fetchPdf(url: string): Promise<Uint8Array> {
@@ -435,10 +462,13 @@ export async function handle(req: Request): Promise<Response> {
         const spots = await agentSpots(Number(row.docuseal_template_id || settings.docuseal_template_id));
         if (!spots.signature.length && !spots.initials.length) return json({ error: 'no_signature_spots' }, 400);
         const values: Record<string, string> = {};
+        const today = centralDay();
         const put = async (sig: string) => {
           spots.signature.forEach(f => { values[fieldKey(f)] = sig; });
           spots.initials.forEach(f => { values[fieldKey(f)] = initials; });
-          if (spots.name) values[fieldKey(spots.name)] = printed;
+          spots.names.forEach(f => { values[fieldKey(f)] = printed; });
+          spots.dates.forEach(f => { values[fieldKey(f)] = today; });
+          spots.emails.forEach(f => { values[fieldKey(f)] = String(row.agent_email || me.email || ''); });
           await ds(`/submitters/${row.agent_submitter_id}`, { method: 'PUT', body: JSON.stringify({ values, send_email: false }) });
         };
         try { await put(signature); } catch (e) {
@@ -449,8 +479,8 @@ export async function handle(req: Request): Promise<Response> {
         await admin.from('producer_agreements').update({ agent_name: printed }).eq('id', row.id).eq('status', 'sent');
         const ip = callerIp(req);
         await log(admin, me.id, me.id, 'signature_adopted',
-          `Adopted a drawn signature and initials "${initials}" as ${printed} for ${settings.agreement_version} (${spots.signature.length} signature, ${spots.initials.length} initials spots)${ip ? ` from ${ip}` : ''}`);
-        return json({ ok: true, signatures: spots.signature.length, initials: spots.initials.length });
+          `Adopted a drawn signature and initials "${initials}" as ${printed} for ${settings.agreement_version} (${spots.signature.length} signature, ${spots.initials.length} initials, ${spots.names.length} name, ${spots.emails.length} email and ${spots.dates.length} date spots filled)${ip ? ` from ${ip}` : ''}`);
+        return json({ ok: true, signatures: spots.signature.length, initials: spots.initials.length, names: spots.names.length, emails: spots.emails.length, dates: spots.dates.length });
       }
 
       // ---- the contracting team countersigns ----------------------------------
@@ -554,12 +584,15 @@ export async function handle(req: Request): Promise<Response> {
         const warnings: string[] = [];
         if (!roles.some(r => r.toLowerCase() === AGENT_ROLE.toLowerCase())) warnings.push(`No role named "${AGENT_ROLE}".`);
         if (!roles.some(r => r.toLowerCase() === BIG_ROLE.toLowerCase())) warnings.push(`No role named "${BIG_ROLE}".`);
-        for (const f of ['Agent Name', 'Agent Email', 'Agreement Date', 'Agent Type']) if (!fields.includes(f)) warnings.push(`No field named "${f}".`);
-        // The spots filled in from what agents adopt before signing.
+        // The spots filled in from what agents adopt before signing, and
+        // what's left for them to fill in themselves.
         const agentRole = (t.submitters || []).find((r: any) => String(r.name || '').trim().toLowerCase() === AGENT_ROLE.toLowerCase());
         const agentFields = agentRole && agentRole.uuid ? (t.fields || []).filter((f: any) => f && f.submitter_uuid === agentRole.uuid) : [];
-        const spots = { signature: agentFields.filter((f: any) => f.type === 'signature').length, initials: agentFields.filter((f: any) => f.type === 'initials').length };
+        const c = classifyAgentFields(agentFields);
+        const spots = { signature: c.signature.length, initials: c.initials.length, names: c.names.length, emails: c.emails.length, dates: c.dates.length, left: c.left };
         if (agentRole && !spots.signature) warnings.push(`The "${AGENT_ROLE}" role has no Signature field.`);
+        if (agentRole && !spots.names) warnings.push(`The "${AGENT_ROLE}" role has no printed-name field (name one "Agent name" or "Print name").`);
+        if (agentRole && !agentFields.some((f: any) => /agent\s*type|election|exclusive/i.test(String(f.name || '')))) warnings.push(`No Exclusive / Non-Exclusive field for the agent (name it with "Exclusive", e.g. "Exclusive initial" and "Non-exclusive initial").`);
         return json({ ok: true, name: t.name || '', roles, fields, warnings, spots, webhook: !!DOCUSEAL_WEBHOOK_TOKEN, email: !!(RESEND_API_KEY && INVITE_FROM_EMAIL), privateKey: !!(await privateKey()) });
       }
 
