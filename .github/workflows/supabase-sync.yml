@@ -1,0 +1,52 @@
+# Copy from Supabase: run this once by hand (Actions -> Copy from Supabase ->
+# Run workflow) after adding the two secrets. It copies the live database
+# layout, every server function and their Verify JWT settings into a new
+# branch, sync/from-supabase-<date>, for review as a pull request. It only
+# reads from Supabase; nothing live changes.
+name: Copy from Supabase
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      PROJECT_REF: ifiqjixvvexaiooozjaa
+    steps:
+      - name: Check the secrets
+        run: |
+          if [ -z "$SUPABASE_ACCESS_TOKEN" ] || [ -z "$SUPABASE_DB_PASSWORD" ]; then
+            echo "::error::Add SUPABASE_ACCESS_TOKEN and SUPABASE_DB_PASSWORD as repository secrets first."
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.122.1
+      - name: Connect to the project
+        run: supabase link --project-ref "$PROJECT_REF"
+      - name: Copy from Supabase
+        run: bash supabase/deploy/sync.sh
+      - name: Save to a new branch
+        run: |
+          branch="sync/from-supabase-$(date -u +%Y%m%d-%H%M)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          rm -rf supabase/.temp
+          git add supabase
+          if git diff --cached --quiet; then echo "Nothing differs from what's in GitHub."; exit 0; fi
+          git commit -m "Copy the live database layout and server functions from Supabase"
+          git push origin "$branch"
+          echo "### Saved to branch \`$branch\`" >> "$GITHUB_STEP_SUMMARY"
+          git show --stat --format= HEAD >> "$GITHUB_STEP_SUMMARY"
