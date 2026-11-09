@@ -1,25 +1,51 @@
 // Today → Your paycheck: this month's estimated commission from your own
 // sales (your share of split ones), against the monthly income goal in your
 // Business Plan. appointments: yours plus any you're on (split ones count).
+import { useEffect, useState } from 'react';
 import { Wallet } from 'lucide-react';
 import { computePaycheck } from '../lib/paycheck.js';
 import { todayStr } from '../lib/dates.js';
 import { creditedTo } from '../lib/credit.js';
+import { fetchPayFor } from '../data/commissions.js';
+import { monthRange, summarize } from '../lib/commissions.js';
 
 const money = n => `$${Math.round(Math.max(0, n || 0)).toLocaleString('en-US')}`;
+
+// Real pay from the commission system for this month: { paid, coming } once
+// any has arrived for you, otherwise null (then the projection shows).
+export function useMonthPay(userId) {
+  const [pay, setPay] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    fetchPayFor(userId).then(r => {
+      if (!alive || !r || !r.lines) return;
+      const s = summarize(r, monthRange(new Date()));
+      setPay(s.paid || s.coming ? { paid: s.paid, coming: s.coming } : null);
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, [userId]);
+  return pay;
+}
 
 export function PaycheckCard({ user, appointments, plan, onNavigate }) {
   const today = todayStr();
   const p = computePaycheck({ appointments: creditedTo(appointments, user.id), tierKey: user.hierarchyTier, plan, today });
   const monthName = new Date(`${today}T12:00:00`).toLocaleDateString('en-US', { month: 'long' });
   const earning = p.rate > 0;
+  const real = useMonthPay(user.id);
 
   return (
     <div className="tr-card tr-pay">
       <div className="tr-row-head">
         <h3 className="tr-h3" style={{ margin: 0 }}><Wallet size={16} aria-hidden="true" /> Your paycheck</h3>
-        <span className="tr-pay-month">{monthName} · estimate</span>
+        <span className="tr-pay-month">{monthName} · projected</span>
       </div>
+      {real ? (
+        <p className="tr-pay-real">
+          <strong>{money(real.paid)}</strong> paid this month{real.coming > 0 ? <> · <strong>{money(real.coming)}</strong> on the way</> : null}
+          <button type="button" className="tr-ov-link" onClick={() => onNavigate('pay')}>See your commissions →</button>
+        </p>
+      ) : null}
 
       {earning ? (
         <>

@@ -261,7 +261,7 @@ export function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, 
   return (
     <>
       <div className="tr-row-head tr-screen-head">
-        <h2 className="tr-h2"><Icon size={18} aria-hidden="true" /> {heading}</h2>
+        <h2 className="tr-h2">{heading}</h2>
         <RefreshButton onClick={refreshAppts} />
       </div>
       <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
@@ -290,7 +290,7 @@ export function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, 
           <div className="tr-card tr-summary-card">
           {view.matched === 0 ? <NoMatches /> : (
           <div className="tr-table-wrap">
-            <table className="tr-table tr-table-summary">
+            <table className="tr-table tr-table-summary tr-pace-table">
               <thead>
                 <tr>
                   <SortHeader label={memberLabel} sortKey="name" sorter={sorter} />
@@ -316,10 +316,10 @@ export function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, 
                           <MemberSubline member={adv} />
                         </td>
                         {DATE_SET_OPTIONS.map((opt, i) => (
-                          <td key={opt.value}><MiniBar count={counts[i]} target={opt.target} /></td>
+                          <td key={opt.value} data-label={opt.shortLabel}><MiniBar count={counts[i]} target={opt.target} /></td>
                         ))}
-                        <td className="tr-mono">{total}/{WEEKLY_TOTAL_TARGET}</td>
-                        <td><StatusBadge status={status} /></td>
+                        <td className="tr-mono tr-pace-total" data-label="Total">{total}/{WEEKLY_TOTAL_TARGET}</td>
+                        <td className="tr-pace-status"><StatusBadge status={status} /></td>
                       </tr>
                       {isOpen && (
                         <tr className="tr-expand-row"><td colSpan={DATE_SET_OPTIONS.length + 3}>
@@ -712,8 +712,8 @@ export function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage
   useEffect(() => { refreshMembers(); }, [refreshMembers]);
 
   return (
-    <div className="tr-appts-shell">
-      <nav className="tr-appts-sidebar">
+    <div className="tr-flat"><div className="tr-appts-shell">
+      <nav className="tr-appts-sidebar" aria-label="Team Pace">
         {PACE_VIEWS.map(v => (
           <button
             key={v.key} type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === v.key ? 'tr-sidebar-item-active' : ''}`}
@@ -737,7 +737,7 @@ export function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage
           <TeamPromotionSubView user={user} members={members} loadingMembers={loadingMembers} memberLabel={memberLabel} emptyMessage={emptyMessage} />
         )}
       </div>
-    </div>
+    </div></div>
   );
 }
 
@@ -750,7 +750,7 @@ export function TeamPaceBody({ user, initialView, onIntentConsumed }) {
   const isSuperAdmin = isAdminRole(user);
   const showDirects = isSuperAdmin && scope === 'directs';
   const fetchMembers = showDirects ? fetchDirectManagers : fetchTeamMembers;
-  const heading = showDirects ? 'Direct managers' : 'Team pace';
+  const heading = showDirects ? 'Direct Managers' : 'Team Pace';
   const Icon = showDirects ? UserCog : Users;
   const memberLabel = showDirects ? 'Manager' : 'Team member';
   const emptyMessage = showDirects

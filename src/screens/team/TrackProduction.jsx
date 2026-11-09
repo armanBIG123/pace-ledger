@@ -3,7 +3,7 @@
 // people who signed up through a recruit link that week, for the person they
 // joined under (see lib/recruitCounts.js).
 import { Fragment, useCallback, useEffect, useState } from 'react';
-import { ChevronDown, ChevronUp, Download, TrendingUp } from 'lucide-react';
+import { ChevronDown, ChevronUp, Download } from 'lucide-react';
 import { addDays, apptStartMs, fmtApptDateTime, fmtDate, parseDate, shiftWeekStr, todayStr, weekStartOf } from '../../lib/dates.js';
 import { signupsFor, tickboxRecruitCounts } from '../../lib/recruitCounts.js';
 import { fetchRecruitSignups } from '../../data/recruits.js';
@@ -142,7 +142,7 @@ export function TrackProductionBody({ user }) {
     return (
       <>
         <div className="tr-row-head tr-screen-head">
-          <TitleInfo title={<><TrendingUp size={18} aria-hidden="true" /> Track production</>} info="Every policy someone on your team has submitted that isn't issued yet, oldest first. Open one to see its notes and add your own, or email the advisor to help get it issued." />
+          <TitleInfo title="Track Production" info="Every policy someone on your team has submitted that isn't issued yet, oldest first. Open one to see its notes and add your own, or email the advisor to help get it issued." />
           <RefreshButton onClick={() => { refresh(); setPendingKey(k => k + 1); }} />
         </div>
         {switcher}
@@ -156,7 +156,7 @@ export function TrackProductionBody({ user }) {
   return (
     <>
       <div className="tr-row-head">
-        <TitleInfo title={<><TrendingUp size={18} aria-hidden="true" /> Track production</>} info="Sales marked in each person's follow-up, counted in the week the appointment took place (Saturday to Friday). Recruits are people who signed up through a recruit link that week, counted for the person they joined under. Tap a name to see who they sold to and who joined." />
+        <TitleInfo title="Track Production" info="Sales marked in each person's follow-up, counted in the week the appointment took place (Saturday to Friday). Recruits are people who signed up through a recruit link that week, counted for the person they joined under. Tap a name to see who they sold to and who joined." />
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={handleExport} disabled={loading || members.length === 0}><Download size={14} /> Export CSV</button>
           <RefreshButton onClick={refresh} />

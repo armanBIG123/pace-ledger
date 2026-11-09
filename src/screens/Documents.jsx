@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Download, FileText, Pencil, Plus, Trash2 } from 'lucide-react';
 import { addImportantLink, deleteDocument, deleteImportantLink, fetchDocuments, fetchImportantLinks, formatFileSize, getDocumentDownloadUrl, updateDocumentTitle, updateImportantLink, uploadDocument } from '../documents.js';
-import { SkeletonCards } from '../components/ui.jsx';
+import { PageHead, SkeletonCards } from '../components/ui.jsx';
 import { isAdmin } from '../lib/roles.js';
 import { confirmDelete, newestFirst } from '../components/confirm.jsx';
 
@@ -84,7 +84,7 @@ export function ImportantLinksSection({ user }) {
   return (
     <>
       <div className="tr-row-head">
-        <h2 className="tr-h2">Important Links</h2>
+        <h3 className="tr-h3">Important Links</h3>
         {isAdmin(user) && (
           <button className="tr-btn tr-btn-brass" onClick={() => setShowAdd(v => !v)}>
             <Plus size={16} /> {showAdd ? 'Close' : 'Add link'}
@@ -222,8 +222,10 @@ export function DocumentsBody({ user }) {
   }
 
   return (
-    <div className="tr-appts-shell">
-      <nav className="tr-appts-sidebar tr-docs-tabs">
+    <div className="tr-flat">
+    <PageHead title="Resources" sub="Presentations, documents and links for the team." />
+    <div className="tr-appts-shell" style={{ marginTop: 14 }}>
+      <nav className="tr-appts-sidebar tr-docs-tabs" aria-label="Resources">
         <button
           type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'pdf' ? 'tr-sidebar-item-active' : ''}`}
           onClick={() => switchView('pdf')}>
@@ -246,7 +248,7 @@ export function DocumentsBody({ user }) {
         {view === 'links' ? <ImportantLinksSection user={user} /> : (
         <>
         <div className="tr-row-head">
-          <h2 className="tr-h2"><FileText size={18} /> {view === 'pdf' ? 'PDF Documents' : 'PPTX Documents'}</h2>
+          <h3 className="tr-h3">{view === 'pdf' ? 'PDF Documents' : 'PPTX Documents'}</h3>
           {isAdmin(user) && (
             <button className="tr-btn tr-btn-brass" onClick={() => setShowUpload(v => !v)}>
               <Plus size={16} /> {showUpload ? 'Close' : 'Upload document'}
@@ -322,6 +324,7 @@ export function DocumentsBody({ user }) {
         </>
         )}
       </div>
+    </div>
     </div>
   );
 }

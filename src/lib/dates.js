@@ -42,6 +42,14 @@ export function weekLabel(mondayStr) {
   return `${m.toLocaleDateString('en-US', opts)} – ${sun.toLocaleDateString('en-US', opts)}, ${sun.getFullYear()}`;
 }
 
+// "Nov 7 – 13", "Oct 31 – Nov 6": the week, short enough for a phone.
+export function shortWeekLabel(mondayStr) {
+  const m = parseDate(mondayStr);
+  const sun = addDays(m, 6);
+  const mon = d => d.toLocaleDateString('en-US', { month: 'short' });
+  return `${mon(m)} ${m.getDate()} – ${mon(sun) === mon(m) ? '' : `${mon(sun)} `}${sun.getDate()}`;
+}
+
 export function shiftWeekStr(mondayStr, weeks) { return fmtDate(addDays(parseDate(mondayStr), weeks * 7)); }
 
 export function fmtDisplayDate(s) {
@@ -236,9 +244,14 @@ export function buildMonthGrid(monthStartStr) {
 
 // Days/months/years since a timestamp, e.g. "1y 2m 5d"
 // The date someone joined PaceLedger, e.g. 08/26/2026.
+// "Jun 19" this year, "Jun 19, 2025" before (the same style as dates
+// everywhere else in the app).
 export function joinedDate(createdAt) {
   if (!createdAt) return '—';
-  return new Date(createdAt).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' });
+  const d = new Date(createdAt);
+  if (Number.isNaN(d.getTime())) return '—';
+  const thisYear = d.getFullYear() === new Date().getFullYear();
+  return d.toLocaleDateString('en-US', thisYear ? { month: 'short', day: 'numeric' } : { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
 export function daysAgoLabel(dateStr) {
