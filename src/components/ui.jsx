@@ -2,7 +2,6 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CalendarDays, ChevronLeft, ChevronRight, DollarSign, Info, Loader2, MoreHorizontal, RefreshCw, UserPlus } from 'lucide-react';
-import { CSS } from '../styles.js';
 import { invalidateAppointments } from '../data/apptCache.js';
 import { joinedDate, shortWeekLabel, todayStr, weekLabel, weekStartOf } from '../lib/dates.js';
 import { isRecruitType, isSaleType, STATUS_OPTIONS } from '../data/appointments.js';
@@ -22,7 +21,6 @@ export function MemberSubline({ member }) {
 export function Shell({ children }) {
   return (
     <div className="tr-root">
-      <style>{CSS}</style>
       {children}
     </div>
   );

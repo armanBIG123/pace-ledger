@@ -24,7 +24,7 @@ export async function bundleUnit(file) {
   const outfile = path.join(OUT, 'unit', path.basename(file).replace(/\.mjs$/, '.bundle.mjs'));
   await build({
     entryPoints: [file], bundle: true, outfile, format: 'esm', platform: 'node', logLevel: 'error', jsx: 'automatic',
-    loader: { '.js': 'jsx' },
+    loader: { '.js': 'jsx', '.css': 'empty' },
     banner: { js: 'globalThis.window = globalThis; globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} }; globalThis.document = { addEventListener() {}, visibilityState: "visible" }; globalThis.addEventListener = () => {};' },
     alias: { '@supabase/supabase-js': path.join(MOCK, 'supabase.js'), ...(process.env.LUCIDE_MOCK ? { 'lucide-react': process.env.LUCIDE_MOCK } : {}) },
     plugins: [capacitor],

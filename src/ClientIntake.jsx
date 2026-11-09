@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { ShieldCheck, CheckCircle2, Copy, Trash2, ChevronDown, ChevronUp, ArrowRight, Plus, X } from 'lucide-react';
 import { shareOrCopy, isNativeApp } from './native.js';
 import { intakeStatusText, intakeStatusTone } from './lib/intakeStatus.js';
-import { CSS } from './styles.js';
 import {
   buildIntakeLink,
   fetchClientIntakeByToken, saveClientIntakeProgress, submitClientIntakeFinal,
@@ -395,7 +394,6 @@ function IntakeStepGoals({ data, setData }) {
 function PublicShell({ children }) {
   return (
     <div className="tr-root">
-      <style>{CSS}</style>
       <div className="tr-intake-page"><div className="tr-intake-narrow">{children}</div></div>
     </div>
   );

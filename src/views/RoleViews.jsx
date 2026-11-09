@@ -1,5 +1,6 @@
 // The three app layouts: advisor, manager/leader and super admin.
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useRef, useState } from 'react';
+import { CHAT_ROOMS, pathFor, routeFor } from '../lib/routes.js';
 import { GroupSwitch, Shell } from '../components/ui.jsx';
 import { Header } from '../components/Header.jsx';
 import { ADMIN_TEAM_TABS, MY_WORK_TABS, SUPER_MANAGER_TEAM_TABS, TabNav, TEAM_TABS, useAndroidBackButton } from '../components/navigation.jsx';
@@ -63,19 +64,29 @@ const OUTCOME_INTENTS = new Set(['nolog', 'presented', 'reschedule']);
 // go(tab, intent), which lets one place send you to a specific spot in
 // another (e.g. Today's "3 appointments with no outcome logged" opens
 // Follow Up on that filter, or search opens a prospect in Prospecting).
-function useViewNav() {
-  const [group, setGroup] = useState('mine'); // 'mine' | 'team'
-  const [tab, setTab] = useState('overview');
+// allows(tab): which screens this layout has (the address can't open others).
+function useViewNav(allows = () => true) {
+  // The screen in the address (/team/pace…) opens first; anything else, Today.
+  // Older email links (…/?chat=urgent) open that chat room.
+  const [start] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    const room = new URLSearchParams(window.location.search).get('chat');
+    if (room) return { group: 'mine', tab: 'chat', room: CHAT_ROOMS.includes(room) ? room : null };
+    const r = routeFor(window.location.pathname);
+    return r && (r.tab === 'chat' || allows(r.tab)) ? r : null;
+  });
+  const [group, setGroup] = useState(start && start.group ? start.group : 'mine'); // 'mine' | 'team'
+  const [tab, setTab] = useState(start ? start.tab : 'overview');
   const [prefillData, setPrefillData] = useState(null);
-  const [navIntent, setNavIntent] = useState(null);
+  const [navIntent, setNavIntent] = useState(start && start.tab === 'chat' && start.room ? { tab: 'chat', intent: start.room } : null);
   // Where you were when you opened "Log appointment" from another screen,
   // so Cancel can take you back there.
   const [cameFrom, setCameFrom] = useState(null);
   // What's open on Clients (a list, and the profile you came from) and in
   // Growth. client: { key, name } or null.
-  const [stage, setStage] = useState('clients');
+  const [stage, setStage] = useState(start && start.stage ? start.stage : 'clients');
   const [client, setClient] = useState(null);
-  const [growthView, setGrowthView] = useState('path');
+  const [growthView, setGrowthView] = useState(start && start.growthView ? start.growthView : 'path');
   const here = { group, tab, stage, client, growthView };
   const onBooked = () => tab === 'pipeline' && stage === 'booked';
   const opensForm = (t, intent) => t === 'mine' && (intent === 'new' || (intent && typeof intent === 'object' && 'prefill' in intent));
@@ -133,18 +144,46 @@ function useViewNav() {
     window.addEventListener('paceledger:edit-presenting-hours', hours);
     return () => window.removeEventListener('paceledger:edit-presenting-hours', hours);
   });
-  // A link from an email (…/?chat=urgent) opens that chat.
+  // A link from an email (…/?chat=urgent) opened that chat above; tidy the address.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const chat = params.get('chat');
-    if (!chat) return;
+    if (!params.has('chat')) return;
     params.delete('chat');
     const rest = params.toString();
     window.history.replaceState(null, '', `${window.location.pathname}${rest ? `?${rest}` : ''}${window.location.hash}`);
-    go('chat', ['general', 'work', 'urgent', 'reports'].includes(chat) ? chat : null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   function pickStage(k) { setCameFrom(null); setNavIntent(null); setStage(k); window.scrollTo(0, 0); }
+
+  // ---- The address follows the screen; Back and Forward move between screens.
+  const synced = useRef(false);
+  const fromHistory = useRef(false);
+  useEffect(() => {
+    const p = pathFor({ group, tab, stage, growthView });
+    if (!p) return;
+    if (window.location.pathname === p) { synced.current = true; fromHistory.current = false; return; }
+    if (!synced.current || fromHistory.current) {
+      // First load, or Back to an address this layout doesn't have: fix the address in place.
+      window.history.replaceState(null, '', `${p}${window.location.search}${window.location.hash}`);
+      synced.current = true; fromHistory.current = false;
+      return;
+    }
+    window.history.pushState(null, '', p);
+  }, [group, tab, stage, growthView]);
+  useEffect(() => {
+    const onPop = () => {
+      const r = routeFor(window.location.pathname);
+      fromHistory.current = true;
+      setCameFrom(null); setClient(null);
+      if (r && r.tab === 'chat') { setNavIntent(r.room ? { tab: 'chat', intent: r.room } : null); setTab('chat'); return; }
+      if (!r || !allows(r.tab)) { setGroup('mine'); setTab('overview'); return; }
+      setGroup(r.group); setTab(r.tab);
+      setStage(r.stage || 'clients');
+      setGrowthView(r.growthView || 'path');
+      setNavIntent(null);
+    };
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  });
   return { group, tab, setTab: pickTab, stage, setStage: pickStage, client, setClient, growthView, setGrowthView, prefillData, setPrefillData, go, intentFor, clearIntent, selectGroup, logAppointment, cameFrom, goBack };
 }
 
@@ -181,9 +220,11 @@ function TeamScreens({ user, nav }) {
   );
 }
 
+const MY_WORK_SET = new Set([...MY_WORK_TABS.map(t => t.id), 'chat']);
+
 export function AdvisorView({ user }) {
   useAppointmentReminders(user);
-  const nav = useViewNav();
+  const nav = useViewNav(t => MY_WORK_SET.has(t));
   const { tab, setTab, go } = nav;
   useAndroidBackButton(tab, () => setTab('overview'));
   const { openNew, newEl } = useNewMenu(user, go);
@@ -209,7 +250,7 @@ export function AdvisorView({ user }) {
 
 export function ManagerView({ user }) {
   useAppointmentReminders(user);
-  const nav = useViewNav();
+  const nav = useViewNav(t => MY_WORK_SET.has(t) || TEAM_TABS.some(x => x.id === t));
   const { group, tab, setTab, go, selectGroup } = nav;
   useAndroidBackButton(group === 'mine' ? tab : `team:${tab}`, () => selectGroup('mine'));
   const { openNew, newEl } = useNewMenu(user, go);
@@ -238,7 +279,7 @@ export function ManagerView({ user }) {
 
 export function AdminView({ user }) {
   useAppointmentReminders(user);
-  const nav = useViewNav();
+  const nav = useViewNav(t => MY_WORK_SET.has(t) || (isGalaxyAdmin(user) ? ADMIN_TEAM_TABS : SUPER_MANAGER_TEAM_TABS).some(x => x.id === t));
   const { group, tab, setTab, go, selectGroup } = nav;
   useAndroidBackButton(group === 'mine' ? tab : `team:${tab}`, () => selectGroup('mine'));
   const { openNew, newEl } = useNewMenu(user, go);

@@ -1,9 +1,13 @@
-// ---------------------------------------------------------------------
-// styles — single global stylesheet, injected via <style>{CSS}</style>
-// in App.jsx's root Shell component.
-// ---------------------------------------------------------------------
-export const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,600;6..72,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap');
+/* PaceLedger styles: one stylesheet for the whole app (design tokens at the top). */
+/* Fonts are served with the app (no Google Fonts request): Newsreader for
+   headings (one variable file: weights 400-700, optical sizes), IBM Plex Sans
+   and Mono for text. Latin letters and common punctuation; both under the
+   SIL Open Font License (src/assets/fonts/OFL-*.txt). */
+@font-face { font-family: 'Newsreader'; src: url('../assets/fonts/Newsreader-Latin.woff') format('woff'); font-weight: 400 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'IBM Plex Sans'; src: url('../assets/fonts/IBMPlexSans-Regular-Latin1.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'IBM Plex Sans'; src: url('../assets/fonts/IBMPlexSans-Medium-Latin1.woff2') format('woff2'); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: 'IBM Plex Sans'; src: url('../assets/fonts/IBMPlexSans-SemiBold-Latin1.woff2') format('woff2'); font-weight: 600 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'IBM Plex Mono'; src: url('../assets/fonts/IBMPlexMono-Medium-Latin1.woff2') format('woff2'); font-weight: 400 600; font-style: normal; font-display: swap; }
 
 .tr-root {
   /* Ledger design system v2 — navy frame, brass for the one thing that
@@ -3428,4 +3432,3 @@ a.tr-intake-way, a.tr-intake-way:visited { color: var(--ink); }
   /* Names and links inside text: a taller tap area without moving the text. */
   .tr-appt-client-btn, .tr-appt-links a, .tr-rowname-btn, .tr-solar-name-btn, .tr-account-links a, .tr-pf-dl dd a, .tr-note-item a.tr-link { padding-top: 8px; padding-bottom: 8px; margin-top: -8px; margin-bottom: -8px; }
 }
-`;

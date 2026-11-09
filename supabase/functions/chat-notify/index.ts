@@ -171,7 +171,7 @@ Deno.serve(async (req: Request) => {
       const names = recipients.map(p => p.display_name);
       const posterEmail = await emailOf(poster);
       const name = poster.display_name || 'Someone on your team';
-      const link = `${APP_URL}/?chat=urgent`;
+      const link = `${APP_URL}/chat/urgent`;
       const subject = `Urgent help: ${name} needs a hand`;
       const facts: [string, string][] = [['From', `${name}${posterEmail ? `, ${posterEmail}` : ''}`], ['Posted', when(msg.created_at)]];
       const note = chain.length
@@ -216,7 +216,7 @@ Deno.serve(async (req: Request) => {
         ['Reported by', reporter[0]?.display_name || 'Someone'],
         ['Reason', report.reason || 'No reason given'],
       ];
-      const link = `${APP_URL}/?chat=reports`;
+      const link = `${APP_URL}/chat/reports`;
       const note = 'Open Chat -> Reports to remove the message or keep it. Please look at it within 24 hours.';
       const html = page('A Chat message was reported', `Reported message from ${authorName}`, report.message_body, facts, note, link, 'Review in PaceLedger');
       const text = ['A Chat message was reported in PaceLedger:', '', report.message_body, '', ...facts.map(([k, v]) => `${k}: ${v}`), '', note, link].join('\n');

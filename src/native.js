@@ -34,9 +34,10 @@ export async function canPickPhotos() {
 }
 
 // Base for shareable links: the real site when running in the app,
-// otherwise wherever this page is being served from.
+// otherwise this site's root (not the screen you're on: screens have their
+// own addresses, like /team/pace).
 export function publicBaseUrl() {
-  return isNativeApp() ? `${PUBLIC_SITE_URL}/` : `${window.location.origin}${window.location.pathname}`;
+  return isNativeApp() ? `${PUBLIC_SITE_URL}/` : `${window.location.origin}/`;
 }
 
 // Opens a page in an in-app Safari sheet (sign-in pages for Google and

@@ -150,7 +150,9 @@ await go('d08-team-pace', DANA, [T, 'Team Pace'], { title: 'Team Pace', check: a
 await go('d09-team-prospecting', DANA, [T, 'Team Prospecting'], { title: 'Team Prospecting' });
 await go('d10-track-production', DANA, [T, 'Track Production'], { title: 'Track Production' });
 await go('d11-org-chart', DANA, [T, 'Org Chart'], { title: 'Org Chart' });
-await go('d12-manage-team', MORGAN, [T, p => p.getByRole('button', { name: /More/ }).first().click(), 'Manage Team'], { title: 'Manage Team' });
+// Manage Team is in the tab strip when it fits, otherwise under More.
+const openManage = async p => { if (!(await p.locator('button:visible', { hasText: 'Manage Team' }).count())) await p.getByRole('button', { name: /More/ }).first().click(); };
+await go('d12-manage-team', MORGAN, [T, openManage, 'Manage Team'], { title: 'Manage Team' });
 await go('d13-profiles', MORGAN, [T, 'Profiles'], { title: 'Profiles' });
 // Phone
 await go('p01-today', JORDAN, [], { size: PH });
