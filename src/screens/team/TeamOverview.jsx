@@ -1,7 +1,7 @@
 // Team Overview: a leader's first screen. Four numbers, today's checklist
 // (picked fresh each day), everything that needs attention this week, wins
 // to recognize, and a small view of your galaxy.
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Award, BadgeCheck, CalendarX, DollarSign, GraduationCap, Network, PartyPopper, Rocket, TrendingUp, UserPlus, Users } from 'lucide-react';
 import { examWhen, fetchLicensingForUsers, leaderStepText, licensingStatus } from '../../licensing.js';
 import { buildChildrenMap, computeReadiness, downlineIds } from '../../hierarchy.js';
@@ -13,7 +13,8 @@ import { creditRows } from '../../lib/credit.js';
 import { fetchAppointmentsForWeek } from '../../data/appointments.js';
 import { fetchHierarchyPeople, fetchRecentSoldAppointments, fetchTeamAppointmentsImOnToday, promotionSubjects } from '../../data/team.js';
 import { bodyScale, CelestialBody, CelestialDefs, makeStars, PaceRing, ringRadius } from '../../components/CelestialBody.jsx';
-import { PageHead, RefreshButton, SkelBlock } from '../../components/ui.jsx';
+import { PageHead, SkelBlock } from '../../components/ui.jsx';
+import { useLive } from '../../data/live.js';
 import { buildDailyChecklist, DailyChecklist } from './DailyChecklist.jsx';
 import { EmailButton } from '../../components/email.jsx';
 import { AnnouncementTeam } from '../../components/announcements.jsx';
@@ -213,12 +214,11 @@ function GalaxyPreview({ centre, orbit, pace, children, onOpen }) {
 }
 
 export function TeamOverviewBody({ user, onNavigate }) {
-  const [state, setState] = useState(null);
   const [showAll, setShowAll] = useState(false);
   const [showAllWins, setShowAllWins] = useState(false);
   const [showNeeds, setShowNeeds] = useState(false);
-  const load = useCallback(async () => {
-    const week = weekStartOf(todayStr());
+  const week = weekStartOf(todayStr());
+  const live = useLive(['team-overview', user.id, user.role, week], async () => {
     const [people, thisWeek, lastWeek, sold, fieldToday] = await Promise.all([
       fetchHierarchyPeople(), fetchAppointmentsForWeek(week), fetchAppointmentsForWeek(shiftWeekStr(week, -1)), fetchRecentSoldAppointments(),
       fetchTeamAppointmentsImOnToday(user.id),
@@ -230,9 +230,9 @@ export function TeamOverviewBody({ user, onNavigate }) {
     const [licensingRows, onboardingRows] = await Promise.all([fetchLicensingForUsers(others), fetchTeamOnboarding(recent)]);
     const overview = buildTeamOverview({ user, people, thisWeek, lastWeek, sold, progress, licensingRows, onboardingRows: onboardingRows || [] });
     overview.checklist = buildDailyChecklist({ user, signals: overview.signals, teamSize: overview.team.length, fieldToday });
-    setState(overview);
-  }, [user.id, user.role]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { load(); }, [load]);
+    return overview;
+  }, { topics: ['people', 'appointments', 'licensing'] });
+  const state = live.data || null;
 
   function act(a) {
     if (a.go === 'teampromo') onNavigate('teampromo');
@@ -243,9 +243,7 @@ export function TeamOverviewBody({ user, onNavigate }) {
   }
   const wk = weekStartOf(todayStr());
   const md = d => parseDate(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  const head = <PageHead title="Team Overview" sub={`Week of ${md(wk)} – ${md(fmtDate(addDays(parseDate(wk), 6)))}${state ? ` · ${state.team.length} ${state.team.length === 1 ? 'person' : 'people'} on your team` : ''}`}>
-    <RefreshButton onClick={() => { setState(null); load(); }} />
-  </PageHead>;
+  const head = <PageHead title="Team Overview" sub={`Week of ${md(wk)} – ${md(fmtDate(addDays(parseDate(wk), 6)))}${state ? ` · ${state.team.length} ${state.team.length === 1 ? 'person' : 'people'} on your team` : ''}`} />;
 
   if (!state) {
     return <div className="tr-tov">{head}<div className="tr-tov-tiles">{[0, 1, 2, 3].map(i => <SkelBlock key={i} w="100%" h="92px" />)}</div><SkelBlock w="100%" h="320px" /></div>;

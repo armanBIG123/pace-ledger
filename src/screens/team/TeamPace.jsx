@@ -1,5 +1,5 @@
 // Team Pace: weekly pace, promotion readiness and licensing for the team.
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Check, ChevronDown, ChevronUp, UserCog, Users } from 'lucide-react';
 import { daysBetween, examWhen, fetchLicensingForUsers, leaderStepText, licensingStatus } from '../../licensing.js';
 import { fetchTeamOnboarding, ONBOARDING_DAYS, onboardingDay, onboardingStepTitle, onboardingStepWeek } from '../../onboarding.js';
@@ -9,7 +9,7 @@ import { addDays, apptStartMsSafe, fmtApptDateTime, fmtDate, fmtShortDate, parse
 import { fetchAppointmentsForWeek, isPastAppointment, isRecruitType, isSaleType } from '../../data/appointments.js';
 import { addCoachingNote, approvePromotion, fetchCoachingNotes, fetchDirectManagers, fetchHierarchyPeople, fetchTeamMembers, loadPromotionReadiness, logAuditEvent } from '../../data/team.js';
 import { AGENCY_EMAIL, approvePromotionRequest, fetchPromotionRequests, resendPromotionEmail, sendBackPromotion, submitErrorText, submitPromotion } from '../../data/promotions.js';
-import { MemberSubline, MiniBar, RefreshButton, SkelBlock, SkeletonTable, StatusBadge, StatusChip, TitleInfo, TypeBadge, TypeFilter, WeekNav } from '../../components/ui.jsx';
+import { MemberSubline, MiniBar, SkelBlock, SkeletonTable, StatusBadge, StatusChip, TitleInfo, TypeBadge, TypeFilter, WeekNav } from '../../components/ui.jsx';
 import { RequirementRow } from '../Milestones.jsx';
 import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../../components/appointmentPanel.jsx';
 import { RecruitsSubView } from './Recruits.jsx';
@@ -17,6 +17,11 @@ import { FieldTrainingSubView } from './FieldTraining.jsx';
 import { isAdmin as isAdminRole } from '../../lib/roles.js';
 import { askConfirm, askText } from '../../components/confirm.jsx';
 import { FoldedPeople, NoMatches, PeopleToolbar, personMatches, SortHeader, useHideEmpty, usePeopleRows, usePeopleSearch, useSort } from '../../components/peopleList.jsx';
+import { idsKey, useLive } from '../../data/live.js';
+
+// Stand-ins while nothing has loaded (the same ones each time, so lists don't look new).
+const NONE = [];
+const NO_MAP = new Map();
 
 // Sorting Team Pace's list. Status: behind first, then on the way, then on pace.
 const STATUS_RANK = { missed: 0, progress: 1, met: 2 };
@@ -199,8 +204,6 @@ export function TeamWeekDetail({ groups, counts, filter, personId, nameOf }) {
 }
 
 export function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, emptyMessage, memberLabel }) {
-  const [weekAppts, setWeekAppts] = useState([]);
-  const [loadingAppts, setLoadingAppts] = useState(true);
   const [weekMonday, setWeekMonday] = useState(weekStartOf(todayStr()));
   const [expanded, setExpanded] = useState(null);
   const [typeFilter, setTypeFilter] = useState('all');
@@ -214,20 +217,15 @@ export function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, 
     return list;
   }
 
-  const refreshAppts = useCallback(async () => {
-    setLoadingAppts(true);
-    setWeekAppts(await fetchAppointmentsForWeek(weekMonday));
-    setLoadingAppts(false);
-  }, [weekMonday]);
-
-  useEffect(() => { refreshAppts(); }, [refreshAppts]);
+  const appts = useLive(['team-week', user.id, weekMonday], () => fetchAppointmentsForWeek(weekMonday), { topics: ['appointments'] });
+  const weekAppts = appts.data || NONE;
   // An appointment opened from here was changed.
   useAppointmentEdits(change => {
-    if (change.reload) refreshAppts();
-    else setWeekAppts(prev => applyAppointmentEdit(prev, change));
+    if (change.reload) appts.reload();
+    else appts.set(prev => applyAppointmentEdit(prev || [], change));
   });
 
-  const loading = loadingMembers || loadingAppts;
+  const loading = loadingMembers || appts.loading;
 
   // Same classification already used per-row below, just tallied up front
   // so managers get the answer without reading every row themselves.
@@ -262,7 +260,6 @@ export function TeamPaceSubView({ user, members, loadingMembers, heading, Icon, 
     <>
       <div className="tr-row-head tr-screen-head">
         <h2 className="tr-h2">{heading}</h2>
-        <RefreshButton onClick={refreshAppts} />
       </div>
       <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />
       {!loadingMembers && members.length > 0 ? (
@@ -378,12 +375,6 @@ function PromotionStatusLine({ req, canResend, busy, onResend }) {
 }
 
 export function TeamPromotionSubView({ user, members, loadingMembers, memberLabel, emptyMessage }) {
-  const [loading, setLoading] = useState(true);
-  const [progressList, setProgressList] = useState([]);
-  const [requests, setRequests] = useState(() => new Map());
-  // True until migration-promotion-requests.sql has been run: promoting
-  // then works the old way (one step, no submission or email).
-  const [noSubmissions, setNoSubmissions] = useState(false);
   const [expanded, setExpanded] = useState(null);
   const [busyId, setBusyId] = useState(null);
   const [notice, setNotice] = useState(null);
@@ -393,23 +384,23 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
   // Where promotion submissions are emailed.
   const emailedTo = !user.solarSystemName || /^Big Insurance Network$/.test(user.solarSystemName) ? `the agency (${AGENCY_EMAIL})` : `${user.solarSystemName}'s Super Managers`;
 
-  const refresh = useCallback(async () => {
-    if (members.length === 0) { setProgressList([]); setLoading(false); return; }
-    setLoading(true);
+  const promo = useLive(['team-promotion', user.id, idsKey(members)], async () => {
+    if (members.length === 0) return { list: [], byUser: new Map(), missingTable: false };
     const ids = members.map(m => m.id);
     const [{ list }, reqs] = await Promise.all([loadPromotionReadiness(user, ids), fetchPromotionRequests(ids)]);
     // Ready first, then closest to ready.
     list.sort((a, b) => (b.progress.allMet - a.progress.allMet)
       || (b.progress.results.filter(r => r.met).length / b.progress.results.length) - (a.progress.results.filter(r => r.met).length / a.progress.results.length)
       || (a.member.display_name || '').localeCompare(b.member.display_name || ''));
-    setProgressList(list);
-    setRequests(reqs.byUser);
-    setNoSubmissions(!!reqs.missingTable);
-    setLoading(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [members]);
-
-  useEffect(() => { refresh(); }, [refresh]);
+    return { list, byUser: reqs.byUser, missingTable: !!reqs.missingTable };
+  }, { topics: ['people', 'appointments', 'promotions'], enabled: !loadingMembers });
+  const progressList = promo.data ? promo.data.list : NONE;
+  const requests = promo.data ? promo.data.byUser : NO_MAP;
+  // True until migration-promotion-requests.sql has been run: promoting
+  // then works the old way (one step, no submission or email).
+  const noSubmissions = !!(promo.data && promo.data.missingTable);
+  const loading = loadingMembers || promo.loading;
+  const refresh = promo.reload;
 
   // Their latest submission for the level they're working toward.
   const latestFor = (member, progress) => {
@@ -514,7 +505,6 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
               : ' When someone is ready, their direct manager submits it for approval and the agency is emailed. A super admin approves it.')}
           {' '}Tap a name to see each requirement.
         </>} />
-        <RefreshButton onClick={refresh} />
       </div>
       {notice && <div className={notice.kind === 'ok' ? 'tr-flash' : 'tr-error'} style={{ marginBottom: 12 }}>{notice.text}</div>}
       {isLoading ? <SkeletonTable rows={5} cols={4} /> : members.length === 0 ? (
@@ -602,25 +592,22 @@ export function TeamPromotionSubView({ user, members, loadingMembers, memberLabe
 export const LICENSING_STUCK_DAYS = 10;
 
 export function TeamLicensingSubView({ members, loadingMembers, memberLabel, emptyMessage }) {
-  const [rows, setRows] = useState(null);
   const [q] = usePeopleSearch();
-  const refresh = useCallback(async () => {
-    if (!members.length) { setRows([]); return; }
-    setRows(null);
+  const lic = useLive(['team-licensing', idsKey(members)], async () => {
+    if (!members.length) return [];
     const ids = members.map(m => m.id);
     const [people, prog] = await Promise.all([fetchHierarchyPeople(), fetchLicensingForUsers(ids)]);
     const byId = new Map(people.map(p => [p.id, p]));
-    setRows(members.map(m => {
+    return members.map(m => {
       const person = byId.get(m.id) || m;
       const pr = prog.get(m.id) || null;
       const st = licensingStatus(pr, person);
       const lastMove = pr && pr.updated_at ? pr.updated_at : person.created_at;
       const idle = lastMove ? daysBetween(lastMove, new Date()) : 0;
       return { member: m, person, pr, st, idle, stuck: !st.licensed && idle >= LICENSING_STUCK_DAYS };
-    }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [members]);
-  useEffect(() => { refresh(); }, [refresh]);
+    });
+  }, { topics: ['people', 'licensing'], enabled: !loadingMembers });
+  const rows = lic.data || null;
 
   if (loadingMembers || rows === null) return <SkeletonTable rows={5} cols={5} />;
   if (members.length === 0) return <div className="tr-card"><p className="tr-empty">{emptyMessage}</p></div>;
@@ -638,7 +625,6 @@ export function TeamLicensingSubView({ members, loadingMembers, memberLabel, emp
     <>
       <div className="tr-row-head tr-screen-head">
         <TitleInfo title="Licensing" info={`Where everyone on your team is on the path to licensed. "Stuck" means no progress in ${LICENSING_STUCK_DAYS}+ days, so it's a good time to check in.`} />
-        <RefreshButton onClick={refresh} />
       </div>
       <div className="tr-org-stats">
         <span><strong>{open.length}</strong> not licensed yet</span>
@@ -698,18 +684,11 @@ const PACE_VIEWS = [
   { key: 'promotion', label: 'Promotion' },
 ];
 
-export function PeoplePaceBody({ user, fetchMembers, heading, Icon, emptyMessage, memberLabel, initialView }) {
+export function PeoplePaceBody({ user, scope = 'all', fetchMembers, heading, Icon, emptyMessage, memberLabel, initialView }) {
   const [view, setView] = useState(PACE_VIEWS.some(v => v.key === initialView) ? initialView : 'pace');
-  const [members, setMembers] = useState([]);
-  const [loadingMembers, setLoadingMembers] = useState(true);
-
-  const refreshMembers = useCallback(async () => {
-    setLoadingMembers(true);
-    setMembers(await fetchMembers(user));
-    setLoadingMembers(false);
-  }, [user.id, user.role]);
-
-  useEffect(() => { refreshMembers(); }, [refreshMembers]);
+  const team = useLive(['team-members', scope, user.id, user.role], () => fetchMembers(user), { topics: ['people'] });
+  const members = team.data || NONE;
+  const loadingMembers = team.loading;
 
   return (
     <div className="tr-flat"><div className="tr-appts-shell">
@@ -765,7 +744,7 @@ export function TeamPaceBody({ user, initialView, onIntentConsumed }) {
         </div>
       )}
       <PeoplePaceBody
-        key={scope} user={user} fetchMembers={fetchMembers} heading={heading} Icon={Icon} memberLabel={memberLabel} initialView={initialView}
+        key={scope} user={user} scope={scope} fetchMembers={fetchMembers} heading={heading} Icon={Icon} memberLabel={memberLabel} initialView={initialView}
         emptyMessage={emptyMessage} />
     </>
   );

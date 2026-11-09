@@ -8,7 +8,8 @@ import { fetchAppointmentsInRange, isRecruitType, isSaleType, typeLabel } from '
 import { createTraining, deleteTraining, deleteTrainingSeries, fetchTrainingsInRange, updateTraining, updateTrainingSeries } from '../data/trainings.js';
 import { fetchTeamMembers, seesTeam } from '../data/team.js';
 import { fetchGoogleConnectionStatus, fetchGoogleEvents, googleEventTimeKey } from '../data/integrations.js';
-import { Modal, MoreMenu, openPicker, PageHead, PillChoice, RefreshButton, SkeletonCalendar, useIsPhone } from '../components/ui.jsx';
+import { Modal, MoreMenu, openPicker, PageHead, PillChoice, SkeletonCalendar, useIsPhone } from '../components/ui.jsx';
+import { useLive } from '../data/live.js';
 import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../components/appointmentPanel.jsx';
 import { isAdmin } from '../lib/roles.js';
 import { askChoice, askConfirm, undoable } from '../components/confirm.jsx';
@@ -340,14 +341,13 @@ function CalendarItemInfo({ item, user, onClose, onDelete, onEdit }) {
   );
 }
 
+const EMPTY_MONTH = { appts: [], google: { connected: false }, events: [], trainings: [], blocks: [], members: [] };
+
 export function CalendarBody({ user, onLogAppointment, intent = null, onIntentConsumed }) {
   const isPhone = useIsPhone();
   const [monthStartStr, setMonthStartStr] = useState(monthStartOf(todayStr()));
   // The month grid gets cramped on a phone, so phones start on the list.
   const [calView, setCalView] = useState(() => (typeof window !== 'undefined' && window.innerWidth < 640 ? 'agenda' : 'month'));
-  const [appts, setAppts] = useState([]);
-  const [members, setMembers] = useState([]);
-  const [loading, setLoading] = useState(true);
   // The day window: { date }. What's in it comes from the lists below, so a
   // delete or an edit shows right away.
   const [dayModal, setDayModal] = useState(null);
@@ -357,11 +357,7 @@ export function CalendarBody({ user, onLogAppointment, intent = null, onIntentCo
   const [posting, setPosting] = useState(null);
   // A training being changed (super admins and Super Managers).
   const [editingTraining, setEditingTraining] = useState(null);
-  const [googleStatus, setGoogleStatus] = useState({ connected: false });
-  const [googleEvents, setGoogleEvents] = useState([]);
   const [googleConnecting, setGoogleConnecting] = useState(false);
-  const [trainings, setTrainings] = useState([]);
-  const [scheduleBlocks, setScheduleBlocks] = useState([]);
   const [highlightTrainings, setHighlightTrainings] = useState(false);
   // Presenting hours (leaders): whether you've set any, for the nudge, and
   // the line shown once you save them.
@@ -398,47 +394,37 @@ export function CalendarBody({ user, onLogAppointment, intent = null, onIntentCo
   const rangeStart = cells[0].date;
   const rangeEnd = cells[cells.length - 1].date;
 
-  // quiet: no loading placeholder (after an appointment was changed).
-  const load = useCallback(async quiet => {
-    if (!quiet) setLoading(true);
+  // Everything on the month, kept fresh by the shared data layer: it also
+  // reloads after an appointment is saved anywhere, and when Google or Zoom
+  // is connected or disconnected.
+  const live = useLive(['calendar', user.id, user.role, !!user.isLeader, rangeStart, rangeEnd], async () => {
     // One extra day each side: appointments are placed by your local date,
     // which can differ by a day from the stored date across timezones.
     const tasks = [fetchAppointmentsInRange(fmtDate(addDays(parseDate(rangeStart), -1)), fmtDate(addDays(parseDate(rangeEnd), 1))), fetchGoogleConnectionStatus(), fetchTrainingsInRange(rangeStart, rangeEnd), fetchScheduleBlocksInRange(rangeStart, rangeEnd)];
     if (seesTeam(user)) tasks.push(fetchTeamMembers(user));
-    const [apptList, status, trainingList, blockList, memberList] = await Promise.all(tasks);
-    setAppts(apptList);
-    setGoogleStatus(status);
-    setTrainings(trainingList);
-    setScheduleBlocks(blockList);
-    if (memberList) setMembers(memberList);
+    const [appts, status, trainings, blocks, members] = await Promise.all(tasks);
+    let google = status;
+    let events = [];
     if (status.connected) {
       const g = await fetchGoogleEvents(rangeStart, rangeEnd);
-      setGoogleEvents(g.events || []);
-      if (g.connected === false) setGoogleStatus({ connected: false }); // token was revoked server-side
-    } else {
-      setGoogleEvents([]);
+      events = g.events || [];
+      if (g.connected === false) google = { connected: false }; // token was revoked server-side
     }
-    setLoading(false);
-  }, [rangeStart, rangeEnd, user.id, user.role, user.isLeader]);
-  const refresh = useCallback(() => load(false), [load]);
-
-  useEffect(() => { refresh(); }, [refresh]);
+    return { appts, google, events, trainings, blocks, members: members || [] };
+  }, { topics: ['appointments', 'connections', 'trainings'] });
+  const { appts, google: googleStatus, events: googleEvents, trainings, blocks: scheduleBlocks, members } = live.data || EMPTY_MONTH;
+  const loading = live.loading;
+  const patch = field => fn => live.set(d => (d ? { ...d, [field]: typeof fn === 'function' ? fn(d[field]) : fn } : d));
+  const setAppts = patch('appts');
+  const setTrainings = patch('trainings');
+  const setScheduleBlocks = patch('blocks');
+  const refresh = live.reload;
   // An appointment opened from here was saved, moved or deleted.
   useAppointmentEdits(change => {
-    if (change.reload) load(true);
+    if (change.reload) live.reload();
     else setAppts(prev => applyAppointmentEdit(prev, change));
   });
   function openAppt(a) { setDayModal(null); openAppointment(a); }
-  // Re-check once a Google connection finishes in the background, or
-  // Google or Zoom is connected or disconnected in Calendar settings.
-  useEffect(() => {
-    window.addEventListener('paceledger:google-connected', refresh);
-    window.addEventListener('paceledger:connections-changed', refresh);
-    return () => {
-      window.removeEventListener('paceledger:google-connected', refresh);
-      window.removeEventListener('paceledger:connections-changed', refresh);
-    };
-  }, [refresh]);
 
   async function handleConnect() {
     if (!isNativeApp()) setGoogleConnecting(true);
@@ -589,12 +575,10 @@ export function CalendarBody({ user, onLogAppointment, intent = null, onIntentCo
           <MoreMenu label="More calendar options" items={[
             { label: 'Go to this month', onClick: () => setMonthStartStr(monthStartOf(todayStr())), disabled: monthStartStr === monthStartOf(todayStr()) },
             { label: highlightTrainings ? 'Stop highlighting trainings' : 'Highlight trainings', onClick: () => setHighlightTrainings(v => !v) },
-            { label: 'Refresh', onClick: refresh },
           ]} />
         </span>
         <div className="tr-cal-tools">
           <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setMonthStartStr(monthStartOf(todayStr()))} disabled={monthStartStr === monthStartOf(todayStr())}>This month</button>
-          <RefreshButton onClick={refresh} />
           <button
             type="button" className={`tr-btn tr-btn-sm ${highlightTrainings ? 'tr-btn-brass' : 'tr-btn-ghost'}`} aria-pressed={highlightTrainings}
             onClick={() => setHighlightTrainings(v => !v)} title="Highlight days with trainings">
@@ -777,7 +761,7 @@ export function CalendarBody({ user, onLogAppointment, intent = null, onIntentCo
       {editingTraining && isAdmin(user) ? (
         <Modal onClose={() => setEditingTraining(null)} labelledBy="tr-training-edit-title" className="tr-training-edit-modal">
           <TrainingPostCard user={user} editing={editingTraining} onClose={() => setEditingTraining(null)}
-            onSaved={message => { setEditingTraining(null); setPosting(null); setHoursNote(message); load(true); }} />
+            onSaved={message => { setEditingTraining(null); setPosting(null); setHoursNote(message); live.reload(); }} />
         </Modal>
       ) : null}
     </>

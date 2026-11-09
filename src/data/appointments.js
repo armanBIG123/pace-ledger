@@ -650,5 +650,12 @@ export function applyFollowUpToList(prev, id, data, followUpTimezone, newAppt) {
       splitPercent: data.officiallySold && data.split ? data.split.percent : null,
     } : {}),
   } : a);
-  return newAppt ? [...updated, newAppt] : updated;
+  // (The list may already have the new follow-up if it reloaded meanwhile.)
+  return newAppt ? [...updated.filter(a => a.id !== newAppt.id), newAppt] : updated;
+}
+
+// The list with this appointment added, or updated if it's already there
+// (a list that reloaded behind the scenes may have it already).
+export function upsertAppointment(list, record) {
+  return list.some(a => a.id === record.id) ? list.map(a => (a.id === record.id ? { ...a, ...record } : a)) : [...list, record];
 }

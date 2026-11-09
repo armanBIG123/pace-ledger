@@ -1,9 +1,10 @@
 // Team Prospecting: everyone's prospect pipeline.
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useState } from 'react';
 
 import { fetchAllVisibleProspects, prospectLeaningKey, prospectTotalChecked } from '../../data/prospects.js';
 import { fetchTeamMembers } from '../../data/team.js';
-import { MemberSubline, RefreshButton, SkeletonTable, TitleInfo } from '../../components/ui.jsx';
+import { MemberSubline, SkeletonTable, TitleInfo } from '../../components/ui.jsx';
+import { useLive } from '../../data/live.js';
 import { ProspectCard, ProspectFunnel } from '../Prospecting.jsx';
 import { FoldedPeople, NoMatches, PeopleToolbar, SortHeader, useHideEmpty, usePeopleRows, useSort } from '../../components/peopleList.jsx';
 
@@ -15,6 +16,7 @@ const PROSPECTING_SORTS = {
   recruited: { label: 'Recruited', value: r => r.recruited, dir: 'desc' },
   sold: { label: 'Sold', value: r => r.sold, dir: 'desc' },
 };
+const NONE = [];
 const noProspects = r => r.list.length === 0;
 
 // ---------------------------------------------------------------------
@@ -25,25 +27,17 @@ const noProspects = r => r.list.length === 0;
 // aggregate counts only; individual prospect notes stay private
 // ---------------------------------------------------------------------
 export function TeamProspectingBody({ user }) {
-  const [members, setMembers] = useState([]);
-  const [prospects, setProspects] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(null);
   const sorter = useSort('prospecting', PROSPECTING_SORTS);
   const [hideEmpty, setHideEmpty] = useHideEmpty('prospecting');
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    const [memberList, prospectList] = await Promise.all([
-      fetchTeamMembers(user),
-      fetchAllVisibleProspects(),
-    ]);
-    setMembers(memberList);
-    setProspects(prospectList);
-    setLoading(false);
-  }, [user.id, user.role]);
-
-  useEffect(() => { refresh(); }, [refresh]);
+  const live = useLive(['team-prospecting', user.id, user.role], async () => {
+    const [members, prospects] = await Promise.all([fetchTeamMembers(user), fetchAllVisibleProspects()]);
+    return { members, prospects };
+  }, { topics: ['people', 'prospects'] });
+  const loading = live.loading;
+  const members = live.data ? live.data.members : NONE;
+  const prospects = live.data ? live.data.prospects : NONE;
 
   const rows = members.map(m => {
     const list = prospects.filter(p => p.userId === m.id);
@@ -63,7 +57,6 @@ export function TeamProspectingBody({ user }) {
     <>
       <div className="tr-row-head tr-screen-head">
         <TitleInfo title="Team Prospecting" info="Tap a row to see that person's actual prospect list, the same detail you'd see reviewing it with them directly." />
-        <RefreshButton onClick={refresh} />
       </div>
       {loading ? <SkeletonTable rows={5} cols={6} /> : members.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">No team members yet.</p></div>

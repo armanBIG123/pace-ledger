@@ -3,6 +3,7 @@
 // replaced Pipeline's five stage tabs; those lists are still a tap away
 // under "Other lists". Stages come from lib/clients.js.
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useLive } from '../data/live.js';
 import { CalendarPlus, Check, ChevronLeft, ChevronRight, GitMerge, ListChecks, NotebookPen, Pencil, Plus, Presentation, Search, UserPlus, X } from 'lucide-react';
 import { addPolicyNote, fetchAppointmentsImOn, fetchMyAppointments, fetchPolicyNotes, isRecruitType, isSaleType, linkAppointmentToProspect, logPresentedAppointment, persistFollowUp, updatePolicyFields } from '../data/appointments.js';
 import { ALL_CHARACTERISTICS, fetchMyProspects, insertProspect, prospectToAppointmentPrefill, updateProspect } from '../data/prospects.js';
@@ -144,7 +145,6 @@ function PolicyCard({ pol, c, user, nameOf, onChanged }) {
 // { open: key } (search), { search } or { add: true } (+ New → Add a
 // prospect). bar: the pipeline bar (Pipeline.jsx), under the heading.
 export function ClientsBody({ user, selected, onSelect, onLogAppointment, intent, onIntentConsumed, bar = null }) {
-  const [data, setData] = useState(null);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
   const [sort, setSort] = useState('next');
@@ -160,22 +160,24 @@ export function ClientsBody({ user, selected, onSelect, onLogAppointment, intent
   // A message about one person doesn't follow you to the next.
   useEffect(() => { setFlash(''); }, [selected]);
 
-  const load = useCallback(async () => {
+  // Everyone on your list with their appointments, notes and forms. The
+  // shared data layer reloads it after any appointment or intake change,
+  // and when you come back to the app.
+  const live = useLive(['clients', user.id], async () => {
     const [prospects, appointments, presenting, notes, intakes, signups, org] = await Promise.all([
       fetchMyProspects(user.id), fetchMyAppointments(user.id), fetchAppointmentsImOn(user.id).catch(() => []),
       fetchMyFollowUpNotes(user.id).catch(() => []), fetchMyIntakeStatus(user.id).catch(() => []),
       fetchRecruitSignups('2000-01-01', todayStr()).catch(() => ({ rows: [] })), fetchOrgDirectory().catch(() => []),
     ]);
-    setData({ prospects, appointments, presenting, notes, intakes, signups: (signups && signups.rows) || [], org });
-  }, [user.id]);
-  useEffect(() => { load(); }, [load]);
-  useEffect(() => {
-    const again = () => load();
-    window.addEventListener('paceledger:appointments-changed', again);
-    window.addEventListener('paceledger:intake-changed', again);
-    return () => { window.removeEventListener('paceledger:appointments-changed', again); window.removeEventListener('paceledger:intake-changed', again); };
-  }, [load]);
-  useAppointmentEdits(() => load());
+    return { prospects, appointments, presenting, notes, intakes, signups: (signups && signups.rows) || [], org };
+  }, { topics: ['appointments', 'intake', 'prospects'] });
+  const data = live.data || null;
+  const load = live.reload;
+  // Edits from the appointment window (an Undo-able delete is applied in place).
+  useAppointmentEdits(change => {
+    if (change.deletedId) live.set(d => (d ? { ...d, appointments: d.appointments.filter(a => a.id !== change.deletedId), presenting: d.presenting.filter(a => a.id !== change.deletedId) } : d));
+    else load();
+  });
   // Search (or anywhere else) asked for one person.
   useEffect(() => {
     if (!intent) return;

@@ -2,7 +2,7 @@
 // week the appointment took place (whenever it was booked), and recruits:
 // people who signed up through a recruit link that week, for the person they
 // joined under (see lib/recruitCounts.js).
-import { Fragment, useCallback, useEffect, useState } from 'react';
+import { Fragment, useState } from 'react';
 import { ChevronDown, ChevronUp, Download } from 'lucide-react';
 import { addDays, apptStartMs, fmtApptDateTime, fmtDate, parseDate, shiftWeekStr, todayStr, weekStartOf } from '../../lib/dates.js';
 import { signupsFor, tickboxRecruitCounts } from '../../lib/recruitCounts.js';
@@ -11,7 +11,8 @@ import { downloadCSV, fmtCurrency } from '../../lib/format.js';
 import { creditRows, splitLabel } from '../../lib/credit.js';
 import { fetchAppointmentsHeldInWeek, isPolicyIssued } from '../../data/appointments.js';
 import { fetchTeamMembers } from '../../data/team.js';
-import { RefreshButton, SkeletonTable, TitleInfo, WeekNav } from '../../components/ui.jsx';
+import { SkeletonTable, TitleInfo, WeekNav } from '../../components/ui.jsx';
+import { useLive } from '../../data/live.js';
 import { PendingIssueView } from './PendingIssue.jsx';
 import { FoldedPeople, NoMatches, PeopleToolbar, SortHeader, useHideEmpty, usePeopleRows, useSort } from '../../components/peopleList.jsx';
 import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../../components/appointmentPanel.jsx';
@@ -28,6 +29,8 @@ const PRODUCTION_SORTS = {
   premium: { label: 'Premium', value: r => r.t.premium, dir: 'desc' },
   recruits: { label: 'Recruits', value: r => r.t.recruits, dir: 'desc' },
 };
+const NONE = [];
+const NO_SIGNUPS = { since: null, rows: [] };
 const noProduction = r => !r.t.sold.length && !r.t.recruits;
 
 const signedUpWhen = iso => new Date(iso).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -75,35 +78,28 @@ function ProductionDetail({ sold, recruited, joined, premium, nameOf }) {
 }
 
 export function TrackProductionBody({ user }) {
-  const [members, setMembers] = useState([]);
-  const [weekAppts, setWeekAppts] = useState([]);
-  const [signups, setSignups] = useState({ since: null, rows: [] });
-  const [loading, setLoading] = useState(true);
   const [weekMonday, setWeekMonday] = useState(weekStartOf(todayStr()));
   const [expanded, setExpanded] = useState(null);
   const [view, setView] = useState('week'); // 'week' | 'pending'
-  const [pendingKey, setPendingKey] = useState(0);
   const sorter = useSort('production', PRODUCTION_SORTS);
   const [hideEmpty, setHideEmpty] = useHideEmpty('production');
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    const [memberList, appts, joined] = await Promise.all([
+  const live = useLive(['team-production', user.id, user.role, weekMonday], async () => {
+    const [members, appts, signups] = await Promise.all([
       fetchTeamMembers(user),
       fetchAppointmentsHeldInWeek(weekMonday),
       fetchRecruitSignups(weekMonday, fmtDate(addDays(parseDate(weekMonday), 6))),
     ]);
-    setMembers(memberList);
-    setWeekAppts(appts);
-    setSignups(joined);
-    setLoading(false);
-  }, [weekMonday, user.id, user.role]);
-
-  useEffect(() => { refresh(); }, [refresh]);
+    return { members, appts, signups };
+  }, { topics: ['appointments', 'people', 'recruits'] });
+  const loading = live.loading;
+  const members = live.data ? live.data.members : NONE;
+  const weekAppts = live.data ? live.data.appts : NONE;
+  const signups = live.data ? live.data.signups : NO_SIGNUPS;
   // An appointment opened from here was changed.
   useAppointmentEdits(change => {
-    if (change.reload) refresh();
-    else setWeekAppts(prev => applyAppointmentEdit(prev, change));
+    if (change.reload) live.reload();
+    else live.set(d => (d ? { ...d, appts: applyAppointmentEdit(d.appts, change) } : d));
   });
 
   const credited = creditRows(weekAppts);
@@ -143,12 +139,11 @@ export function TrackProductionBody({ user }) {
       <>
         <div className="tr-row-head tr-screen-head">
           <TitleInfo title="Track Production" info="Every policy someone on your team has submitted that isn't issued yet, oldest first. Open one to see its notes and add your own, or email the advisor to help get it issued." />
-          <RefreshButton onClick={() => { refresh(); setPendingKey(k => k + 1); }} />
         </div>
         {switcher}
         {loading ? <SkeletonTable rows={5} cols={3} /> : members.length === 0 ? (
           <div className="tr-card"><p className="tr-empty">No team members yet.</p></div>
-        ) : <PendingIssueView key={pendingKey} user={user} members={members} />}
+        ) : <PendingIssueView user={user} members={members} />}
       </>
     );
   }
@@ -159,7 +154,6 @@ export function TrackProductionBody({ user }) {
         <TitleInfo title="Track Production" info="Sales marked in each person's follow-up, counted in the week the appointment took place (Saturday to Friday). Recruits are people who signed up through a recruit link that week, counted for the person they joined under. Tap a name to see who they sold to and who joined." />
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="tr-btn tr-btn-ghost tr-btn-sm" onClick={handleExport} disabled={loading || members.length === 0}><Download size={14} /> Export CSV</button>
-          <RefreshButton onClick={refresh} />
         </div>
       </div>
       <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />

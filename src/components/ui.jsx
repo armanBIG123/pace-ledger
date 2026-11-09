@@ -1,8 +1,7 @@
 // Shared building blocks: page layout, headers, loading skeletons, modals, badges and small controls.
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { CalendarDays, ChevronLeft, ChevronRight, DollarSign, Info, Loader2, MoreHorizontal, RefreshCw, UserPlus } from 'lucide-react';
-import { invalidateAppointments } from '../data/apptCache.js';
+import { CalendarDays, ChevronLeft, ChevronRight, DollarSign, Info, Loader2, MoreHorizontal, UserPlus } from 'lucide-react';
 import { joinedDate, shortWeekLabel, todayStr, weekLabel, weekStartOf } from '../lib/dates.js';
 import { isRecruitType, isSaleType, STATUS_OPTIONS } from '../data/appointments.js';
 
@@ -92,15 +91,6 @@ export function TitleInfo({ title, info, as: Tag = 'h2', className = 'tr-h2', id
       <Tag className={className} id={id}>{title}</Tag>
       {info ? <InfoTip label={`About ${typeof title === 'string' ? title : 'this'}`}>{info}</InfoTip> : null}
     </div>
-  );
-}
-
-// Refresh always loads fresh (skips the shared copy of your appointments).
-export function RefreshButton({ onClick }) {
-  return (
-    <button type="button" className="tr-icon-btn tr-icon-btn-line" onClick={() => { invalidateAppointments(); onClick(); }} aria-label="Refresh" title="Refresh">
-      <RefreshCw size={15} aria-hidden="true" />
-    </button>
   );
 }
 

@@ -1,5 +1,5 @@
 // Org Chart: the tree and solar system views, with milestone cards.
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Award, ChevronDown, ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
 import { fetchLicensingForUsers, licensingStatus } from '../../licensing.js';
 import { buildChildrenMap, computeReadiness, downlineIds, HIERARCHY_TIERS, hierarchyTierLabel } from '../../hierarchy.js';
@@ -10,7 +10,8 @@ import { personInitials, shortName } from '../../lib/format.js';
 import { BodyIcon, bodyName, bodyScale, CelestialBody, CelestialDefs, makeStars, PaceRing, ringRadius } from '../../components/CelestialBody.jsx';
 import { fetchAppointmentsForWeek } from '../../data/appointments.js';
 import { fetchHierarchyPeople, fetchRecentSoldAppointments, promotionSubjects } from '../../data/team.js';
-import { RefreshButton, SkeletonTable, StatusBadge, TitleInfo, WeekNav } from '../../components/ui.jsx';
+import { SkeletonTable, StatusBadge, TitleInfo, WeekNav } from '../../components/ui.jsx';
+import { useLive } from '../../data/live.js';
 import { MilestoneCard } from './MilestoneCard.jsx';
 import { Avatar, useAvatars } from '../../components/avatar.jsx';
 import { isAdmin as isAdminRole, roleLabel } from '../../lib/roles.js';
@@ -270,14 +271,10 @@ export function SolarSystemView({ user, isAdmin, roots, byId, children, stats, r
   );
 }
 
+const EMPTY_ORG = { people: [], weekAppts: [], progressById: new Map(), readyIds: new Map(), licensing: new Map() };
+
 export function OrgChartBody({ user, onOpenPromotion, initialIntent, onIntentConsumed }) {
-  const [people, setPeople] = useState([]);
   const avatars = useAvatars();
-  const [weekAppts, setWeekAppts] = useState([]);
-  const [readyIds, setReadyIds] = useState(new Map());
-  const [progressById, setProgressById] = useState(new Map());
-  const [licensing, setLicensing] = useState(new Map());
-  const [loading, setLoading] = useState(true);
   const [weekMonday, setWeekMonday] = useState(weekStartOf(todayStr()));
   const [open, setOpen] = useState(null); // Set of expanded ids; null = default
   const [query, setQuery] = useState('');
@@ -300,20 +297,21 @@ export function OrgChartBody({ user, onOpenPromotion, initialIntent, onIntentCon
   }, [initialIntent]); // eslint-disable-line react-hooks/exhaustive-deps
   function pickMode(m) { setMode(m); try { localStorage.setItem('pl_org_view', m); } catch { /* ignore */ } }
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const live = useLive(['org-chart', user.id, user.role, tabSystemId, weekMonday], async () => {
     const [all, appts, sold] = await Promise.all([fetchHierarchyPeople(), fetchAppointmentsForWeek(weekMonday), fetchRecentSoldAppointments()]);
     const list = tabSystemId ? all.filter(p => p.solar_system_id === tabSystemId) : all;
-    setPeople(list);
-    setWeekAppts(appts);
     const progress = computeReadiness(list, sold, promotionSubjects(user, list));
-    setProgressById(new Map(progress.map(x => [x.member.id, x.progress])));
-    setReadyIds(new Map(progress.filter(x => x.progress && x.progress.allMet).map(x => [x.member.id, x.progress.nextTier])));
     const prog = await fetchLicensingForUsers(list.map(p => p.id));
-    setLicensing(new Map(list.map(p => [p.id, licensingStatus(prog.get(p.id), p)])));
-    setLoading(false);
-  }, [weekMonday, user.id, user.role, tabSystemId]);
-  useEffect(() => { load(); }, [load]);
+    return {
+      people: list,
+      weekAppts: appts,
+      progressById: new Map(progress.map(x => [x.member.id, x.progress])),
+      readyIds: new Map(progress.filter(x => x.progress && x.progress.allMet).map(x => [x.member.id, x.progress.nextTier])),
+      licensing: new Map(list.map(p => [p.id, licensingStatus(prog.get(p.id), p)])),
+    };
+  }, { topics: ['people', 'appointments', 'licensing'] });
+  const loading = live.loading;
+  const { people, weekAppts, progressById, readyIds, licensing } = live.data || EMPTY_ORG;
 
   const children = React.useMemo(() => {
     const m = buildChildrenMap(people);
@@ -473,7 +471,6 @@ export function OrgChartBody({ user, onOpenPromotion, initialIntent, onIntentCon
     <>
       <div className="tr-row-head tr-screen-head">
         <TitleInfo title="Org Chart" info="Who reports to whom, with each person's appointment pace for the week. Open a name to see their team." />
-        <RefreshButton onClick={load} />
       </div>
       <SystemTabs tabs={{ ...tabs, pick: pickSystem }} />
       <WeekNav weekMonday={weekMonday} onShift={d => setWeekMonday(shiftWeekStr(weekMonday, d))} onToday={() => setWeekMonday(weekStartOf(todayStr()))} />

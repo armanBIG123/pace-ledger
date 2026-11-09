@@ -1,38 +1,32 @@
 // Client Forms (super admins only): every advisor's client intake forms in
 // one place, newest first. Read only; the advisor who sent a form is the
 // only one who can remove it. Answers load when a form is opened.
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
 import { fetchAllIntakeForms, fetchIntakeAnswers } from '../../clientIntake.js';
 import { IntakeResponsesView } from '../../ClientIntake.jsx';
 import { fetchHierarchyPeople } from '../../data/team.js';
-import { RefreshButton, SkelBlock, SkeletonTable, TitleInfo } from '../../components/ui.jsx';
+import { SkelBlock, SkeletonTable, TitleInfo } from '../../components/ui.jsx';
+import { useLive } from '../../data/live.js';
 
 const fmtDay = iso => (iso ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '');
 const isDone = r => r.status === 'submitted';
 
+const NO_FORMS = { rows: [], failed: false, people: new Map() };
+
 export function ClientFormsBody() {
-  const [rows, setRows] = useState([]);
-  const [people, setPeople] = useState(() => new Map());
-  const [loading, setLoading] = useState(true);
-  const [failed, setFailed] = useState(false);
   const [status, setStatus] = useState('submitted'); // 'submitted' | 'pending'
   const [advisor, setAdvisor] = useState('');
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(null);
   const [answers, setAnswers] = useState({}); // form id -> answers | 'loading' | 'error'
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const live = useLive('client-forms', async () => {
     const [forms, ppl] = await Promise.all([fetchAllIntakeForms(), fetchHierarchyPeople()]);
-    setRows(forms.rows);
-    setFailed(!!forms.error);
-    setPeople(new Map(ppl.map(p => [p.id, p])));
-    setAnswers({});
-    setOpen(null);
-    setLoading(false);
-  }, []);
-  useEffect(() => { refresh(); }, [refresh]);
+    return { rows: forms.rows, failed: !!forms.error, people: new Map(ppl.map(p => [p.id, p])) };
+  }, { topics: ['intake', 'people'] });
+  const loading = live.loading;
+  const { rows, failed, people } = live.data || NO_FORMS;
 
   // Their name now (it may have changed since the form was sent), and who
   // they report to.
@@ -70,9 +64,8 @@ export function ClientFormsBody() {
     <>
       <div className="tr-row-head tr-screen-head">
         <TitleInfo title="Client Forms" info="Every advisor's client intake forms, newest first. Only super admins see this page. It's read only: the advisor who sent a form is the only one who can remove it." />
-        <RefreshButton onClick={refresh} />
       </div>
-      {failed && <div className="tr-error" style={{ marginBottom: 12 }}>Couldn't load the forms. Try Refresh.</div>}
+      {failed && <div className="tr-error" style={{ marginBottom: 12 }}>Couldn't load the forms. <button type="button" className="tr-link-btn" onClick={() => live.reload()}>Try again</button></div>}
 
       <div className="tr-toolbar tr-forms-toolbar">
         <div className="tr-seg" role="group" aria-label="Show">
