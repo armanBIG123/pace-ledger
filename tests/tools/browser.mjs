@@ -33,7 +33,8 @@ const DOCUSEAL_STUB = fs.readFileSync(path.join(TESTS, 'mock/docuseal-form.js'),
 // Opens the app with a seed: { user, db, factors, aal, totpAt }.
 export async function openApp(base, seed, { width = 1280, height = 900, mobile = false, init = [] } = {}) {
   const b = await getBrowser();
-  const ctx = await b.newContext({ viewport: { width, height }, deviceScaleFactor: 1, isMobile: mobile, hasTouch: mobile, permissions: ['clipboard-read', 'clipboard-write'] });
+  // Central time and US English, like the agency (and the same on GitHub's UTC machines).
+  const ctx = await b.newContext({ viewport: { width, height }, deviceScaleFactor: 1, isMobile: mobile, hasTouch: mobile, permissions: ['clipboard-read', 'clipboard-write'], timezoneId: 'America/Chicago', locale: 'en-US' });
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(String((e && e.stack) || e)));
