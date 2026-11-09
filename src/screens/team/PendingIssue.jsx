@@ -11,7 +11,7 @@ import { fmtDisplayDate, todayStr } from '../../lib/dates.js';
 import { fmtCurrency } from '../../lib/format.js';
 import { ComposeEmail } from '../../components/email.jsx';
 import { MoreMenu, SkeletonTable } from '../../components/ui.jsx';
-import { PolicyCard } from '../Appointments.jsx';
+import { PolicyCard } from '../appointments/SubmittedPremium.jsx';
 
 const STUCK_DAYS = 14;
 const first = name => (name || '').trim().split(/\s+/)[0] || 'there';

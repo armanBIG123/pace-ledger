@@ -25,8 +25,8 @@ export default function App() {
   // A client filling out their intake form has no account and no session —
   // this link works whether or not anyone is signed in on this browser, so
   // it's checked first and, if present, renders instead of the normal app.
-  // Read once from the URL present at mount; nothing in this app changes
-  // it via client-side navigation, so it's safe to branch before any hooks.
+  // These checks come before any state: the signed-in app below is its own
+  // component, so its hooks always run in the same order.
   // The old workers.dev address still serves the app; send everyone to the
   // real domain (keeping any ?intake=, ?zoom=… on the URL) so sign-ins,
   // Google's redirect and Zoom's all happen on big-pace-ledger.com.
@@ -42,7 +42,11 @@ export default function App() {
       </ScreenBoundary>
     );
   }
+  return <AccountApp />;
+}
 
+// Everyone else: the sign-in, the session and profile, then the app.
+function AccountApp() {
   const [session, setSession] = useState(undefined); // undefined = checking, null = logged out
   const [profile, setProfile] = useState(null);
   const [profileLoading, setProfileLoading] = useState(false);

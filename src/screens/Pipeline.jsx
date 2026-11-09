@@ -13,7 +13,8 @@ import { pipelineSummary } from '../lib/pipeline.js';
 import { fmtDate, parseDate, todayStr } from '../lib/dates.js';
 import { fmtCurrency } from '../lib/format.js';
 import { SystemsBody } from './Prospecting.jsx';
-import { MyAppointmentsBody, OpenRequirementsBody } from './Appointments.jsx';
+import { MyAppointmentsBody } from './Appointments.jsx';
+import { OpenRequirementsBody } from './appointments/SubmittedPremium.jsx';
 import { FollowUpBody } from './FollowUp.jsx';
 import { ClientsBody } from './Clients.jsx';
 

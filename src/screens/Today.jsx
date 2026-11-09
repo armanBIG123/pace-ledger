@@ -1,14 +1,12 @@
 // Today: four number tiles, one "Do next" list (appointments coming up, then what needs you), folds for the rest of the week, and team wins.
-import { Children, useCallback, useEffect, useRef, useState } from 'react';
-import { Activity, Award, CalendarDays, Check, CheckCheck, CheckCircle2, ChevronDown, ChevronRight, ChevronUp, ClipboardCheck, FileText, GraduationCap, List as ListIcon, Pencil, Phone, Plus, Presentation, Sparkles, Target, UserPlus, Users, Video, Wallet, X } from 'lucide-react';
-import { examWhen, fetchLicensingProgress, licensingStatus } from '../licensing.js';
-import { computeOnboarding, fetchMyOnboarding, ONBOARDING_DAYS, ONBOARDING_WEEKS, onboardingDay, saveOnboardingSnapshot, setOnboardingVisibility, shouldShowOnboarding, weekForDay } from '../onboarding.js';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Activity, CalendarDays, Check, CheckCheck, CheckCircle2, ChevronDown, ChevronUp, ClipboardCheck, FileText, List as ListIcon, Pencil, Phone, Plus, Presentation, Sparkles, Target, UserPlus, Users, Video, Wallet, X } from 'lucide-react';
+import { computeOnboarding, fetchMyOnboarding, onboardingDay, saveOnboardingSnapshot, setOnboardingVisibility, shouldShowOnboarding } from '../onboarding.js';
 import { isNativeApp, onAppResume, reminderPermission, requestReminderPermission } from '../native.js';
 import { isLicensed } from '../hierarchy.js';
 import { computeAnnualGrossIncomeNeeded, computeCommissionPerTransaction, computeDailyProspects, computeExpensesSubtotal, computeMonthlyGrossIncomeNeeded, computeMonthlyProspects, computeProspectsNeededPerYear, computeTransactionsNeededPerYear, fetchBusinessPlan, rowToBusinessPlanFields } from '../businessPlan.js';
 import { DATE_SET_OPTIONS, dateSetMeta, defaultDateSetOption, WEEKLY_TOTAL_TARGET } from '../lib/pace.js';
-import { addDays, apptClock, apptEndClock, apptEndMs, apptLocalDate, apptStartMs, fmtApptDateTime, fmtDate, fmtDisplayDate, fmtShortDate, greetingFor, parseDate, startsInLabel, todayStr, weekStartOf } from '../lib/dates.js';
-import { lowerFirst } from '../lib/format.js';
+import { addDays, apptClock, apptEndClock, apptEndMs, apptLocalDate, apptStartMs, fmtApptDateTime, fmtDate, fmtDisplayDate, greetingFor, parseDate, startsInLabel, todayStr, weekStartOf } from '../lib/dates.js';
 import { creditedTo } from '../lib/credit.js';
 import { PaycheckCard, useMonthPay } from '../components/paycheck.jsx';
 import { computePaycheck } from '../lib/paycheck.js';
@@ -16,9 +14,9 @@ import { TeamWinsSection } from '../components/wins.jsx';
 import { PaceTrend } from '../components/pace.jsx';
 import { applyFollowUpToList, fetchAppointmentsImOn, fetchMyAppointments, isPastAppointment, loggedSummary, logPresentedAppointment, OUTCOME_OPTIONS, persistFollowUp, typeLabel } from '../data/appointments.js';
 import { ALL_CHARACTERISTICS, bookedProspectKeys, fetchMyProspects, insertProspect, isStaleProspect, LEANING_LABELS, prospectLeaningKey, prospectToAppointmentPrefill, prospectTotalChecked, STALE_PROSPECT_DAYS, topProspectsToCall, updateProspectPhone } from '../data/prospects.js';
-import { fetchHierarchyPeopleShared, fetchMyLicensing, loadPromotionReadiness, seesTeam } from '../data/team.js';
+import { fetchHierarchyPeopleShared, fetchMyLicensing, seesTeam } from '../data/team.js';
 import { fetchGoogleConnectionStatus } from '../data/integrations.js';
-import { ProgressRing, SkelBlock } from '../components/ui.jsx';
+import { SkelBlock } from '../components/ui.jsx';
 import { RemindersPrompt } from '../components/reminders.jsx';
 import { FollowUpModal } from '../components/followUpModal.jsx';
 import { LogAllSheet } from '../components/logAll.jsx';
@@ -29,200 +27,9 @@ import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../c
 import { fetchMyIntakeStatus } from '../clientIntake.js';
 import { openIntakeSend } from '../lib/intakeEvents.js';
 import { dayWord, intakeStatusText } from '../lib/intakeStatus.js';
-import { isAdmin as isAdminRole } from '../lib/roles.js';
-
-// The checklist card. `result` comes from computeOnboarding().
-export function FirstThirtyDays({ result, day, onGo, onHide }) {
-  const currentWeek = weekForDay(day || 1);
-  const [showAll, setShowAll] = useState(() => !(window.matchMedia && window.matchMedia('(max-width: 640px)').matches));
-  const next = result.next;
-  const nextWeek = next ? ONBOARDING_WEEKS.find(w => w.key === next.week) : null;
-  const behind = next && day && nextWeek && day > nextWeek.days[1];
-
-  if (result.allDone) {
-    return (
-      <section className="tr-card tr-f30 tr-f30-complete" aria-label="First 30 days">
-        <div className="tr-f30-head">
-          <ProgressRing done={result.total} total={result.total}><Award size={22} /></ProgressRing>
-          <div className="tr-f30-head-main">
-            <div className="tr-f30-kicker">Your first 30 days</div>
-            <h3 className="tr-f30-title">Checklist complete. Well done.</h3>
-            <p className="tr-f30-why">You've set up your plan, built your list, booked and held appointments, and got your first result. From here, Today keeps you on pace every day.</p>
-          </div>
-          <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onHide}>Hide this</button>
-        </div>
-      </section>
-    );
-  }
-
-  return (
-    <section className="tr-card tr-f30" aria-label="First 30 days">
-      <div className="tr-f30-head">
-        <ProgressRing done={result.doneCount} total={result.total}>
-          <strong>{result.doneCount}</strong><span>of {result.total}</span>
-        </ProgressRing>
-        <div className="tr-f30-head-main">
-          <div className="tr-f30-kicker">
-            First 30 days{day ? <> · <span className="tr-f30-day">Day {Math.min(day, 99)}{day <= ONBOARDING_DAYS ? ` of ${ONBOARDING_DAYS}` : ''}</span></> : null}
-            {behind ? <span className="tr-status tr-status-amber tr-f30-flag">Catch up</span> : null}
-          </div>
-          <h3 className="tr-f30-title">Next: {next.title}{next.target ? <span className="tr-f30-count"> · {next.n} of {next.target}</span> : null}</h3>
-          <p className="tr-f30-why">{next.why}</p>
-          {next.target ? (
-            <div className="tr-ov-bar tr-f30-stepbar"><div className="tr-ov-bar-fill" style={{ width: `${Math.round((next.n / next.target) * 100)}%` }} /></div>
-          ) : null}
-          <div className="tr-f30-actions">
-            <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={() => onGo(next)}>{next.cta} <ChevronRight size={14} /></button>
-            <button type="button" className="tr-f30-toggle" onClick={() => setShowAll(s => !s)} aria-expanded={showAll}>
-              {showAll ? 'Hide all steps' : 'See all steps'} {showAll ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-            </button>
-          </div>
-        </div>
-        <button type="button" className="tr-icon-btn tr-f30-close" onClick={onHide} aria-label="Hide the First 30 days checklist" title="Hide (you can turn it back on in Your account)"><X size={16} /></button>
-      </div>
-
-      {showAll && (
-        <div className="tr-f30-weeks">
-          {ONBOARDING_WEEKS.map(w => {
-            const steps = result.steps.filter(s => s.week === w.key);
-            const doneHere = steps.filter(s => s.done).length;
-            const isNow = w.key === currentWeek.key;
-            return (
-              <div key={w.key} className={`tr-f30-week ${isNow ? 'tr-f30-week-now' : ''}`}>
-                <div className="tr-f30-week-head">
-                  <span className="tr-f30-week-label">{w.label}{isNow ? <span className="tr-f30-here">You're here</span> : null}</span>
-                  <span className="tr-f30-week-title">{w.title}</span>
-                  <span className="tr-f30-week-meta">Days {w.days[0]}–{w.days[1]} · {doneHere}/{steps.length} done</span>
-                </div>
-                <ul className="tr-f30-steps">
-                  {steps.map(s => {
-                    const isNext = next && s.key === next.key;
-                    return (
-                      <li key={s.key}>
-                        <button type="button" className={`tr-f30-step ${s.done ? 'tr-f30-step-done' : ''} ${isNext ? 'tr-f30-step-next' : ''}`} onClick={() => onGo(s)}>
-                          <span className="tr-f30-node" aria-hidden="true">{s.done ? <Check size={12} strokeWidth={3} /> : null}</span>
-                          <span className="tr-f30-step-title">{s.title}<span className="tr-sr-only">{s.done ? ' (done)' : ''}</span></span>
-                          {s.target && !s.done ? <span className="tr-f30-step-count">{s.n}/{s.target}</span> : null}
-                          <ChevronRight size={14} className="tr-f30-step-go" />
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-            );
-          })}
-        </div>
-      )}
-      <p className="tr-f30-foot">Every step checks itself off as you use PaceLedger. Your manager can see your progress, so they know when to help.</p>
-    </section>
-  );
-}
-
-export function TodayTask({ task, children }) {
-  const extra = Children.toArray(children).length > 0;
-  return (
-    <li className={`tr-task ${task.done ? 'tr-task-done' : ''} tr-task-${task.tone || 'brass'}`}>
-      <span className="tr-task-node" aria-hidden="true">{task.done ? <Check size={13} strokeWidth={3} /> : <task.Icon size={15} />}</span>
-      <div className="tr-task-body">
-        <div className="tr-task-title">{task.title}{task.done ? <span className="tr-sr-only"> (done)</span> : null}</div>
-        {task.meta ? <div className="tr-task-meta">{task.meta}</div> : null}
-      </div>
-      {(task.action && !task.done) || task.onHide ? (
-        <div className="tr-task-actions">
-          {task.action && !task.done ? (
-            <button type="button" className={`tr-btn tr-btn-sm ${task.primary ? 'tr-btn-brass' : 'tr-btn-ghost'} tr-task-btn`} onClick={task.action.run}>{task.action.label}</button>
-          ) : null}
-          {task.more && !task.done ? <button type="button" className="tr-link-btn tr-task-hide" onClick={task.more.run}>{task.more.label}</button> : null}
-          {task.onHide ? <button type="button" className="tr-link-btn tr-task-hide" onClick={task.onHide}>Hide</button> : null}
-        </div>
-      ) : null}
-      {extra ? <div className="tr-task-extra">{children}</div> : null}
-    </li>
-  );
-}
-
-// "Needs you" on Today: one short list instead of a stack of banners.
-// Your own promotion news first, then anyone you can see (your downline;
-// everyone for super admins) who has met every requirement for their next
-// tier, then where you are on the path to licensed. Leaders can hide a
-// name once they've passed it on.
-export function readHiddenPromos() {
-  try { return new Set(JSON.parse(localStorage.getItem('pl_promo_hidden') || '[]')); } catch { return new Set(); }
-}
-
-// Promotion and licensing items for the "Do next" list: your own
-// promotion news, anyone you can see (your downline; everyone for super
-// admins) who has met every requirement for their next tier, and where you
-// are on the path to licensed. Leaders can hide a name once they've passed
-// it on. `licProfile` is your NPN and writing number, already loaded by
-// Today.
-export function useNeedsYou({ user, licProfile, showLicensing, onMilestones, onReview, onLicensing }) {
-  const [ready, setReady] = useState(null);
-  const [prog, setProg] = useState(undefined);
-  const [hidden, setHidden] = useState(readHiddenPromos);
-  useEffect(() => {
-    let alive = true;
-    loadPromotionReadiness(user, undefined, { shared: true }).then(({ list }) => {
-      if (alive) setReady(list.filter(x => x.progress && x.progress.allMet));
-    }).catch(() => { if (alive) setReady([]); });
-    return () => { alive = false; };
-  }, [user.id, user.role]);
-  useEffect(() => {
-    let alive = true;
-    const load = () => fetchLicensingProgress(user.id).then(p => { if (alive) setProg(p && p.error ? null : (p || {})); });
-    load();
-    window.addEventListener('paceledger:onboarding-changed', load);
-    return () => { alive = false; window.removeEventListener('paceledger:onboarding-changed', load); };
-  }, [user.id]);
-
-  const isAdmin = isAdminRole(user);
-  const keyOf = x => `${x.member.id}:${x.progress.nextTier.key}`;
-  function hide(x) {
-    const next = new Set(hidden); next.add(keyOf(x)); setHidden(next);
-    try { localStorage.setItem('pl_promo_hidden', JSON.stringify([...next].slice(-200))); } catch { /* ignore */ }
-  }
-  const promos = [];
-  const mine = ready ? ready.find(x => x.member.id === user.id) : null;
-  if (mine) promos.push({
-    key: 'me', Icon: Award, tone: 'brass',
-    title: <>You've met every requirement for <strong>{mine.progress.nextTier.name}</strong></>,
-    meta: isAdmin ? 'Approve it from Team Pace → Promotion.' : 'Your direct manager submits it for approval.',
-    action: { label: 'See my progress', run: onMilestones },
-  });
-  const others = ready ? ready.filter(x => x.member.id !== user.id && !hidden.has(keyOf(x))) : [];
-  others.slice(0, 3).forEach(x => {
-    const submits = !isAdmin && x.member.manager_id === user.id;
-    promos.push({
-      key: keyOf(x), Icon: Users, tone: 'brass', primary: true,
-      title: isAdmin ? <>Approve <strong>{x.member.display_name}</strong> for {x.progress.nextTier.name}</>
-        : submits ? <>Submit <strong>{x.member.display_name}</strong> for {x.progress.nextTier.name}</>
-          : <><strong>{x.member.display_name}</strong> is ready for {x.progress.nextTier.name}</>,
-      meta: submits || isAdmin ? 'Every requirement met' : 'Every requirement met. Their direct manager submits it.',
-      action: onReview ? { label: isAdmin ? 'Review' : submits ? 'Submit' : 'Review', run: onReview } : null,
-      onHide: isAdmin ? null : () => hide(x),
-    });
-  });
-  if (others.length > 3) promos.push({
-    key: 'more-promos', Icon: Users, tone: 'brass',
-    title: <>{others.length - 3} more ready for promotion</>, meta: '',
-    action: onReview ? { label: 'See all', run: onReview } : null,
-  });
-  let licensing = null;
-  if (showLicensing && !isAdmin && prog && licProfile) {
-    const st = licensingStatus(prog, licProfile);
-    if (!st.licensed && st.next) {
-      const examSoon = prog.exam_on && !st.done.examPassed && prog.exam_on >= todayStr();
-      licensing = {
-        key: 'lic', Icon: GraduationCap, tone: 'blue',
-        title: examSoon ? <>Your licensing exam is <strong>{examWhen(prog.exam_on)}</strong></> : <>Licensing: {lowerFirst(st.next.title)}</>,
-        meta: examSoon ? `${fmtShortDate(prog.exam_on)} · step ${st.nextIndex + 1} of ${st.total}` : `Step ${st.nextIndex + 1} of ${st.total}`,
-        action: { label: 'Licensing', run: onLicensing },
-      };
-    }
-  }
-  return { promos, licensing };
-}
+import { FirstThirtyDays } from './today/FirstThirtyDays.jsx';
+import { TodayTask } from './today/TodayTask.jsx';
+import { useNeedsYou } from './today/needsYou.jsx';
 
 export function TodayBody({ user, onNavigate, initialIntent = null, onIntentConsumed }) {
   const [loading, setLoading] = useState(true);
