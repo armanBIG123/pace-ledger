@@ -1,0 +1,52 @@
+# Runs every PaceLedger test on each pull request (and on main):
+#   - unit tests of the app's helpers
+#   - the server (edge) functions, against an in-memory database and fake
+#     Google, Zoom, DocuSeal and Resend
+#   - browser tests that click through each feature as an advisor, a
+#     manager and a super admin
+#   - database tests: each migration run in a fresh Postgres, then checked
+#     signed in as different people
+# Screenshots from the browser tests are attached to every run.
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      TZ: America/Chicago
+      PGHOST: localhost
+      PGPORT: 5432
+      PGUSER: postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install
+        run: npm install --no-audit --no-fund
+      - name: Install the test browser
+        run: npx playwright install --with-deps chromium
+      - name: Run the tests
+        run: npm test
+      - name: Keep the screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: tests/.out/shots
+          retention-days: 14
+          if-no-files-found: ignore
