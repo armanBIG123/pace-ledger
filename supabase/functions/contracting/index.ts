@@ -42,14 +42,14 @@
 // other request is checked here: a real PaceLedger sign-in, and for the
 // contracting team, membership plus two-step login in the last 12 hours.
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+// Deploy: merging to main deploys it (.github/workflows/supabase-deploy.yml).
+// It uses ../_shared, so it can't be pasted into the Supabase editor.
 
-const env = (k: string, d = ''): string => {
-  try { return (typeof Deno !== 'undefined' ? Deno.env.get(k) : undefined) ?? d; } catch { return d; }
-};
-const SUPABASE_URL = env('SUPABASE_URL');
-const SERVICE_ROLE_KEY = env('SUPABASE_SERVICE_ROLE_KEY');
-const ANON_KEY = env('SUPABASE_ANON_KEY');
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { ANON_KEY, APP_URL, env, SERVICE_ROLE_KEY, SUPABASE_URL } from '../_shared/env.ts';
+import { json, preflight } from '../_shared/http.ts';
+import { emailConfigured, sendEmail } from '../_shared/email.ts';
+import { esc } from '../_shared/html.ts';
 const DOCUSEAL_API_KEY = env('DOCUSEAL_API_KEY');
 const DOCUSEAL_API_URL = env('DOCUSEAL_API_URL', 'https://api.docuseal.com').replace(/\/+$/, '');
 const DOCUSEAL_FORM_URL = env('DOCUSEAL_FORM_URL', 'https://docuseal.com').replace(/\/+$/, '');
@@ -57,20 +57,6 @@ const DOCUSEAL_WEBHOOK_TOKEN = env('DOCUSEAL_WEBHOOK_TOKEN');
 const AGENT_ROLE = env('DOCUSEAL_AGENT_ROLE', 'Agent');
 const BIG_ROLE = env('DOCUSEAL_BIG_ROLE', 'BIG Insurance Network');
 const BIG_SIGNER_EMAIL = env('BIG_SIGNER_EMAIL', 'agency@biginsurancenetwork.com');
-const RESEND_API_KEY = env('RESEND_API_KEY');
-const INVITE_FROM_EMAIL = env('INVITE_FROM_EMAIL');
-const APP_URL = env('APP_URL', 'https://big-pace-ledger.com').replace(/\/+$/, '');
-
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0, private',
-  'Pragma': 'no-cache',
-};
-function json(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
-}
 
 // ---- Field names (keep in step with src/lib/contracting.js) -----------------
 export const FIELD_LABELS: Record<string, string> = {
@@ -410,7 +396,7 @@ async function signingUrl(submitterId: number): Promise<string> {
 
 // ---- Email -----------------------------------------------------------------------------
 async function emailStaff(admin: any, subject: string, lines: string[]): Promise<boolean> {
-  if (!RESEND_API_KEY || !INVITE_FROM_EMAIL) return false;
+  if (!emailConfigured()) return false;
   const { data: staff } = await admin.from('contracting_staff').select('user_id');
   const emails: string[] = [];
   for (const s of staff || []) {
@@ -419,15 +405,8 @@ async function emailStaff(admin: any, subject: string, lines: string[]): Promise
   }
   if (!emails.length) return false;
   const text = `${lines.join('\n\n')}\n\nOpen PaceLedger: ${APP_URL}\n\nThis email never includes anyone's contracting info.`;
-  const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
   const html = `<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.5;color:#13212E">${lines.map(l => `<p>${esc(l)}</p>`).join('')}<p><a href="${APP_URL}">Open PaceLedger</a></p><p style="color:#5E6A77;font-size:13px">This email never includes anyone's contracting info.</p></div>`;
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: INVITE_FROM_EMAIL, to: emails, subject, text, html }),
-  });
-  if (!res.ok) console.error('email failed', res.status, (await res.text()).slice(0, 200));
-  return res.ok;
+  return (await sendEmail({ to: emails, subject, text, html })).ok;
 }
 
 function timingSafeEqual(a: string, b: string) {
@@ -439,7 +418,8 @@ function timingSafeEqual(a: string, b: string) {
 
 // ---- The handler -------------------------------------------------------------------------
 export async function handle(req: Request): Promise<Response> {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS });
+  const pre = preflight(req);
+  if (pre) return pre;
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
   const url = new URL(req.url);
@@ -665,7 +645,7 @@ export async function handle(req: Request): Promise<Response> {
         if (agentRole && !spots.signature) warnings.push(`The "${AGENT_ROLE}" role has no Signature field.`);
         if (agentRole && !spots.names) warnings.push(`The "${AGENT_ROLE}" role has no printed-name field (name one "Agent name" or "Print name").`);
         if (agentRole && !agentFields.some((f: any) => /agent\s*type|election|exclusive/i.test(String(f.name || '')))) warnings.push(`No Exclusive / Non-Exclusive field for the agent (name it with "Exclusive", e.g. "Exclusive initial" and "Non-exclusive initial").`);
-        return json({ ok: true, name: t.name || '', roles, fields, warnings, spots, webhook: !!DOCUSEAL_WEBHOOK_TOKEN, email: !!(RESEND_API_KEY && INVITE_FROM_EMAIL), privateKey: !!(await privateKey()) });
+        return json({ ok: true, name: t.name || '', roles, fields, warnings, spots, webhook: !!DOCUSEAL_WEBHOOK_TOKEN, email: emailConfigured(), privateKey: !!(await privateKey()) });
       }
 
       default:
