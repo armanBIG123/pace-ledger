@@ -176,21 +176,23 @@ export function buildTeamOverview({ user, people, thisWeek, lastWeek, sold, prog
   return { team, tiles, needs, wins, centre, orbit, pace, children, expectedByNow, signals };
 }
 
+// A short strip (not a tall picture): you in the middle, the people who
+// report to you on one flattened orbit.
 function GalaxyPreview({ centre, orbit, pace, children, onOpen }) {
-  const C = { x: 150, y: 110 };
-  const rx = 112, ry = 78;
+  const C = { x: 150, y: 62 };
+  const rx = 128, ry = 40;
   return (
     <button type="button" className="tr-tov-galaxy" onClick={onOpen} aria-label="Open the org chart">
-      <svg viewBox="0 0 300 220" role="img" aria-hidden="true">
-        {GALAXY_STARS.map((s, i) => <circle key={i} cx={s.x} cy={s.y} r={s.r * 0.8} fill="#fff" opacity={s.o * 0.8} />)}
+      <svg viewBox="0 0 300 124" role="img" aria-hidden="true">
+        {GALAXY_STARS.map((s, i) => <circle key={i} cx={s.x} cy={s.y * 124 / 220} r={s.r * 0.8} fill="#fff" opacity={s.o * 0.8} />)}
         <ellipse cx={C.x} cy={C.y} rx={rx} ry={ry} fill="none" stroke="rgba(255,255,255,0.16)" strokeDasharray="3 6" />
-        <circle cx={C.x} cy={C.y} r="46" fill="url(#tr-tov-glow)" />
+        <circle cx={C.x} cy={C.y} r="34" fill="url(#tr-tov-glow)" />
         <defs><radialGradient id="tr-tov-glow" cx="50%" cy="50%" r="50%"><stop offset="0%" stopColor="#F2C866" stopOpacity="0.35" /><stop offset="100%" stopColor="#F2C866" stopOpacity="0" /></radialGradient></defs>
-        {centre ? <CelestialBody tier={centre.hierarchy_tier} r={20 * bodyScale(centre.hierarchy_tier)} cx={C.x} cy={C.y} /> : <CelestialBody tier="SFD" r={18} cx={C.x} cy={C.y} />}
+        {centre ? <CelestialBody tier={centre.hierarchy_tier} r={15 * bodyScale(centre.hierarchy_tier)} cx={C.x} cy={C.y} /> : <CelestialBody tier="SFD" r={14} cx={C.x} cy={C.y} />}
         {orbit.map((p, i) => {
           const a = (i / orbit.length) * Math.PI * 2 - Math.PI / 2;
           const x = C.x + Math.cos(a) * rx, y = C.y + Math.sin(a) * ry;
-          const r = 8 * bodyScale(p.hierarchy_tier);
+          const r = 7 * bodyScale(p.hierarchy_tier);
           const st = pace.get(p.id) || { total: 0, status: 'progress' };
           const moons = Math.min(4, (children.get(p.id) || []).length);
           const rr = ringRadius(p.hierarchy_tier, r);
@@ -241,7 +243,7 @@ export function TeamOverviewBody({ user, onNavigate }) {
   }
   const wk = weekStartOf(todayStr());
   const md = d => parseDate(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  const head = <PageHead title="Team overview" sub={`Week of ${md(wk)} – ${md(fmtDate(addDays(parseDate(wk), 6)))}${state ? ` · ${state.team.length} ${state.team.length === 1 ? 'person' : 'people'} on your team` : ''}`}>
+  const head = <PageHead title="Team Overview" sub={`Week of ${md(wk)} – ${md(fmtDate(addDays(parseDate(wk), 6)))}${state ? ` · ${state.team.length} ${state.team.length === 1 ? 'person' : 'people'} on your team` : ''}`}>
     <RefreshButton onClick={() => { setState(null); load(); }} />
   </PageHead>;
 

@@ -1,6 +1,6 @@
 // Org Chart: the tree and solar system views, with milestone cards.
 import React, { useCallback, useEffect, useState } from 'react';
-import { Award, ChevronDown, ChevronLeft, ChevronRight, Network, Search, X } from 'lucide-react';
+import { Award, ChevronDown, ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
 import { fetchLicensingForUsers, licensingStatus } from '../../licensing.js';
 import { buildChildrenMap, computeReadiness, downlineIds, HIERARCHY_TIERS, hierarchyTierLabel } from '../../hierarchy.js';
 import { closestDirect, milestoneSummary, progressPct } from '../../lib/milestones.js';
@@ -472,7 +472,7 @@ export function OrgChartBody({ user, onOpenPromotion, initialIntent, onIntentCon
   return (
     <>
       <div className="tr-row-head tr-screen-head">
-        <TitleInfo title={<><Network size={18} aria-hidden="true" /> Org chart</>} info="Who reports to whom, with each person's appointment pace for the week. Open a name to see their team." />
+        <TitleInfo title="Org Chart" info="Who reports to whom, with each person's appointment pace for the week. Open a name to see their team." />
         <RefreshButton onClick={load} />
       </div>
       <SystemTabs tabs={{ ...tabs, pick: pickSystem }} />

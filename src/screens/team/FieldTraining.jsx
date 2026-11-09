@@ -2,7 +2,7 @@
 // Associate, the field training booked this week, and upcoming
 // appointments with an open trainee seat to put them on.
 import React, { useCallback, useEffect, useState } from 'react';
-import { GraduationCap } from 'lucide-react';
+
 import { buildFieldTraining } from '../../lib/fieldTraining.js';
 import { fmtApptDateTime } from '../../lib/dates.js';
 import { loadPromotionReadiness } from '../../data/team.js';
@@ -85,7 +85,7 @@ export function FieldTrainingSubView({ user, members, loadingMembers, emptyMessa
   return (
     <>
       <div className="tr-row-head tr-screen-head">
-        <TitleInfo title={<><GraduationCap size={18} aria-hidden="true" /> Field training</>}
+        <TitleInfo title="Field training"
           info="Field Associate takes 3 observation sales in 30 days: appointments someone sits in on as the trainee that end in a sale. Here's who still needs them, and upcoming appointments they can sit in on." />
         <RefreshButton onClick={refresh} />
       </div>

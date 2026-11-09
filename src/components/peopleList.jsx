@@ -155,9 +155,11 @@ export function PeopleToolbar({ total, matched, hideEmpty, onHideEmpty, emptyLab
         </label>
       ) : null}
       {onHideEmpty && !q ? (
-        <button type="button" className={`tr-chip-toggle tr-plist-fold ${hideEmpty ? 'tr-chip-toggle-on' : ''}`} aria-pressed={hideEmpty} onClick={() => onHideEmpty(!hideEmpty)}>
-          <span className="tr-chip-dot" aria-hidden="true" />{emptyLabel}{hideEmpty && foldedCount ? ` (${foldedCount})` : ''}
-        </button>
+        <label className="tr-switch tr-plist-fold">
+          <input type="checkbox" role="switch" checked={hideEmpty} onChange={e => onHideEmpty(e.target.checked)} />
+          <span className="tr-switch-track" aria-hidden="true" />
+          <span>{emptyLabel}{hideEmpty && foldedCount ? ` (${foldedCount})` : ''}</span>
+        </label>
       ) : null}
       <span className="tr-plist-count" role="status" aria-live="polite">
         {q ? (matched === 0 ? `No one matches "${q.trim()}"` : `${matched} of ${total} match`) : ''}
