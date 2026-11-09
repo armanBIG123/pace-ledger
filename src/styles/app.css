@@ -1,9 +1,13 @@
-// ---------------------------------------------------------------------
-// styles — single global stylesheet, injected via <style>{CSS}</style>
-// in App.jsx's root Shell component.
-// ---------------------------------------------------------------------
-export const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,600;6..72,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap');
+/* PaceLedger styles: one stylesheet for the whole app (design tokens at the top). */
+/* Fonts are served with the app (no Google Fonts request): Newsreader for
+   headings (one variable file: weights 400-700, optical sizes), IBM Plex Sans
+   and Mono for text. Latin letters and common punctuation; both under the
+   SIL Open Font License (src/assets/fonts/OFL-*.txt). */
+@font-face { font-family: 'Newsreader'; src: url('../assets/fonts/Newsreader-Latin.woff') format('woff'); font-weight: 400 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'IBM Plex Sans'; src: url('../assets/fonts/IBMPlexSans-Regular-Latin1.woff2') format('woff2'); font-weight: 400; font-style: normal; font-display: swap; }
+@font-face { font-family: 'IBM Plex Sans'; src: url('../assets/fonts/IBMPlexSans-Medium-Latin1.woff2') format('woff2'); font-weight: 500; font-style: normal; font-display: swap; }
+@font-face { font-family: 'IBM Plex Sans'; src: url('../assets/fonts/IBMPlexSans-SemiBold-Latin1.woff2') format('woff2'); font-weight: 600 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'IBM Plex Mono'; src: url('../assets/fonts/IBMPlexMono-Medium-Latin1.woff2') format('woff2'); font-weight: 400 600; font-style: normal; font-display: swap; }
 
 .tr-root {
   /* Ledger design system v2 — navy frame, brass for the one thing that
@@ -320,11 +324,15 @@ a.tr-mt-phone:hover { color: var(--brass-dark); text-decoration: underline; }
 .tr-plist-search .tr-search-input::-webkit-search-cancel-button { display: none; }
 .tr-plist-sort { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--slate-light); }
 .tr-plist-sort select { font-family: inherit; font-size: 13.5px; height: 42px; padding: 0 28px 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background-color: var(--card); color: var(--ink); max-width: 220px; }
-.tr-plist-fold { white-space: nowrap; height: 42px; border-color: var(--line-strong); background: var(--card); color: var(--slate); }
-.tr-plist-fold .tr-chip-dot { background: transparent; box-shadow: inset 0 0 0 1.5px currentColor; }
-.tr-plist-fold.tr-chip-toggle-on { background: var(--ink); border-color: var(--ink); color: #fff; }
-.tr-plist-fold.tr-chip-toggle-on .tr-chip-dot { background: var(--brass); box-shadow: none; }
-@media (hover: hover) { .tr-plist-fold:hover { background: var(--paper-dim); } .tr-plist-fold.tr-chip-toggle-on:hover { background: var(--ink-2); } }
+/* A switch: a filter that stays on or off (not an action button). */
+.tr-switch { display: inline-flex; align-items: center; gap: 8px; min-height: 42px; font-size: 13.5px; color: var(--slate); cursor: pointer; user-select: none; }
+.tr-switch input { position: absolute; opacity: 0; width: 1px; height: 1px; pointer-events: none; }
+.tr-switch-track { position: relative; flex: none; width: 34px; height: 20px; border-radius: 999px; background: var(--line-strong); transition: background .15s; }
+.tr-switch-track::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(19,33,46,.25); transition: transform .15s; }
+.tr-switch input:checked + .tr-switch-track { background: var(--green); }
+.tr-switch input:checked + .tr-switch-track::after { transform: translateX(14px); }
+.tr-switch input:focus-visible + .tr-switch-track { outline: 2px solid var(--brass); outline-offset: 2px; }
+.tr-plist-fold { white-space: nowrap; }
 .tr-plist-count { font-size: 13px; color: var(--slate-light); }
 .tr-plist-count:empty { display: none; }
 .tr-plist-folded { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 16px; padding: 12px 16px; border-top: 1px solid var(--line); background: var(--paper); font-size: 13px; color: var(--slate); }
@@ -421,14 +429,36 @@ a.tr-mt-phone:hover { color: var(--brass-dark); text-decoration: underline; }
 .tr-weeknav-label { display: flex; align-items: center; gap: 8px; font-weight: 500; color: var(--ink); font-size: 15px; }
 /* ‹ and › sit right beside the week or month they move. */
 .tr-weeknav > .tr-icon-btn:nth-of-type(2) { margin-right: auto; }
+.tr-weeknav-short { display: none; }
+@media (max-width: 640px) {
+  /* One line on a phone: ‹ Nov 7 – 13 › This week */
+  .tr-weeknav:not(.tr-pace-head .tr-weeknav):not(.tr-cal-toolbar) { flex-wrap: nowrap; gap: 6px; }
+  .tr-weeknav-long { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+  .tr-weeknav-short { display: inline; white-space: nowrap; }
+  .tr-weeknav-label svg { display: none; }
+  .tr-weeknav > .tr-btn { margin-left: auto; }
+}
 .tr-monthnav { display: inline-flex; align-items: center; gap: 4px; }
 .tr-monthnav .tr-weeknav-label { padding: 0 2px; white-space: nowrap; }
 .tr-cal-tools { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-left: auto; }
+.tr-cal-more { display: none; }
 @media (max-width: 640px) {
-  .tr-cal-toolbar { row-gap: 10px; }
+  .tr-cal-toolbar { row-gap: 10px; column-gap: 6px; flex-wrap: wrap; }
+  .tr-cal-toolbar .tr-seg button { padding-left: 12px; padding-right: 12px; }
+  .tr-cal-toolbar .tr-monthnav { flex: 1 1 0; min-width: 0; gap: 0; }
+  .tr-cal-toolbar .tr-monthnav .tr-icon-btn, .tr-cal-more .tr-icon-btn { width: 36px; min-width: 36px; }
   .tr-cal-toolbar .tr-monthnav { flex: 1 1 auto; justify-content: space-between; }
+  .tr-cal-more { display: inline-flex; }
   .tr-cal-tools { margin-left: 0; width: 100%; }
+  .tr-cal-tools > .tr-btn, .tr-cal-tools > .tr-icon-btn { display: none; }
+  .tr-cal-tools:not(:has(select)) { display: none; }
   .tr-cal-tools .tr-cal-personfilter { flex: 1 1 140px; min-width: 0; }
+  /* Advisors: the title and an icon-only Settings on one line. */
+  .tr-cal-head .tr-pagehead-sub { display: none; }
+  .tr-cal-head:has(.tr-pagehead-actions > .tr-cal-settings:only-child) { flex-wrap: nowrap; align-items: center; }
+  .tr-cal-head .tr-pagehead-actions:has(> .tr-cal-settings:only-child) { width: auto; flex: none; }
+  .tr-cal-head .tr-pagehead-actions > .tr-cal-settings:only-child { flex: none; width: 40px; height: 40px; padding: 0; justify-content: center; }
+  .tr-cal-head .tr-pagehead-actions > .tr-cal-settings:only-child .tr-cal-settings-short { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
 }
 .tr-cal-personfilter { font-family: inherit; font-size: 13px; height: 34px; padding: 0 28px 0 10px; border-radius: var(--radius-sm); border: 1px solid var(--line-strong); background-color: var(--card); color: var(--ink); cursor: pointer; }
 .tr-cal-personfilter:focus { border-color: var(--brass); box-shadow: var(--ring); outline: none; }
@@ -680,6 +710,23 @@ a.tr-mt-phone:hover { color: var(--brass-dark); text-decoration: underline; }
 .tr-table-summary th:first-child, .tr-table-summary td:first-child { padding-left: 16px; }
 .tr-table-summary th:last-child, .tr-table-summary td:last-child { padding-right: 16px; }
 .tr-table-summary .tr-expand-row td { padding: 16px; }
+/* Team Pace on a phone: a card per person (name, the six days, total and
+   status) instead of a table wider than the screen. */
+@media (max-width: 640px) {
+  .tr-pace-table, .tr-pace-table tbody { display: block; min-width: 0; width: 100%; }
+  .tr-pace-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); }
+  .tr-pace-table tr.tr-clickable-row { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px 4px; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+  .tr-pace-table tr.tr-clickable-row > td { padding: 0 !important; border: none; text-align: left; }
+  .tr-pace-table tr.tr-clickable-row > td:first-child { grid-column: 1 / -1; position: static; box-shadow: none; min-width: 0; max-width: none; }
+  .tr-pace-table .tr-minibar-wrap { flex-direction: column-reverse; align-items: stretch; gap: 3px; min-width: 0; }
+  .tr-pace-table .tr-minibar-num { font-size: 13px; color: var(--ink); }
+  .tr-pace-table .tr-minibar-track { flex: none; height: 6px; width: 100%; }
+  .tr-pace-table td[data-label]::before { content: attr(data-label); display: block; margin-bottom: 3px; font-size: 10.5px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; color: var(--slate-light); }
+  .tr-pace-table td.tr-pace-total { grid-column: 1 / span 2; display: flex; align-items: baseline; gap: 6px; font-size: 15px; font-weight: 600; }
+  .tr-pace-table td.tr-pace-total::before { display: inline; margin: 0; }
+  .tr-pace-table td.tr-pace-status { grid-column: 3 / -1; justify-self: end; align-self: center; }
+  .tr-pace-table tr.tr-expand-row, .tr-pace-table tr.tr-expand-row > td { display: block; }
+}
 .tr-clickable-row { cursor: pointer; }
 .tr-rowname-btn { display: inline; padding: 0; border: none; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; }
 .tr-rowname-btn:focus-visible { outline: 2px solid var(--brass); outline-offset: 2px; border-radius: 4px; }
@@ -1906,9 +1953,11 @@ a.tr-mt-phone:hover { color: var(--brass-dark); text-decoration: underline; }
 .tr-check-add input:focus { border-color: var(--brass); box-shadow: var(--ring); outline: none; }
 .tr-check-note { margin: 10px 0 0; font-size: 12.5px; color: #8A5A10; background: rgba(194,124,30,0.1); border-radius: 8px; padding: 8px 10px; }
 @media (max-width: 640px) {
-  .tr-check-list li { flex-wrap: wrap; row-gap: 8px; }
-  .tr-check-list li .tr-tov-text { flex: 1 1 calc(100% - 80px); }
-  .tr-check-list li > .tr-btn { margin-left: 80px; }
+  /* Phone: the box and the words on one line, the button under the words. */
+  .tr-check-list li { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 12px; row-gap: 8px; align-items: start; }
+  .tr-check-list li.tr-check-own { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .tr-check-list li .tr-needs-icon { display: none; }
+  .tr-check-list li:not(.tr-check-own) > :last-child:not(.tr-tov-text):not(.tr-check-box) { grid-column: 2; justify-self: start; margin-left: 0; }
   .tr-check-add input { font-size: 16px; }
 }
 
@@ -1984,7 +2033,9 @@ a.tr-mt-phone:hover { color: var(--brass-dark); text-decoration: underline; }
 .tr-cl-h { margin: 0; font-size: 15px; font-weight: 600; color: var(--ink); }
 .tr-cl-label { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--brass-dark); }
 .tr-cl-search { margin: 0; }
-.tr-cl-filters { display: flex; flex-wrap: wrap; gap: 8px; }
+.tr-cl-filters { display: flex; flex-wrap: nowrap; gap: 8px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
+.tr-cl-filters > * { flex: 0 0 auto; }
+.tr-cl-filters > :last-child { margin-right: 24px; }
 .tr-cl-filter { display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 6px 13px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--card); color: var(--ink); font-family: inherit; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
 .tr-cl-filter:hover { border-color: var(--ink); }
 .tr-cl-count { font-size: 11.5px; padding: 0 6px; border-radius: 999px; background: var(--paper-dim); }
@@ -2173,6 +2224,9 @@ a.tr-mt-phone:hover { color: var(--brass-dark); text-decoration: underline; }
 .tr-er-frame { display: block; width: 100%; height: min(64vh, 720px); border: 1px solid var(--line); border-radius: var(--radius-sm); background: #EBEEF2; }
 .tr-er-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
 .tr-er-note { font-size: 12.5px; color: var(--slate); }
+.tr-pay-real { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; margin: 8px 0 4px; padding: 8px 12px; border-radius: var(--radius-sm); background: rgba(46,125,91,0.08); font-size: 13.5px; color: var(--slate); }
+.tr-pay-real strong { color: var(--green); }
+.tr-pay-real .tr-ov-link { margin: 0 0 0 auto; }
 .tr-cl-refs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .tr-cl-refs button { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--card); font-family: inherit; font-size: 14px; color: var(--ink); cursor: pointer; text-align: left; }
 .tr-cl-refs button:hover { border-color: var(--line-strong); }
@@ -3378,4 +3432,3 @@ a.tr-intake-way, a.tr-intake-way:visited { color: var(--ink); }
   /* Names and links inside text: a taller tap area without moving the text. */
   .tr-appt-client-btn, .tr-appt-links a, .tr-rowname-btn, .tr-solar-name-btn, .tr-account-links a, .tr-pf-dl dd a, .tr-note-item a.tr-link { padding-top: 8px; padding-bottom: 8px; margin-top: -8px; margin-bottom: -8px; }
 }
-`;

@@ -314,7 +314,7 @@ ${agentsPart}
 <b>Set:</b> new appointments on the day they were set, the same as Pace (not follow-ups), for the person who set them.
 <b>Completed:</b> appointments that took place with an outcome of Went well or Not interested, follow-ups included.
 <b>Apps:</b> appointments logged as Sold. <b>Premium:</b> their target premium. A split sale counts for both people, with the premium shared, and once in team and company totals.<br>
-<a href="${esc(APP_URL)}" style="color:#24548A">Open PaceLedger</a> · Super admins choose who gets this in Team &amp; admin → Team overview → Email reports.
+<a href="${esc(APP_URL)}/team" style="color:#24548A">Open PaceLedger</a> · Super admins choose who gets this in Team &amp; admin → Team overview → Email reports.
 </div></div></div></div></body></html>`;
 
   const subjectNums = `${c.set.toLocaleString('en-US')} set, ${c.completed.toLocaleString('en-US')} completed, ${plural(c.apps, 'app')}, ${money(c.premium)}`;
@@ -342,7 +342,7 @@ ${agentsPart}
     'By agent:',
     ...(shown.length ? shown.map(a => line(a.name, a.nums, weekly ? prevAgents.get(a.id) || zero() : null)) : ['No activity logged.']),
     '',
-    APP_URL,
+    `${APP_URL}/team`,
   ].filter((l, i, all) => !(l === '' && all[i - 1] === '')).join('\n');
 
   return { subject, html, text };

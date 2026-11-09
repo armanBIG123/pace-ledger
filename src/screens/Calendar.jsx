@@ -8,7 +8,7 @@ import { fetchAppointmentsInRange, isRecruitType, isSaleType, typeLabel } from '
 import { createTraining, deleteTraining, deleteTrainingSeries, fetchTrainingsInRange, updateTraining, updateTrainingSeries } from '../data/trainings.js';
 import { fetchTeamMembers, seesTeam } from '../data/team.js';
 import { fetchGoogleConnectionStatus, fetchGoogleEvents, googleEventTimeKey } from '../data/integrations.js';
-import { Modal, openPicker, PageHead, PillChoice, RefreshButton, SkeletonCalendar, useIsPhone } from '../components/ui.jsx';
+import { Modal, MoreMenu, openPicker, PageHead, PillChoice, RefreshButton, SkeletonCalendar, useIsPhone } from '../components/ui.jsx';
 import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../components/appointmentPanel.jsx';
 import { isAdmin } from '../lib/roles.js';
 import { askChoice, askConfirm, undoable } from '../components/confirm.jsx';
@@ -510,13 +510,14 @@ export function CalendarBody({ user, onLogAppointment, intent = null, onIntentCo
   }
 
   const monthLabel = parseDate(monthStartStr).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const monthShort = parseDate(monthStartStr).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 
   return (
     <>
       {/* Posting a training and blocking out time are buttons up here; their
           forms open under the heading only when you use them, so the month
           isn't pushed down the page. */}
-      <PageHead title="Calendar" sub="Your appointments, team trainings and Google events in one place.">
+      <PageHead className="tr-cal-head" title="Calendar" sub="Your appointments, team trainings and Google events in one place.">
         {isAdmin(user) ? (
           <button type="button" className={`tr-btn tr-btn-sm ${posting === 'training' ? 'tr-btn-brass' : 'tr-btn-ghost'}`} aria-expanded={posting === 'training'} onClick={() => setPosting(p => (p === 'training' ? null : 'training'))}>
             <GraduationCap size={14} aria-hidden="true" /> New training
@@ -580,9 +581,17 @@ export function CalendarBody({ user, onLogAppointment, intent = null, onIntentCo
         </div>
         <div className="tr-monthnav">
           <button type="button" className="tr-icon-btn" onClick={() => setMonthStartStr(shiftMonth(monthStartStr, -1))} title="Previous month" aria-label="Previous month"><ChevronLeft size={18} /></button>
-          <div className="tr-weeknav-label"><CalendarDays size={16} aria-hidden="true" /><span>{monthLabel}</span></div>
+          <div className="tr-weeknav-label"><CalendarDays size={16} aria-hidden="true" /><span className="tr-weeknav-long">{monthLabel}</span><span className="tr-weeknav-short" aria-hidden="true">{monthShort}</span></div>
           <button type="button" className="tr-icon-btn" onClick={() => setMonthStartStr(shiftMonth(monthStartStr, 1))} title="Next month" aria-label="Next month"><ChevronRight size={18} /></button>
         </div>
+        {/* On a phone the less-used tools fold into ⋯ beside the month. */}
+        <span className="tr-cal-more">
+          <MoreMenu label="More calendar options" items={[
+            { label: 'Go to this month', onClick: () => setMonthStartStr(monthStartOf(todayStr())), disabled: monthStartStr === monthStartOf(todayStr()) },
+            { label: highlightTrainings ? 'Stop highlighting trainings' : 'Highlight trainings', onClick: () => setHighlightTrainings(v => !v) },
+            { label: 'Refresh', onClick: refresh },
+          ]} />
+        </span>
         <div className="tr-cal-tools">
           <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => setMonthStartStr(monthStartOf(todayStr()))} disabled={monthStartStr === monthStartOf(todayStr())}>This month</button>
           <RefreshButton onClick={refresh} />

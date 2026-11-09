@@ -10,9 +10,10 @@ import { DATE_SET_OPTIONS, dateSetMeta, defaultDateSetOption, WEEKLY_TOTAL_TARGE
 import { addDays, apptClock, apptEndClock, apptEndMs, apptLocalDate, apptStartMs, fmtApptDateTime, fmtDate, fmtDisplayDate, fmtShortDate, greetingFor, parseDate, startsInLabel, todayStr, weekStartOf } from '../lib/dates.js';
 import { lowerFirst } from '../lib/format.js';
 import { creditedTo } from '../lib/credit.js';
-import { PaycheckCard } from '../components/paycheck.jsx';
+import { PaycheckCard, useMonthPay } from '../components/paycheck.jsx';
 import { computePaycheck } from '../lib/paycheck.js';
 import { TeamWinsSection } from '../components/wins.jsx';
+import { PaceTrend } from '../components/pace.jsx';
 import { applyFollowUpToList, fetchAppointmentsImOn, fetchMyAppointments, isPastAppointment, loggedSummary, logPresentedAppointment, OUTCOME_OPTIONS, persistFollowUp, typeLabel } from '../data/appointments.js';
 import { ALL_CHARACTERISTICS, bookedProspectKeys, fetchMyProspects, insertProspect, isStaleProspect, LEANING_LABELS, prospectLeaningKey, prospectToAppointmentPrefill, prospectTotalChecked, STALE_PROSPECT_DAYS, topProspectsToCall, updateProspectPhone } from '../data/prospects.js';
 import { fetchHierarchyPeopleShared, fetchMyLicensing, loadPromotionReadiness, seesTeam } from '../data/team.js';
@@ -226,6 +227,8 @@ export function useNeedsYou({ user, licProfile, showLicensing, onMilestones, onR
 export function TodayBody({ user, onNavigate, initialIntent = null, onIntentConsumed }) {
   const [loading, setLoading] = useState(true);
   const [appointments, setAppointments] = useState([]);
+  // Real pay from the commission system, once any has arrived this month.
+  const realPay = useMonthPay(user.id);
   // Ones you're presenting or training on, today and tomorrow.
   const [involvedToday, setInvolvedToday] = useState([]);
   // Your clients' intake forms (who, sent how, filled in yet).
@@ -806,9 +809,12 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
   const tiles = [
     { key: 'pace', Icon: Activity, label: 'Pace this week', value: `${ratingPct}%`, tone: rating.cls,
       sub: newcomer && ratingPct < 100 ? `${setThisWeek} set · building up` : `${setThisWeek} of ${WEEKLY_TOTAL_TARGET}${weekShort > 0 ? ` · ${weekShort} to catch up` : ' · on pace'}` },
-    pay.rate > 0
+    realPay
+      ? { key: 'paycheck', Icon: Wallet, label: `Paid · ${now.toLocaleDateString('en-US', { month: 'long' })}`, value: money(realPay.paid), tone: '',
+        sub: realPay.coming > 0 ? `${money(realPay.coming)} on the way` : 'from your commissions' }
+    : pay.rate > 0
       ? { key: 'paycheck', Icon: Wallet, label: `Paycheck · ${now.toLocaleDateString('en-US', { month: 'long' })}`, value: money(pay.est), tone: pay.goal && pay.est >= pay.goal ? 'green' : '',
-        sub: pay.goal ? (pay.est >= pay.goal ? 'Goal hit · estimate' : `${pay.goalPct}% of goal · estimate`) : 'estimate' }
+        sub: pay.goal ? (pay.est >= pay.goal ? 'Goal hit · projected' : `${pay.goalPct}% of goal · projected`) : 'projected' }
       : { key: 'paycheck', Icon: Wallet, label: 'Premium this month', value: money(pay.premium), tone: '',
         sub: pay.next ? `${money(pay.nextEst)} at ${pay.next.name}` : 'target premium' },
     goals
@@ -1092,6 +1098,8 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
 
         <div className="tr-today-side">
           <TeamWinsSection user={user} compact />
+          {/* Your last six weeks of pace (the same count as the pace tile). */}
+          <PaceTrend appointments={counted} currentWeekMonday={weekStart} />
         </div>
       </div>
 

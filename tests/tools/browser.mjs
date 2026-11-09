@@ -31,7 +31,7 @@ export async function closeBrowser() { if (browser) await browser.close(); brows
 const DOCUSEAL_STUB = fs.readFileSync(path.join(TESTS, 'mock/docuseal-form.js'), 'utf8');
 
 // Opens the app with a seed: { user, db, factors, aal, totpAt }.
-export async function openApp(base, seed, { width = 1280, height = 900, mobile = false, init = [] } = {}) {
+export async function openApp(base, seed, { width = 1280, height = 900, mobile = false, init = [], path = '/' } = {}) {
   const b = await getBrowser();
   // Central time and US English, like the agency (and the same on GitHub's UTC machines).
   const ctx = await b.newContext({ viewport: { width, height }, deviceScaleFactor: 1, isMobile: mobile, hasTouch: mobile, permissions: ['clipboard-read', 'clipboard-write'], timezoneId: 'America/Chicago', locale: 'en-US' });
@@ -43,7 +43,7 @@ export async function openApp(base, seed, { width = 1280, height = 900, mobile =
   await page.route(/cdn\.docuseal\.com\/js\/form\.js/, r => r.fulfill({ status: 200, contentType: 'text/javascript', body: DOCUSEAL_STUB }));
   await page.addInitScript(s => { window.__PL_SEED = s; }, seed);
   for (const s of init) await page.addInitScript(s);
-  await page.goto(base + '/');
+  await page.goto(base + path);
   page.errors = errors;
   return page;
 }

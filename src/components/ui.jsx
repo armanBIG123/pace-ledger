@@ -2,9 +2,8 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CalendarDays, ChevronLeft, ChevronRight, DollarSign, Info, Loader2, MoreHorizontal, RefreshCw, UserPlus } from 'lucide-react';
-import { CSS } from '../styles.js';
 import { invalidateAppointments } from '../data/apptCache.js';
-import { joinedDate, todayStr, weekLabel, weekStartOf } from '../lib/dates.js';
+import { joinedDate, shortWeekLabel, todayStr, weekLabel, weekStartOf } from '../lib/dates.js';
 import { isRecruitType, isSaleType, STATUS_OPTIONS } from '../data/appointments.js';
 
 // "Reports to Sam · Joined 08/26/2026" under a team member's name.
@@ -22,7 +21,6 @@ export function MemberSubline({ member }) {
 export function Shell({ children }) {
   return (
     <div className="tr-root">
-      <style>{CSS}</style>
       {children}
     </div>
   );
@@ -30,9 +28,9 @@ export function Shell({ children }) {
 
 // One consistent page title row: title, an optional one-line summary,
 // and the page's main action(s) on the right.
-export function PageHead({ title, sub, children }) {
+export function PageHead({ title, sub, children, className = '' }) {
   return (
-    <div className="tr-pagehead">
+    <div className={`tr-pagehead ${className}`.trim()}>
       <div className="tr-pagehead-text">
         <h2 className="tr-h2">{title}</h2>
         {sub ? <p className="tr-pagehead-sub">{sub}</p> : null}
@@ -260,7 +258,7 @@ export function WeekNav({ weekMonday, onShift, onToday }) {
   return (
     <div className="tr-weeknav">
       <button type="button" className="tr-icon-btn" onClick={() => onShift(-1)} title="Previous week" aria-label="Previous week"><ChevronLeft size={18} /></button>
-      <div className="tr-weeknav-label"><CalendarDays size={16} aria-hidden="true" /><span>Week of {weekLabel(weekMonday)}</span></div>
+      <div className="tr-weeknav-label"><CalendarDays size={16} aria-hidden="true" /><span className="tr-weeknav-long">Week of {weekLabel(weekMonday)}</span><span className="tr-weeknav-short" aria-hidden="true">{shortWeekLabel(weekMonday)}</span></div>
       <button type="button" className="tr-icon-btn" onClick={() => onShift(1)} title="Next week" aria-label="Next week"><ChevronRight size={18} /></button>
       {/* (Greyed out while you're already on this week.) */}
       <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onToday} disabled={weekMonday === weekStartOf(todayStr())}>This week</button>

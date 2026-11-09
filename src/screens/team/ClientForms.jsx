@@ -2,7 +2,7 @@
 // one place, newest first. Read only; the advisor who sent a form is the
 // only one who can remove it. Answers load when a form is opened.
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronDown, ChevronUp, ClipboardCheck, Search, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Search, X } from 'lucide-react';
 import { fetchAllIntakeForms, fetchIntakeAnswers } from '../../clientIntake.js';
 import { IntakeResponsesView } from '../../ClientIntake.jsx';
 import { fetchHierarchyPeople } from '../../data/team.js';
@@ -69,7 +69,7 @@ export function ClientFormsBody() {
   return (
     <>
       <div className="tr-row-head tr-screen-head">
-        <TitleInfo title={<><ClipboardCheck size={18} aria-hidden="true" /> Client intake forms</>} info="Every advisor's client intake forms, newest first. Only super admins see this page. It's read only: the advisor who sent a form is the only one who can remove it." />
+        <TitleInfo title="Client Forms" info="Every advisor's client intake forms, newest first. Only super admins see this page. It's read only: the advisor who sent a form is the only one who can remove it." />
         <RefreshButton onClick={refresh} />
       </div>
       {failed && <div className="tr-error" style={{ marginBottom: 12 }}>Couldn't load the forms. Try Refresh.</div>}
