@@ -188,7 +188,7 @@ try {
   ok(put.body.send_email === false, 'DocuSeal still sends no email');
   ok(PL.db.producer_agreements[0].agent_name === 'Jordan A. Ellis', 'the agreement keeps their printed name');
   const adoptLog = PL.db.contracting_log.find(l => l.action === 'signature_adopted');
-  ok(adoptLog && adoptLog.user_id === JORDAN.id && /Jordan A\. Ellis/.test(adoptLog.detail) && /"JAE"/.test(adoptLog.detail) && /1 signature, 3 initials, 1 name, 1 email and 0 date spots filled/.test(adoptLog.detail) && /from 203\.0\.113\.9$/.test(adoptLog.detail), 'adopting is logged with their IP: ' + (adoptLog && adoptLog.detail));
+  ok(adoptLog && adoptLog.user_id === JORDAN.id && /Jordan A\. Ellis/.test(adoptLog.detail) && /"JAE"/.test(adoptLog.detail) && /1 signature, 3 initials, 1 name, 1 email, 0 agent code and 0 date spots filled/.test(adoptLog.detail) && /from 203\.0\.113\.9$/.test(adoptLog.detail), 'adopting is logged with their IP: ' + (adoptLog && adoptLog.detail));
   PL.db.contracting_log.forEach(l => { l.at = l.at || l.created_at; }); // the table's default, now()
   const putsReopen = DS.puts.length;
   r = await call(JORDAN, { action: 'agreement-session' });
@@ -341,10 +341,12 @@ try {
       { uuid: 't-ben', name: 'Benefits Initial', type: 'text', submitter_uuid: 'a2' }, { uuid: 't-guide', name: 'Guidelines acknowledgement', type: 'text', submitter_uuid: 'a2' },
       { uuid: 't-excl', name: 'Exclusive initial', type: 'text', submitter_uuid: 'a2' }, { uuid: 't-nonex', name: 'Non-exclusive initial', type: 'text', submitter_uuid: 'a2' },
       { uuid: 't-email', name: 'Email', type: 'text', submitter_uuid: 'a2' }, { uuid: 't-big', name: 'Signature', type: 'signature', submitter_uuid: 'b2' },
+      { uuid: 't-code', name: 'Agent code', type: 'text', submitter_uuid: 'a2' }, { uuid: 't-code2', name: 'Agent code', type: 'text', submitter_uuid: 'a2' },
+      { uuid: 't-ident', name: 'Agent identifier', type: 'text', submitter_uuid: 'a2' },
     ] };
   const S0 = { ...PL.db.contracting_settings[0] };
   Object.assign(PL.db.contracting_settings[0], { docuseal_template_id: 80, agreement_version: 'BIG-IAA-2026.2' });
-  PL.db.profiles.push({ id: '77777777-7777-7777-7777-777777777777', display_name: 'Taylor Reed', role: 'advisor' });
+  PL.db.profiles.push({ id: '77777777-7777-7777-7777-777777777777', display_name: 'Taylor Reed', role: 'advisor', npn: '1234-5678' });
   const TAYLOR = { id: '77777777-7777-7777-7777-777777777777', email: 'taylor@example.com' };
   PL.emails[TAYLOR.id] = TAYLOR.email;
   r = await call(TAYLOR, { action: 'agreement-session' });
@@ -367,7 +369,9 @@ try {
   ok(!['t-sig', 't-name', 't-email', 't-excl', 't-nonex', 't-big'].some(k => k in top.body.values), "what's already there, the election and BIG's spot are left alone");
   ok(tSigner.byUuid['t-email'] === 'typed@example.com', 'the email they typed stays');
   const fillLog = PL.db.contracting_log.find(l => l.action === 'spots_filled' && l.user_id === TAYLOR.id);
-  ok(fillLog && /Filled 4 more spots/.test(fillLog.detail), 'the fill is logged: ' + (fillLog && fillLog.detail));
+  ok(top.body.values['t-code'] === '12345678' && top.body.values['t-code2'] === '12345678', 'both Agent code boxes get their NPN, digits only');
+  ok(!('t-ident' in top.body.values), 'Agent identifier is left for them');
+  ok(fillLog && /Filled 6 more spots/.test(fillLog.detail) && /NPN/.test(fillLog.detail), 'the fill is logged: ' + (fillLog && fillLog.detail));
   r = await call(TAYLOR, { action: 'agreement-session' });
   ok(r.data.adopted === true && DS.puts.length === putsT + 1, 'opening it again sends nothing more');
   // A signature spot still empty (nothing stored to fill it with): they adopt once more.
