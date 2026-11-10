@@ -22,21 +22,35 @@
 // Limits: 20 Urgent help emails per person per day, 20 report emails per
 // person per day.
 //
-// Deploy: merging to main deploys it (.github/workflows/supabase-deploy.yml).
-// It uses ../_shared, so it can't be pasted into the Supabase editor.
-// Verify JWT stays off (the function checks who's signed in itself).
+// Deploy: Supabase -> Edge Functions -> Deploy a new function -> Via Editor,
+// name it chat-notify, paste this file, Deploy, then turn Verify JWT off
+// (the function checks who's signed in itself).
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { APP_URL, SERVICE_ROLE_KEY, SUPABASE_URL } from '../_shared/env.ts';
-import { json, preflight } from '../_shared/http.ts';
-import { signedInUser } from '../_shared/auth.ts';
-import { emailConfigured, sendEmail } from '../_shared/email.ts';
-import { esc } from '../_shared/html.ts';
 
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
+const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
+const INVITE_FROM_EMAIL = Deno.env.get('INVITE_FROM_EMAIL') || '';
+const APP_URL = (Deno.env.get('APP_URL') || 'https://big-pace-ledger.com').replace(/\/+$/, '');
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0, private',
+};
 const DAILY_CAP = 20;
 const QUIET_MINUTES = 10;
 const CHANNEL_NAMES: Record<string, string> = { general: 'General', work: 'Work', urgent: 'Urgent help' };
 
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
+}
+function esc(s: unknown) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+}
 const when = (iso: string) => new Date(iso).toLocaleString('en-US', {
   timeZone: 'America/Chicago', weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short',
 });
@@ -57,16 +71,30 @@ function page(kicker: string, title: string, quote: string, facts: [string, stri
 </div></body></html>`;
 }
 
-const send = async (to: string[], subject: string, html: string, text: string, replyTo?: string) =>
-  (await sendEmail({ to, subject, html, text, replyTo })).ok;
+async function send(to: string[], subject: string, html: string, text: string, replyTo?: string) {
+  const payload = JSON.stringify({ from: INVITE_FROM_EMAIL, to, subject, html, text, ...(replyTo ? { reply_to: replyTo } : {}) });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: payload,
+    });
+    if (res.ok) return true;
+    console.error('resend error', res.status, await res.text());
+    if (res.status !== 429) return false;
+    await new Promise(r => setTimeout(r, 1100));
+  }
+  return false;
+}
 
 Deno.serve(async (req: Request) => {
-  const pre = preflight(req);
-  if (pre) return pre;
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS });
   try {
-    const authUser = await signedInUser(req);
-    if (!authUser) return json({ ok: false, error: 'not_signed_in' }, 401);
-    const userId = authUser.id;
+    const jwt = (req.headers.get('Authorization') || '').replace('Bearer ', '');
+    const authClient = createClient(SUPABASE_URL, ANON_KEY);
+    const { data: userData, error: userErr } = await authClient.auth.getUser(jwt);
+    if (userErr || !userData?.user) return json({ ok: false, error: 'not_signed_in' }, 401);
+    const userId = userData.user.id;
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
     const body = await req.json().catch(() => ({}));
 
@@ -99,7 +127,7 @@ Deno.serve(async (req: Request) => {
       }
       return superAdmins(except);
     };
-    const configured = emailConfigured();
+    const configured = RESEND_API_KEY && INVITE_FROM_EMAIL;
 
     // Urgent help ---------------------------------------------------------
     if (body.messageId) {
@@ -143,7 +171,7 @@ Deno.serve(async (req: Request) => {
       const names = recipients.map(p => p.display_name);
       const posterEmail = await emailOf(poster);
       const name = poster.display_name || 'Someone on your team';
-      const link = `${APP_URL}/chat/urgent`;
+      const link = `${APP_URL}/?chat=urgent`;
       const subject = `Urgent help: ${name} needs a hand`;
       const facts: [string, string][] = [['From', `${name}${posterEmail ? `, ${posterEmail}` : ''}`], ['Posted', when(msg.created_at)]];
       const note = chain.length
@@ -188,7 +216,7 @@ Deno.serve(async (req: Request) => {
         ['Reported by', reporter[0]?.display_name || 'Someone'],
         ['Reason', report.reason || 'No reason given'],
       ];
-      const link = `${APP_URL}/chat/reports`;
+      const link = `${APP_URL}/?chat=reports`;
       const note = 'Open Chat -> Reports to remove the message or keep it. Please look at it within 24 hours.';
       const html = page('A Chat message was reported', `Reported message from ${authorName}`, report.message_body, facts, note, link, 'Review in PaceLedger');
       const text = ['A Chat message was reported in PaceLedger:', '', report.message_body, '', ...facts.map(([k, v]) => `${k}: ${v}`), '', note, link].join('\n');

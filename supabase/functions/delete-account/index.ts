@@ -27,26 +27,42 @@
 // SUPABASE_SERVICE_ROLE_KEY, plus the existing ZOOM_CLIENT_ID /
 // ZOOM_CLIENT_SECRET for revoking Zoom access (optional).
 
-// Deploy: merging to main deploys it (.github/workflows/supabase-deploy.yml).
-// It uses ../_shared, so it can't be pasted into the Supabase editor.
-
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { env, SERVICE_ROLE_KEY, SUPABASE_URL } from '../_shared/env.ts';
-import { json, preflight } from '../_shared/http.ts';
-import { signedInUser } from '../_shared/auth.ts';
 
-const ZOOM_CLIENT_ID = env('ZOOM_CLIENT_ID');
-const ZOOM_CLIENT_SECRET = env('ZOOM_CLIENT_SECRET');
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
+const ZOOM_CLIENT_ID = Deno.env.get('ZOOM_CLIENT_ID') ?? '';
+const ZOOM_CLIENT_SECRET = Deno.env.get('ZOOM_CLIENT_SECRET') ?? '';
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
+const NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0, private',
+  Pragma: 'no-cache',
+  Expires: '0',
+};
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...CORS_HEADERS, ...NO_CACHE_HEADERS, 'Content-Type': 'application/json' },
+  });
+}
 
 Deno.serve(async (req: Request) => {
-  const pre = preflight(req);
-  if (pre) return pre;
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: { ...CORS_HEADERS, ...NO_CACHE_HEADERS } });
   if (req.method !== 'POST') return json({ deleted: false, error: 'method_not_allowed' }, 405);
 
   // Who is asking?
-  const authUser = await signedInUser(req);
-  if (!authUser) return json({ deleted: false, error: 'invalid_session' }, 401);
-  const callerId = authUser.id;
+  const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
+  if (!token) return json({ deleted: false, error: 'invalid_session' }, 401);
+  const authClient = createClient(SUPABASE_URL, ANON_KEY);
+  const { data: userData, error: userErr } = await authClient.auth.getUser(token);
+  if (userErr || !userData?.user) return json({ deleted: false, error: 'invalid_session' }, 401);
+  const callerId = userData.user.id;
 
   let body: { confirm?: unknown; userId?: unknown } = {};
   try { body = await req.json(); } catch { /* handled below */ }

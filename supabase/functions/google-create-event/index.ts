@@ -21,16 +21,29 @@
 // which every invitation shows, gives the time in the appointment's zone:
 // "When: Friday, November 6, 5:00 – 6:00 PM EST".
 //
-// Deploy: merging to main deploys it (.github/workflows/supabase-deploy.yml).
-// It uses ../_shared, so it can't be pasted into the Supabase editor.
+// Deploy with: supabase functions deploy google-create-event
+// (or Supabase -> Edge Functions -> google-create-event -> Code -> paste
+// this file -> Deploy updates).
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { env, SERVICE_ROLE_KEY, SUPABASE_URL } from '../_shared/env.ts';
-import { json, preflight } from '../_shared/http.ts';
-import { signedInUser } from '../_shared/auth.ts';
 
-const GOOGLE_CLIENT_ID = env('GOOGLE_CLIENT_ID');
-const GOOGLE_CLIENT_SECRET = env('GOOGLE_CLIENT_SECRET');
+const GOOGLE_CLIENT_ID = Deno.env.get('GOOGLE_CLIENT_ID')!;
+const GOOGLE_CLIENT_SECRET = Deno.env.get('GOOGLE_CLIENT_SECRET')!;
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
+
+// Same no-cache header set as the other functions — belt and suspenders
+// against on-disk browser caching, even though this response body itself
+// is just two booleans, not a link.
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0, private',
+  'Pragma': 'no-cache',
+  'Expires': '0',
+};
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 // The agency's home zone, if an appointment somehow has none (never UTC).
@@ -131,15 +144,18 @@ async function createEventFor(admin: any, targetUserId: string, event: any, send
 }
 
 export async function handle(req: Request): Promise<Response> {
-  const pre = preflight(req);
-  if (pre) return pre;
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS });
 
   try {
-    const authUser = await signedInUser(req);
-    if (!authUser) {
-      return json({ error: 'Not authenticated' }, 401);
+    const jwt = (req.headers.get('Authorization') || '').replace('Bearer ', '');
+    const authClient = createClient(SUPABASE_URL, ANON_KEY);
+    const { data: userData, error: userErr } = await authClient.auth.getUser(jwt);
+    if (userErr || !userData?.user) {
+      return new Response(JSON.stringify({ error: 'Not authenticated' }), {
+        status: 401, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+      });
     }
-    const userId = authUser.id;
+    const userId = userData.user.id;
     const { title, description, location, attendees, startDateTime, endDateTime, timezone, managerHostId } = await req.json();
 
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
@@ -178,9 +194,13 @@ export async function handle(req: Request): Promise<Response> {
 
     // Who Google actually emailed: everyone except the calendar owner.
     const invited = own.pushed ? inviteList.filter(e => e !== own.organizer) : [];
-    return json({ ownPushed: own.pushed, managerPushed: manager.pushed, ownInvited: invited.length > 0, invited });
+    return new Response(JSON.stringify({ ownPushed: own.pushed, managerPushed: manager.pushed, ownInvited: invited.length > 0, invited }), {
+      headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+    });
   } catch (err) {
-    return json({ error: String(err) }, 500);
+    return new Response(JSON.stringify({ error: String(err) }), {
+      status: 500, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' },
+    });
   }
 }
 

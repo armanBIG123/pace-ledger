@@ -16,17 +16,18 @@
 // Deploy with "Verify JWT" turned OFF: Minkoo's system sends the x-api-key,
 // not a PaceLedger sign-in.
 
-// Deploy: merging to main deploys it (.github/workflows/supabase-deploy.yml).
-// It uses ../_shared, so it can't be pasted into the Supabase editor.
-
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SERVICE_ROLE_KEY, SUPABASE_URL } from '../_shared/env.ts';
-import { json as reply, NO_CACHE } from '../_shared/http.ts';
 
+const env = (k: string, d = ''): string => {
+  try { return (typeof Deno !== 'undefined' ? Deno.env.get(k) : undefined) ?? d; } catch { return d; }
+};
+const SUPABASE_URL = env('SUPABASE_URL');
+const SERVICE_ROLE_KEY = env('SUPABASE_SERVICE_ROLE_KEY');
 const MAX_BYTES = 8 * 1024 * 1024;
 
-// Called by the commission system, never a browser: no CORS.
-const json = (body: unknown, status = 200) => reply(body, status, NO_CACHE);
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
+  status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+});
 
 export async function handle(req: Request): Promise<Response> {
   if (req.method === 'GET') return json({ ok: true, service: 'PaceLedger commissions', how: 'POST JSON with an x-api-key header' });

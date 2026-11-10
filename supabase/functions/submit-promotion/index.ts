@@ -25,17 +25,26 @@
 // person's solar system: its notify email if it has one (BIG:
 // agency@biginsurancenetwork.com), otherwise its Super Managers.
 //
-// Deploy: merging to main deploys it (.github/workflows/supabase-deploy.yml).
-// It uses ../_shared, so it can't be pasted into the Supabase editor.
+// Deploy with: supabase functions deploy submit-promotion
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { APP_URL, env, SERVICE_ROLE_KEY, SUPABASE_URL } from '../_shared/env.ts';
-import { json, preflight } from '../_shared/http.ts';
-import { signedInUser } from '../_shared/auth.ts';
-import { emailConfigured, sendEmail } from '../_shared/email.ts';
-import { esc } from '../_shared/html.ts';
 
-const AGENCY_EMAIL = env('AGENCY_EMAIL', 'agency@biginsurancenetwork.com').trim();
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
+const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
+const INVITE_FROM_EMAIL = Deno.env.get('INVITE_FROM_EMAIL') || '';
+const APP_URL = (Deno.env.get('APP_URL') || 'https://big-pace-ledger.com').replace(/\/+$/, '');
+const AGENCY_EMAIL = (Deno.env.get('AGENCY_EMAIL') || 'agency@biginsurancenetwork.com').trim();
+
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0, private',
+  'Pragma': 'no-cache',
+  'Expires': '0',
+};
 const DAILY_CAP = 30;
 
 // Same ladder as src/hierarchy.js.
@@ -58,6 +67,12 @@ function nextTier(key: string | null) {
 }
 const tierLabel = (key: string | null) => { const t = tierOf(key); return t ? `${t.name} (${t.key})` : 'No level set'; };
 
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
+}
+function esc(s: unknown) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+}
 const oneLine = (s: unknown, max: number) => String(s ?? '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, max);
 
 type Result = { label: string; result: string; met: boolean };
@@ -69,13 +84,14 @@ function cleanResults(raw: unknown): Result[] {
 }
 
 Deno.serve(async (req: Request) => {
-  const pre = preflight(req);
-  if (pre) return pre;
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS });
 
   try {
-    const authUser = await signedInUser(req);
-    if (!authUser) return json({ submitted: false, error: 'Not authenticated' }, 401);
-    const userId = authUser.id;
+    const jwt = (req.headers.get('Authorization') || '').replace('Bearer ', '');
+    const authClient = createClient(SUPABASE_URL, ANON_KEY);
+    const { data: userData, error: userErr } = await authClient.auth.getUser(jwt);
+    if (userErr || !userData?.user) return json({ submitted: false, error: 'Not authenticated' }, 401);
+    const userId = userData.user.id;
 
     const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
     const { data: me } = await admin.from('profiles').select('*').eq('id', userId).maybeSingle();
@@ -130,7 +146,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (row!.emailed_at) return json({ submitted: true, emailed: true, already: true, request: row });
-    if (!emailConfigured()) return json({ submitted: true, emailed: false, error: 'email_not_configured', request: row });
+    if (!RESEND_API_KEY || !INVITE_FROM_EMAIL) return json({ submitted: true, emailed: false, error: 'email_not_configured', request: row });
 
     const since = new Date(Date.now() - 24 * 3600_000).toISOString();
     const { count: sentToday } = await admin.from('promotion_requests')
@@ -209,7 +225,19 @@ Deno.serve(async (req: Request) => {
     ].join('\n');
 
     const replyTo = submitter?.email || undefined;
-    const { ok } = await sendEmail({ to: recipients, subject, html, text, replyTo }, { waitMs: 1100 });
+    const payload = JSON.stringify({ from: INVITE_FROM_EMAIL, to: recipients, subject, html, text, ...(replyTo ? { reply_to: replyTo } : {}) });
+    let ok = false;
+    for (let attempt = 0; attempt < 2 && !ok; attempt++) {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+        body: payload,
+      });
+      if (res.ok) { ok = true; break; }
+      console.error('resend error', res.status, await res.text());
+      if (res.status !== 429) break;
+      await new Promise(r => setTimeout(r, 1100));
+    }
     if (!ok) {
       // Nothing went out: release the claim so they can try again.
       await admin.from('promotion_requests').update({ emailed_at: null }).eq('id', row!.id);

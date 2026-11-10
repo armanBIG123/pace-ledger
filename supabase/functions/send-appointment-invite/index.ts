@@ -18,17 +18,28 @@
 // the browser. Recipients are validated and capped at 8 per send, sends are
 // capped per advisor per day, and only genuine zoom.us links are included.
 //
-// Deploy: merging to main deploys it (.github/workflows/supabase-deploy.yml).
-// It uses ../_shared, so it can't be pasted into the Supabase editor.
+// Deploy with: supabase functions deploy send-appointment-invite
+// (or Supabase -> Edge Functions -> send-appointment-invite -> Code -> paste
+// this file -> Deploy).
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { SERVICE_ROLE_KEY, SUPABASE_URL } from '../_shared/env.ts';
-// Replies are never cached: they mention a meeting link, which must never
-// land in a browser's on-disk cache.
-import { json, preflight } from '../_shared/http.ts';
-import { signedInUser } from '../_shared/auth.ts';
-import { emailConfigured, sendEmail } from '../_shared/email.ts';
-import { esc } from '../_shared/html.ts';
+
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
+const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
+const RESEND_API_KEY = Deno.env.get('RESEND_API_KEY') || '';
+const INVITE_FROM_EMAIL = Deno.env.get('INVITE_FROM_EMAIL') || '';
+
+// Same no-cache headers as the other functions — responses here mention
+// a meeting link, which must never land in a browser's on-disk cache.
+const CORS_HEADERS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0, private',
+  'Pragma': 'no-cache',
+  'Expires': '0',
+};
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 // How long the meeting is: the appointment's own length, or 30 minutes for
 // rows saved before lengths were.
@@ -41,6 +52,12 @@ const DAILY_CAP = 40;
 // Only real Zoom join links are ever put in an email.
 const ZOOM_URL_RE = /^https:\/\/([a-z0-9-]+\.)*zoom\.us\/[^\s"'<>]*$/i;
 
+function json(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: { ...CORS_HEADERS, 'Content-Type': 'application/json' } });
+}
+function esc(s: string) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+}
 function icsEsc(s: string) {
   return String(s ?? '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r\n|\r|\n/g, '\\n');
 }
@@ -63,15 +80,16 @@ function startInstant(appt: any): Date {
 }
 
 Deno.serve(async (req: Request) => {
-  const pre = preflight(req);
-  if (pre) return pre;
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS_HEADERS });
 
   try {
-    const authUser = await signedInUser(req);
-    if (!authUser) return json({ sent: false, error: 'Not authenticated' }, 401);
-    const userId = authUser.id;
+    const jwt = (req.headers.get('Authorization') || '').replace('Bearer ', '');
+    const authClient = createClient(SUPABASE_URL, ANON_KEY);
+    const { data: userData, error: userErr } = await authClient.auth.getUser(jwt);
+    if (userErr || !userData?.user) return json({ sent: false, error: 'Not authenticated' }, 401);
+    const userId = userData.user.id;
 
-    if (!emailConfigured()) return json({ sent: false, error: 'email_not_configured' });
+    if (!RESEND_API_KEY || !INVITE_FROM_EMAIL) return json({ sent: false, error: 'email_not_configured' });
 
     const { appointmentId, emails, updated } = await req.json();
     const recipients: string[] = Array.isArray(emails)
@@ -104,7 +122,7 @@ Deno.serve(async (req: Request) => {
     const { data: advisor } = await admin.from('profiles').select('display_name, email').eq('id', userId).maybeSingle();
 
     const advisorName = advisor?.display_name || 'Your advisor';
-    const replyTo = advisor?.email || authUser.email || undefined;
+    const replyTo = advisor?.email || userData.user.email || undefined;
     const tz = appt.appointment_timezone || 'America/Chicago';
     const start = startInstant(appt);
     const end = new Date(start.getTime() + lengthMinutes(appt) * 60_000);
@@ -145,14 +163,25 @@ ${zoomUrl
 
     // One email per recipient, so nobody sees anyone else's address. Sent
     // one at a time (Resend's default limit is ~2 per second, and its batch
-    // endpoint doesn't allow attachments), trying again once if Resend is busy.
+    // endpoint doesn't allow attachments), retrying once if rate-limited.
     const sentTo: string[] = [];
     for (const to of recipients) {
-      const sent = await sendEmail({
-        to: [to], subject, html, replyTo: replyTo || undefined,
+      const payload = JSON.stringify({
+        from: INVITE_FROM_EMAIL, to: [to], subject, html,
+        ...(replyTo ? { reply_to: replyTo } : {}),
         attachments: [{ filename: 'meeting.ics', content: icsB64, content_type: 'text/calendar' }],
-      }, { waitMs: 1100 });
-      if (sent.ok) sentTo.push(to);
+      });
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const res = await fetch('https://api.resend.com/emails', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+          body: payload,
+        });
+        if (res.ok) { sentTo.push(to); break; }
+        console.error('resend error', to, res.status, await res.text());
+        if (res.status !== 429) break;
+        await new Promise(r => setTimeout(r, 1100));
+      }
       await new Promise(r => setTimeout(r, 550));
     }
     if (sentTo.length === 0) {

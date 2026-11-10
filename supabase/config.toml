@@ -1,0 +1,49 @@
+# Supabase settings for the PaceLedger project (made by supabase/deploy/sync.sh).
+# verify_jwt = false: the function checks callers itself (webhooks, OAuth
+# returns, the hourly email job). Deploys keep each function's setting.
+project_id = "pace-ledger"
+
+[functions.activity-report]
+verify_jwt = false
+
+[functions.chat-notify]
+verify_jwt = false
+
+[functions.commissions-ingest]
+verify_jwt = false
+
+[functions.contracting]
+verify_jwt = false
+
+[functions.delete-account]
+verify_jwt = false
+
+[functions.google-calendar-events]
+verify_jwt = false
+
+[functions.google-create-event]
+verify_jwt = false
+
+[functions.google-oauth-callback]
+verify_jwt = false
+
+[functions.presenter-availability-index]
+verify_jwt = false
+
+[functions.send-appointment-invite]
+verify_jwt = false
+
+[functions.send-intake-link]
+verify_jwt = false
+
+[functions.send-recruit-invite]
+verify_jwt = false
+
+[functions.submit-promotion]
+verify_jwt = false
+
+[functions.zoom-create-meeting]
+verify_jwt = false
+
+[functions.zoom-oauth-callback]
+verify_jwt = false
