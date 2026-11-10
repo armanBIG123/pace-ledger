@@ -17,7 +17,8 @@ if [ -z "$before" ] || [ "$before" = "0000000000000000000000000000000000000000" 
   todo=("${all[@]}")
 else
   changed=$(git diff --name-only "$before" HEAD -- supabase/functions | cut -d/ -f3 | sort -u)
-  if echo "$changed" | grep -qx "_shared"; then todo=("${all[@]}"); else todo=(); for n in $changed; do [ -d "supabase/functions/$n" ] && todo+=("$n"); done; fi
+  # Shared code or the settings changed: every function gets them.
+  if echo "$changed" | grep -qx "_shared" || git diff --name-only "$before" HEAD -- supabase/config.toml | grep -q .; then todo=("${all[@]}"); else todo=(); for n in $changed; do [ -d "supabase/functions/$n" ] && todo+=("$n"); done; fi
 fi
 if [ ${#todo[@]} -eq 0 ]; then echo "No server functions changed."; exit 0; fi
 
