@@ -1,14 +1,15 @@
 // Team Pace → Field training: who still needs observation sales for Field
 // Associate, the field training booked this week, and upcoming
 // appointments with an open trainee seat to put them on.
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useState } from 'react';
 
 import { buildFieldTraining } from '../../lib/fieldTraining.js';
 import { fmtApptDateTime } from '../../lib/dates.js';
 import { loadPromotionReadiness } from '../../data/team.js';
 import { fetchUpcomingAppointments, setAppointmentTrainee } from '../../data/recruits.js';
 import { EmailButton } from '../../components/email.jsx';
-import { MoreMenu, RefreshButton, SkeletonTable, TitleInfo, TypeBadge } from '../../components/ui.jsx';
+import { MoreMenu, SkeletonTable, TitleInfo, TypeBadge } from '../../components/ui.jsx';
+import { idsKey, useLive } from '../../data/live.js';
 import { useAppointmentEdits, openAppointment } from '../../components/appointmentPanel.jsx';
 import { askConfirm } from '../../components/confirm.jsx';
 import { PeopleToolbar, personMatches, usePeopleSearch } from '../../components/peopleList.jsx';
@@ -26,26 +27,24 @@ function Dots({ current, target }) {
 }
 
 export function FieldTrainingSubView({ user, members, loadingMembers, emptyMessage }) {
-  const [data, setData] = useState(null);
   const [picks, setPicks] = useState({}); // appointment id -> chosen trainee id
   const [busyId, setBusyId] = useState(null);
   const [notice, setNotice] = useState(null);
   const [allSeats, setAllSeats] = useState(false);
   const [q] = usePeopleSearch();
 
-  const refresh = useCallback(async () => {
-    if (!members.length) { setData({ needers: [], seats: [], booked: [], byId: new Map() }); return; }
-    setData(null);
+  const live = useLive(['team-training', user.id, idsKey(members)], async () => {
+    if (!members.length) return { needers: [], seats: [], booked: [], byId: new Map() };
     const ids = members.map(m => m.id);
     const [{ list, people }, upcoming] = await Promise.all([loadPromotionReadiness(user, ids), fetchUpcomingAppointments(7)]);
     const board = buildFieldTraining({ readiness: list, people, upcoming, teamIds: new Set(ids) });
-    setData({ ...board, byId: new Map(people.map(p => [p.id, p])) });
-    setPicks({});
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [members]);
-  useEffect(() => { refresh(); }, [refresh]);
+    return { ...board, byId: new Map(people.map(p => [p.id, p])) };
+  }, { topics: ['people', 'appointments'], enabled: !loadingMembers });
+  const data = live.data || null;
+  // After adding or removing a trainee: load again and clear the picks.
+  const refresh = () => live.reload().then(() => setPicks({}));
   // An appointment opened from here was changed: its seat or time may differ.
-  useAppointmentEdits(() => { refresh(); });
+  useAppointmentEdits(() => { live.reload(); });
 
   async function assign(appt, traineeId) {
     const trainee = data.byId.get(traineeId);
@@ -87,7 +86,6 @@ export function FieldTrainingSubView({ user, members, loadingMembers, emptyMessa
       <div className="tr-row-head tr-screen-head">
         <TitleInfo title="Field training"
           info="Field Associate takes 3 observation sales in 30 days: appointments someone sits in on as the trainee that end in a sale. Here's who still needs them, and upcoming appointments they can sit in on." />
-        <RefreshButton onClick={refresh} />
       </div>
       {notice && <div className={notice.kind === 'ok' ? 'tr-flash' : 'tr-error'} style={{ marginBottom: 12 }}>{notice.text}</div>}
       <PeopleToolbar total={allNeeders.length} matched={needers.length} />

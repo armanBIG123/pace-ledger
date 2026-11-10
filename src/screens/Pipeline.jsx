@@ -3,7 +3,8 @@
 // → Appointments → Log outcomes → Follow-up meetings → Results, with the
 // counts from lib/pipeline.js. Each stage opens the list that does that
 // job (also opened from Today, search and + New), with a way back to Clients.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useLive } from '../data/live.js';
 import { Award, CalendarDays, ChevronLeft, ChevronRight, ListChecks, MessageCircle, Users } from 'lucide-react';
 import { fetchAppointmentsImOn, fetchMyAppointments } from '../data/appointments.js';
 import { fetchMyProspects, prospectToAppointmentPrefill } from '../data/prospects.js';
@@ -83,23 +84,24 @@ function WonStage({ user, summary }) {
 // elsewhere (search, + New, Today) for the screen behind a list. client is
 // { key, name } or null.
 export function PipelineBody({ user, stage, onStage, client, onClient, intentFor, clearIntent, prefillData, onPrefillConsumed, cameFrom, onReturn, onLogAppointment }) {
-  const [summary, setSummary] = useState(null);
-  const load = useCallback(async () => {
-    const first = parseDate(`${todayStr().slice(0, 7)}-01`);
+  const month = todayStr().slice(0, 7);
+  const live = useLive(['pipeline-summary', user.id, month], async () => {
+    const first = parseDate(`${month}-01`);
     const last = new Date(first.getFullYear(), first.getMonth() + 1, 0);
     const [prospects, appointments, presenting, signups] = await Promise.all([
       fetchMyProspects(user.id), fetchMyAppointments(user.id), fetchAppointmentsImOn(user.id).catch(() => []),
       fetchRecruitSignups(fmtDate(first), fmtDate(last)),
     ]);
-    setSummary(pipelineSummary({ prospects, appointments, presenting, signups, userId: user.id }));
-  }, [user.id]);
-  // Fresh numbers whenever the stage changes or appointments are saved.
-  useEffect(() => { load(); }, [load, stage]);
+    return pipelineSummary({ prospects, appointments, presenting, signups, userId: user.id });
+  }, { topics: ['appointments', 'prospects', 'recruits'] });
+  const summary = live.data || null;
+  // Fresh numbers whenever the stage changes too (a prospect added on one
+  // list shows in the counts on the next).
+  const firstStage = useRef(true);
   useEffect(() => {
-    const again = () => load();
-    window.addEventListener('paceledger:appointments-changed', again);
-    return () => window.removeEventListener('paceledger:appointments-changed', again);
-  }, [load]);
+    if (firstStage.current) { firstStage.current = false; return; }
+    live.reload();
+  }, [stage]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (stage === 'clients' || !PIPELINE_STAGES.some(s => s.key === stage)) {
     // The bar sits under the Clients heading (not on one person's profile).

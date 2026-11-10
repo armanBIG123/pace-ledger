@@ -12,6 +12,7 @@ import { isAdmin } from './lib/roles.js';
 import { fetchSolarSystems } from './data/solarSystems.js';
 import { fetchContractingSettings } from './data/contracting.js';
 import { setContractingInApp } from './licensing.js';
+import { forgetAll } from './data/live.js';
 
 // The client intake form (opened from a link sent to a client) loads only
 // for that link.
@@ -55,7 +56,12 @@ export default function App() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session ?? null));
+    let lastUser = null;
     const { data: sub } = supabase.auth.onAuthStateChange((event, sess) => {
+      // Signing out, or someone else signing in: forget every remembered copy.
+      const who = sess && sess.user ? sess.user.id : null;
+      if (event === 'SIGNED_OUT' || (lastUser && who !== lastUser)) forgetAll();
+      lastUser = who;
       setSession(sess);
       if (event === 'PASSWORD_RECOVERY') setRecoveryMode(true);
     });

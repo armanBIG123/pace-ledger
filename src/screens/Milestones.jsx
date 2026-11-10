@@ -11,7 +11,8 @@ import { GapCallout, NextLevel } from '../components/milestones.jsx';
 import { lowerFirst } from '../lib/format.js';
 import { fetchAppointmentsAsTrainee, fetchAppointmentsForUserIds, fetchAppointmentsImPresenting, fetchMyAppointments } from '../data/appointments.js';
 import { fetchHierarchyPeople, fetchMyLicensing, saveLicensing } from '../data/team.js';
-import { PageHead, RefreshButton, SkeletonCards } from '../components/ui.jsx';
+import { PageHead, SkeletonCards } from '../components/ui.jsx';
+import { useLive } from '../data/live.js';
 import { AgreementHistory, AgreementSheet, ContractingFormSheet, contractingChanged, useMyContracting } from '../components/contracting.jsx';
 import { askConfirm } from '../components/confirm.jsx';
 import { contractingWords, withdrawContractingInfo } from '../data/contracting.js';
@@ -133,15 +134,7 @@ export function MyPathHero({ tierKey, pace, moons }) {
 }
 
 export function MyProgressCard({ user }) {
-  const [loading, setLoading] = useState(true);
-  const [progress, setProgress] = useState(null);
-  const [summary, setSummary] = useState(null);
-  const [hero, setHero] = useState(null); // { pace, moons }
-  const [notSet, setNotSet] = useState(false);
-  const [atTop, setAtTop] = useState(false);
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const live = useLive(['my-progress', user.id, user.hierarchyTier || ''], async () => {
     const [orgDirectory, licensing, myAppts, traineeAppts, licProgress, presenting] = await Promise.all([
       fetchHierarchyPeople(),
       fetchMyLicensing(user.id),
@@ -151,37 +144,33 @@ export function MyProgressCard({ user }) {
       fetchAppointmentsImPresenting(user.id).catch(() => []),
     ]);
     const person = { ...(orgDirectory.find(p => p.id === user.id) || { id: user.id, manager_id: null }), hierarchy_tier: user.hierarchyTier, ...licensing };
-    // This week's pace and the people who report to you, for My path.
     const week = weekStartOf(todayStr());
-    // Pace counts the ones you set plus the ones you're presenting for your team.
     const thisWeek = [...myAppts, ...presenting].filter(a => a.weekOf === week && !a.isFollowUp);
     const counts = DATE_SET_OPTIONS.map(opt => thisWeek.filter(a => a.dateSetOption === opt.value).length);
     const directs = orgDirectory.filter(p => p.manager_id === user.id);
-    setHero({ pace: { total: counts.reduce((x, y) => x + y, 0), status: getStatus(counts, week) }, moons: directs.length });
-    if (!person.hierarchy_tier) { setNotSet(true); setAtTop(false); setProgress(null); setSummary(null); setLoading(false); return; }
-    if (!nextTierAfter(person.hierarchy_tier)) { setAtTop(true); setNotSet(false); setProgress(null); setSummary(null); setLoading(false); return; }
+    const hero = { pace: { total: counts.reduce((x, y) => x + y, 0), status: getStatus(counts, week) }, moons: directs.length };
+    if (!person.hierarchy_tier) return { hero, notSet: true };
+    if (!nextTierAfter(person.hierarchy_tier)) return { hero, atTop: true };
     const downline = computeDownline(user.id, orgDirectory).filter(p => p.id !== user.id);
     const downlineAppts = await fetchAppointmentsForUserIds(downline.map(p => p.id));
-    setNotSet(false); setAtTop(false);
-    // Split sales count for both people, each with their share (lib/credit.js):
-    // yours, ones split with you, and your downline's.
     const downIds = new Set(downline.map(p => p.id));
     const credited = creditRows([...myAppts, ...presenting, ...downlineAppts]);
     const myCredit = credited.filter(a => a.userId === user.id);
     const downCredit = credited.filter(a => downIds.has(a.userId));
     const mine = computeTierProgress(person, orgDirectory, myCredit, downCredit, traineeAppts);
-    // How close each person who reports to you is, for "Closest: …".
     const sold = [...myAppts, ...presenting, ...downlineAppts].filter(a => a.officiallySold);
     const directPct = new Map(computeReadiness(orgDirectory, sold, directs.map(d => d.id)).map(x => [x.member.id, progressPct(x.progress)]));
-    setProgress(mine);
-    setSummary(milestoneSummary(person, mine, {
-      licensing: licProgress && licProgress.error ? null : licensingStatus(licProgress, person),
-      closestFor: tierKey => closestDirect(directs, tierKey, id => directPct.get(id) ?? null),
-    }));
-    setLoading(false);
-  }, [user.id, user.hierarchyTier]);
-
-  useEffect(() => { refresh(); }, [refresh]);
+    return {
+      hero,
+      progress: mine,
+      summary: milestoneSummary(person, mine, {
+        licensing: licProgress && licProgress.error ? null : licensingStatus(licProgress, person),
+        closestFor: tierKey => closestDirect(directs, tierKey, id => directPct.get(id) ?? null),
+      }),
+    };
+  }, { topics: ['appointments', 'people', 'licensing'] });
+  const loading = live.loading;
+  const { hero = null, notSet = false, atTop = false, progress = null, summary = null } = live.data || {};
 
   if (loading) return <SkeletonCards count={2} />;
   const heroEl = hero && user.hierarchyTier ? <MyPathHero tierKey={user.hierarchyTier} pace={hero.pace} moons={hero.moons} /> : null;
@@ -199,7 +188,6 @@ export function MyProgressCard({ user }) {
       <div className="tr-card tr-progress-card">
         <div className="tr-row-head" style={{ marginBottom: 2 }}>
           <h3 className="tr-h3" style={{ margin: 0 }}>Your progress toward {progress.nextTier.name} ({progress.nextTier.key})</h3>
-          <RefreshButton onClick={refresh} />
         </div>
         <p className="tr-subtitle" style={{ margin: '2px 0 12px' }}>{HIERARCHY_TIER_WINDOW_LABELS[progress.nextTier.window]}</p>
         {summary ? <div className="tr-progress-summary"><NextLevel summary={summary} /></div> : null}

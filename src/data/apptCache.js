@@ -10,6 +10,8 @@
 //   invalidateAppointments), and so does the appointments-changed event the
 //   app sends after edits, so a screen never shows something you just
 //   changed the old way.
+import { changed } from './live.js';
+
 const FRESH_MS = 30_000;
 const entries = new Map(); // key -> { at, promise }
 
@@ -31,9 +33,10 @@ export function cachedLoad(key, load, { fresh = false } = {}) {
 }
 
 // Call before and after each write (the second call drops anything that
-// loaded while the write was going on).
-export function invalidateAppointments() { generation++; entries.clear(); }
+// loaded while the write was going on). Screens on the shared data layer
+// (live.js) that list 'appointments' load again.
+export function invalidateAppointments() { generation++; entries.clear(); changed('appointments'); }
 
 if (typeof window !== 'undefined') {
-  window.addEventListener('paceledger:appointments-changed', invalidateAppointments);
+  window.addEventListener('paceledger:appointments-changed', () => { generation++; entries.clear(); });
 }

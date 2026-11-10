@@ -1,5 +1,5 @@
 // My Appointments: the weekly batches, the appointment form, outcomes and Open Requirements.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, ClipboardCheck, Download, Link2, Plus, Search, Trash2, UserPlus, X } from 'lucide-react';
 import { isNativeApp } from '../native.js';
 import { computeDownline, computeUpline } from '../hierarchy.js';
@@ -7,11 +7,12 @@ import { checkAppointmentConflict } from '../schedule.js';
 import { DATE_SET_OPTIONS, dateSetMeta, defaultDateSetOption } from '../lib/pace.js';
 import { addMinutesToDateTime, addMinutesToTime, apptEndMs, apptStartMs, detectTimezone, durationLabel, fmtApptDateTime, fmtClockRange, fmtDisplayDate, fmtFollowUpDateTime, minutesBetweenTimes, parseDate, shiftWeekStr, timezoneOptionsWithDetected, todayStr, weekStartOf } from '../lib/dates.js';
 import { downloadCSV, fmtCurrency, isValidEmail } from '../lib/format.js';
-import { addPolicyNote, applyFollowUpToList, DEFAULT_APPT_MINUTES, fetchAppointmentsImPresenting, fetchMyAppointments, fetchPolicyNotes, fetchSoldPolicies, fetchZoomConnectedManagers, insertAppointment, inviteFailureMessage, isPastAppointment, isPolicyIssued, isRecruitType, isSaleType, ISSUED_PREMIUM_VIEW, markInviteSent, persistFollowUp, SOLD_PREMIUM_VIEW, STATUS_OPTIONS, typeLabel, updateAppointment, updatePolicyFields, updateTeamAppointment } from '../data/appointments.js';
+import { addPolicyNote, applyFollowUpToList, DEFAULT_APPT_MINUTES, fetchAppointmentsImPresenting, fetchMyAppointments, fetchPolicyNotes, fetchSoldPolicies, fetchZoomConnectedManagers, insertAppointment, inviteFailureMessage, isPastAppointment, isPolicyIssued, isRecruitType, isSaleType, ISSUED_PREMIUM_VIEW, markInviteSent, persistFollowUp, SOLD_PREMIUM_VIEW, STATUS_OPTIONS, typeLabel, updateAppointment, updatePolicyFields, updateTeamAppointment, upsertAppointment } from '../data/appointments.js';
+import { useLive } from '../data/live.js';
 import { ALL_CHARACTERISTICS, fetchMyProspects, insertProspect, LEANING_LABELS, normName, prospectLeaningKey, prospectNameKey, prospectTotalChecked } from '../data/prospects.js';
 import { fetchOrgDirectory } from '../data/team.js';
 import { createZoomMeeting, fetchZoomConnectionStatus, pushAppointmentToGoogleCalendar, sendAppointmentInviteEmail, startZoomConnect, updateAppointmentZoomUrl } from '../data/integrations.js';
-import { Modal, openPicker, PageHead, RefreshButton, Sheet, SkelBlock, SkeletonCards, SkeletonRows, StatusChip, TitleInfo, TypeBadge, TypeChoice, TypeFilter, useIsPhone, WeekNav } from '../components/ui.jsx';
+import { Modal, openPicker, PageHead, Sheet, SkelBlock, SkeletonCards, SkeletonRows, StatusChip, TitleInfo, TypeBadge, TypeChoice, TypeFilter, useIsPhone, WeekNav } from '../components/ui.jsx';
 import { MyCoachingNotes, PaceStrip, PaceTrend, PersonalBests } from '../components/pace.jsx';
 import { ZoomNudge } from '../components/integrations.jsx';
 import { FollowUpModal } from '../components/followUpModal.jsx';
@@ -20,6 +21,10 @@ import { applyAppointmentEdit, deleteAppointmentWithUndo, openAppointment, useAp
 import { IntakeStatusRow, sendIntakeAfterBooking } from '../components/intakePanel.jsx';
 import { isValidPhone } from '../lib/phone.js';
 import { OpenTimes } from '../components/openTimes.jsx';
+
+// Stand-ins while nothing has loaded (the same ones each time).
+const NONE = [];
+const NO_ZOOM = { connected: false };
 
 export function ApptGroup({ title, list, onDelete, onFollowUp, onEdit, empty, hideSet, me = '' }) {
   // Only show the Trainee column when someone in this group actually has one.
@@ -732,15 +737,9 @@ export function PolicyCard({ policy, canEdit, currentUser, onSaved }) {
 // mineOnly: just your own policies (Pipeline → Won; your team's are in Team
 // → Track Production). head: false when the screen around it has a title.
 export function OpenRequirementsBody({ view, user, mineOnly = false, head = true }) {
-  const [policies, setPolicies] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    setPolicies(await fetchSoldPolicies());
-    setLoading(false);
-  }, []);
-  useEffect(() => { refresh(); }, [refresh]);
+  const live = useLive(['sold-policies', user.id], () => fetchSoldPolicies(), { topics: ['appointments'] });
+  const policies = live.data || NONE;
+  const loading = live.loading;
 
   const filtered = policies
     .filter(p => !mineOnly || p.userId === user.id)
@@ -754,13 +753,12 @@ export function OpenRequirementsBody({ view, user, mineOnly = false, head = true
           info={view === 'issued'
             ? 'Policies whose effective date has arrived and all requirements are complete.'
             : 'Submitted policies still waiting on their effective date and/or open requirements. Your leaders can see these too and add notes to help get them issued.'} />
-        <RefreshButton onClick={refresh} />
       </div>}
       {loading ? <SkeletonCards count={2} /> : filtered.length === 0 ? (
         <div className="tr-card"><p className="tr-empty">Nothing here yet.</p></div>
       ) : (
         filtered.map(p => (
-          <PolicyCard key={p.id} policy={p} canEdit={p.userId === user.id} currentUser={user} onSaved={refresh} />
+          <PolicyCard key={p.id} policy={p} canEdit={p.userId === user.id} currentUser={user} onSaved={live.reload} />
         ))
       )}
     </>
@@ -813,9 +811,19 @@ export async function saveAppointmentChanges(user, editing, input) {
 
 export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initialIntent, onIntentConsumed, cameFrom = null, onReturn, section = null }) {
   const isPhone = useIsPhone();
-  const [appointments, setAppointments] = useState([]);
-  const [presenting, setPresenting] = useState([]); // set by someone else, you're presenting: counts toward your pace
-  const [loading, setLoading] = useState(true);
+  // Yours, the ones someone else set that you're presenting (they count
+  // toward your pace), and whether your Zoom is connected.
+  const live = useLive(['my-appointments', user.id], async () => {
+    const [list, zoom, presenting] = await Promise.all([fetchMyAppointments(user.id), fetchZoomConnectionStatus(), fetchAppointmentsImPresenting(user.id).catch(() => [])]);
+    return { list, zoom, presenting };
+  }, { topics: ['appointments', 'connections'] });
+  const appointments = live.data ? live.data.list : NONE;
+  const presenting = live.data ? live.data.presenting : NONE;
+  const zoomStatus = live.data ? live.data.zoom : NO_ZOOM;
+  const loading = live.loading;
+  const setAppointments = fn => live.set(d => (d ? { ...d, list: fn(d.list) } : d));
+  const setZoomStatus = z => live.set(d => (d ? { ...d, zoom: z } : d));
+  const refresh = live.reload;
   const [weekMonday, setWeekMonday] = useState(weekStartOf(todayStr()));
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -823,7 +831,6 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
   const [followUpTarget, setFollowUpTarget] = useState(null);
   const [followUpSaving, setFollowUpSaving] = useState(false);
   const [typeFilter, setTypeFilter] = useState('all'); // 'all' | 'recruit' | 'sale'
-  const [zoomStatus, setZoomStatus] = useState({ connected: false });
   const [zoomConnecting, setZoomConnecting] = useState(false);
   // null = the normal "This week" view; otherwise one of STATUS_OPTIONS.value
   // (including '' for "No status") — a real sub-page, not a nested widget.
@@ -898,28 +905,12 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
     return list;
   }
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
-    const [apptList, zStatus, pres] = await Promise.all([fetchMyAppointments(user.id), fetchZoomConnectionStatus(), fetchAppointmentsImPresenting(user.id).catch(() => [])]);
-    setAppointments(apptList);
-    setPresenting(pres);
-    setZoomStatus(zStatus);
-    setLoading(false);
-  }, [user.id]);
-  // Any add, edit, reschedule or delete re-syncs phone reminders (app only).
-  const apptsLoadedOnce = useRef(false);
-  useEffect(() => {
-    if (loading) return;
-    if (!apptsLoadedOnce.current) { apptsLoadedOnce.current = true; return; }
-    window.dispatchEvent(new Event('paceledger:appointments-changed'));
-  }, [appointments, loading]);
+  // (Phone reminders re-sync on their own after any saved change: reminders.jsx.)
 
   async function handleZoomConnect() {
     if (!isNativeApp()) setZoomConnecting(true);
     await startZoomConnect(() => refresh());
   }
-
-  useEffect(() => { refresh(); }, [refresh]);
 
   // This week's pace: the ones you set plus the ones you're presenting for your team.
   const weekAppts = [...appointments, ...presenting]
@@ -1035,7 +1026,7 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
       }
     }
     setSaving(false);
-    setAppointments(prev => [...prev, record]);
+    setAppointments(prev => upsertAppointment(prev, record));
     if (listNote) setNotice({ kind: 'warn', text: listNote });
     closeForm();
     // "Send them the client intake form": emailed, or the send window opens.

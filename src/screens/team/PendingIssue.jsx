@@ -3,7 +3,8 @@
 // can help get it over the line. Leaders can open a policy, read and add
 // notes, and email the advisor; the advisor still sets the effective date
 // and marks requirements complete.
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
+import { idsKey, useLive } from '../../data/live.js';
 import { createPortal } from 'react-dom';
 import { fetchPolicyNotesFor, fetchSoldPolicies, isPolicyIssued } from '../../data/appointments.js';
 import { fmtDisplayDate, todayStr } from '../../lib/dates.js';
@@ -25,13 +26,13 @@ export function whatsLeft(p) {
   return `Requirements done · issues ${fmtDisplayDate(p.effectiveDate)}`;
 }
 
+const NO_NOTES = new Map();
+
 export function PendingIssueView({ user, members }) {
-  const [rows, setRows] = useState(null);
-  const [latest, setLatest] = useState(new Map());
   const [open, setOpen] = useState(null);
   const [compose, setCompose] = useState(null);
 
-  const refresh = useCallback(async () => {
+  const live = useLive(['team-pending-issue', user.id, idsKey(members)], async () => {
     const ids = new Set(members.map(m => m.id));
     const sold = await fetchSoldPolicies();
     const pending = sold
@@ -40,11 +41,11 @@ export function PendingIssueView({ user, members }) {
     const notes = await fetchPolicyNotesFor(pending.map(p => p.id));
     const byPolicy = new Map();
     notes.forEach(n => { if (!byPolicy.has(n.appointment_id)) byPolicy.set(n.appointment_id, n); });
-    setLatest(byPolicy);
-    setRows(pending);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [members]);
-  useEffect(() => { refresh(); }, [refresh]);
+    return { rows: pending, latest: byPolicy };
+  }, { topics: ['appointments'] });
+  const rows = live.data ? live.data.rows : null;
+  const latest = live.data ? live.data.latest : NO_NOTES;
+  const refresh = live.reload;
 
   if (rows === null) return <SkeletonTable rows={5} cols={3} />;
   if (rows.length === 0) {

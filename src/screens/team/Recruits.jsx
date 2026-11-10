@@ -1,6 +1,6 @@
 // Team Pace → Recruits: every new person's path from invite to first sale,
 // with what they (or you) need to do next at the top.
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Award, ChevronRight, Mail } from 'lucide-react';
 import { contractingInApp, fetchLicensingForUsers, markContractingStep } from '../../licensing.js';
@@ -10,7 +10,8 @@ import { fetchHierarchyPeople } from '../../data/team.js';
 import { fetchSaleDates, fetchTeamOpenInvites, fetchUpcomingAppointments } from '../../data/recruits.js';
 import { AGENCY_EMAIL } from '../../data/promotions.js';
 import { ComposeEmail } from '../../components/email.jsx';
-import { MoreMenu, RefreshButton, SkeletonTable, TitleInfo } from '../../components/ui.jsx';
+import { MoreMenu, SkeletonTable, TitleInfo } from '../../components/ui.jsx';
+import { idsKey, useLive } from '../../data/live.js';
 import { NoMatches, PeopleToolbar, personMatches, usePeopleSearch } from '../../components/peopleList.jsx';
 
 const first = name => (name || '').trim().split(/\s+/)[0] || 'there';
@@ -18,16 +19,14 @@ const fmtLong = d => (d ? new Date(`${String(d).slice(0, 10)}T00:00:00`).toLocal
 const STAGE_LABEL = Object.fromEntries(RECRUIT_STAGES.map(s => [s.key, s.label]));
 
 export function RecruitsSubView({ user, members, loadingMembers, emptyMessage }) {
-  const [data, setData] = useState(null);
   const [filter, setFilter] = useState('all'); // 'all' | 'flagged' | a stage key
   const [busyId, setBusyId] = useState(null);
   const [notice, setNotice] = useState(null);
   const [compose, setCompose] = useState(null);
   const [q] = usePeopleSearch();
 
-  const refresh = useCallback(async () => {
-    if (!members.length) { setData({ board: { rows: [], counts: {} }, byId: new Map() }); return; }
-    setData(null);
+  const live = useLive(['team-recruits', user.id, idsKey(members)], async () => {
+    if (!members.length) return { board: { rows: [], counts: {} }, byId: new Map() };
     const ids = members.map(m => m.id);
     const today = todayStr();
     const [people, prog, inv, upcoming] = await Promise.all([fetchHierarchyPeople(), fetchLicensingForUsers(ids), fetchTeamOpenInvites(), fetchUpcomingAppointments(7)]);
@@ -35,10 +34,10 @@ export function RecruitsSubView({ user, members, loadingMembers, emptyMessage })
     const team = members.map(m => ({ ...m, ...(byId.get(m.id) || {}) }));
     const sales = await fetchSaleDates(salesLookupIds(team, today));
     const board = buildRecruitBoard({ members: team, progress: prog, invites: inv.rows, sales, upcoming, today });
-    setData({ board, byId, missingSetup: !!inv.missingSetup });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [members]);
-  useEffect(() => { refresh(); }, [refresh]);
+    return { board, byId, missingSetup: !!inv.missingSetup };
+  }, { topics: ['people', 'appointments', 'recruits', 'licensing'], enabled: !loadingMembers });
+  const data = live.data || null;
+  const refresh = live.reload;
 
   async function mark(row, step, done) {
     setBusyId(row.key); setNotice(null);
@@ -133,7 +132,6 @@ export function RecruitsSubView({ user, members, loadingMembers, emptyMessage })
     <>
       <div className="tr-row-head tr-screen-head">
         <TitleInfo title="Recruits" info={<>Every new person's path from invite to first sale. Anyone who needs you is at the top. A writing number counts as late 2 business days after {contractingInApp() ? 'the contracting info is sent' : 'the contracting profile is submitted'}. "Email agency" writes to {AGENCY_EMAIL}.</>} />
-        <RefreshButton onClick={refresh} />
       </div>
       {data.missingSetup && <div className="tr-error" style={{ marginBottom: 12 }}>Sign-up links and contracting steps show here once the database update (migration-recruits-field-training.sql) has been run.</div>}
       {notice && <div className={notice.kind === 'ok' ? 'tr-flash' : 'tr-error'} style={{ marginBottom: 12 }}>{notice.text}</div>}

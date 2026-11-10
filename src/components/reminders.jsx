@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient.js';
 import { exactReminderStatus, isNativeApp, onAppResume, onReminderTapped, REMINDER_MINUTES, reminderPermission, requestExactReminders, requestReminderPermission, syncAppointmentReminders } from '../native.js';
 import { rowToRecord } from '../data/appointments.js';
+import { onChanged } from '../data/live.js';
 
 // Phone app only: keeps a reminder 30 minutes before each upcoming
 // appointment, a "How did it go?" nudge about an hour after each of yours
@@ -39,11 +40,11 @@ export function useAppointmentReminders(user) {
       if (extra.kind === 'log-list') { window.dispatchEvent(new CustomEvent('paceledger:open-log', { detail: { list: true } })); return; }
       if (extra.zoomUrl) window.location.href = extra.zoomUrl;
     });
-    window.addEventListener('paceledger:appointments-changed', sync);
+    // Any saved appointment change (add, edit, reschedule, delete) re-syncs.
+    const offChanged = onChanged('appointments', sync);
     window.addEventListener('paceledger:reminders-enabled', sync);
     return () => {
-      alive = false; offResume(); offTap();
-      window.removeEventListener('paceledger:appointments-changed', sync);
+      alive = false; offResume(); offTap(); offChanged();
       window.removeEventListener('paceledger:reminders-enabled', sync);
     };
   }, [user.id]);
