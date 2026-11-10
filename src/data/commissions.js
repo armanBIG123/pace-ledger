@@ -38,6 +38,12 @@ export async function makeCommissionKey() {
   if (error) { console.error(error); return { ok: false, error: missing(error) ? NEEDS_UPDATE : "Couldn't make a key. Check your connection and try again." }; }
   return { ok: true, key: data };
 }
+// The test address's own key (supabase/migrations/…_commission_test_address.sql).
+export async function makeCommissionTestKey() {
+  const { data, error } = await supabase.rpc('pl_commission_new_test_key');
+  if (error) { console.error(error); return { ok: false, error: missing(error) ? 'The test address needs its database update, which runs when its pull request is merged.' : "Couldn't make a test key. Check your connection and try again." }; }
+  return { ok: true, key: data };
+}
 export async function fetchCommissionLog(limit = 15) {
   const { data, error } = await supabase.from('commission_receipts').select('*').order('id', { ascending: false }).limit(limit);
   if (error) { if (!missing(error)) console.error(error); return []; }
@@ -55,3 +61,5 @@ export async function linkCommissionCode(code, userId) {
   return { ok: true };
 }
 export const webhookUrl = () => `${SUPABASE_URL}/functions/v1/commissions-ingest`;
+// Fake data goes here: the same answer, nothing saved.
+export const testWebhookUrl = () => `${SUPABASE_URL}/functions/v1/commissions-ingest-test`;

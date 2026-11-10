@@ -44,5 +44,29 @@ ok(r.status === 503 && r.body.error === 'no_key_set_up', 'no key made yet: says 
 const before = calls.length;
 await post({ ledgers: [] }, { 'x-api-key': 'k'.repeat(300) });
 ok(calls.length === before, 'a silly-long key never reaches the database');
+
+// The test address: the same checks, its own database function.
+const T = await bundleFunction('commissions-ingest-test');
+const testCalls = [];
+PL.rpc.pl_commission_ingest = () => { throw new Error('the live function must not be called by the test address'); };
+PL.rpc.pl_commission_ingest_test = args => {
+  testCalls.push(args);
+  if (args.p_key !== 'plt_good') throw new Error('bad_key');
+  return { success: true, disbImported: args.p_body.disbursements.length, ledgerImported: args.p_body.ledgers.length, new: 2, updated: 0, unchanged: 0, rejected: 0, test: true, saved: false };
+};
+const tpost = (body, headers = {}) => T.handle(new Request('https://x/functions/v1/commissions-ingest-test', {
+  method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: typeof body === 'string' ? body : JSON.stringify(body) }));
+r = await read(await tpost({ disbursements: [{ recordId: 'FAKE-1' }], ledgers: [{ recordId: 'FAKE-2' }] }, { 'x-api-key': 'plt_good' }));
+ok(r.status === 200 && r.body.test === true && r.body.saved === false && r.body.disbImported === 1 && testCalls.length === 1, 'test address: same answer, marked test and not saved');
+r = await read(await tpost({ ledgers: [] }, { 'x-api-key': 'plc_good' }));
+ok(r.status === 401 && r.body.error === 'invalid_api_key', 'test address: the live key is refused');
+r = await read(await tpost('{not json', { 'x-api-key': 'plt_good' }));
+ok(r.status === 400 && r.body.error === 'invalid_json', 'test address: the same checks (bad JSON: 400)');
+r = await read(await T.handle(new Request('https://x/', { method: 'GET' })));
+ok(r.status === 200 && /test/.test(r.body.service) && /nothing/.test(r.body.saves), 'test address: GET says it saves nothing');
+PL.rpc.pl_commission_ingest_test = () => { throw new Error('no_test_key'); };
+r = await read(await tpost({ ledgers: [] }, { 'x-api-key': 'plt_good' }));
+ok(r.status === 503 && r.body.error === 'no_test_key_set_up' && /test key/.test(r.body.hint), 'test address: no test key made yet says so');
+
 console.log(failures ? `${failures} FAILED` : 'ALL COMMISSIONS EDGE TESTS PASSED');
 process.exit(failures ? 1 : 0);

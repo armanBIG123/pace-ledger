@@ -7,7 +7,7 @@
 // and codes that match no one.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Copy, KeyRound, Link2, RefreshCw, Wallet } from 'lucide-react';
-import { fetchCommissionLog, fetchCommissionStatus, fetchPayFor, fetchPayTotals, fetchUnmatchedCodes, linkCommissionCode, makeCommissionKey, webhookUrl } from '../data/commissions.js';
+import { fetchCommissionLog, fetchCommissionStatus, fetchPayFor, fetchPayTotals, fetchUnmatchedCodes, linkCommissionCode, makeCommissionKey, makeCommissionTestKey, testWebhookUrl, webhookUrl } from '../data/commissions.js';
 import { fetchOrgDirectory, seesTeam } from '../data/team.js';
 import { computeDownline } from '../hierarchy.js';
 import { byPolicy, fromWhom, levelName, money, monthRange, ratePct, summarize } from '../lib/commissions.js';
@@ -165,6 +165,7 @@ function Setup({ org }) {
   const [log, setLog] = useState([]);
   const [unmatched, setUnmatched] = useState(null);
   const [newKey, setNewKey] = useState('');
+  const [newTestKey, setNewTestKey] = useState('');
   const [copied, setCopied] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -185,6 +186,15 @@ function Setup({ org }) {
     setBusy(false);
     if (!r.ok) { setErr(r.error); return; }
     setNewKey(r.key);
+    load();
+  }
+  async function makeTestKey() {
+    if (status && status.hasTestKey && !(await askConfirm({ title: 'Make a new test key?', body: 'The current test key stops working. The live key isn’t affected.', confirmLabel: 'Make a new test key' }))) return;
+    setBusy(true); setErr('');
+    const r = await makeCommissionTestKey();
+    setBusy(false);
+    if (!r.ok) { setErr(r.error); return; }
+    setNewTestKey(r.key);
     load();
   }
   async function link(code) {
@@ -222,6 +232,35 @@ function Setup({ org }) {
           </div>
         )}
         {err ? <div className="tr-error" role="alert">{err}</div> : null}
+      </section>
+
+      <section className="tr-card tr-cl-card" aria-labelledby="pay-test-h">
+        <h3 className="tr-cl-h" id="pay-test-h">Test address</h3>
+        <p className="tr-cl-muted">For trying fake data. It takes the same JSON and answers the same way as the live address, plus <code>"test": true</code>, but saves nothing, so test data never reaches anyone's pay. It has its own key: the live key doesn't work here, and the test key doesn't work on the live address.</p>
+        <div className="tr-intake-link-row">
+          <span className="tr-intake-link-box">{testWebhookUrl()}</span>
+          <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => copy('turl', testWebhookUrl())}><Copy size={13} /> {copied === 'turl' ? 'Copied!' : 'Copy'}</button>
+        </div>
+        {newTestKey ? (
+          <div className="tr-pay-key">
+            <p><strong>Here's the test key. It's shown this once.</strong> It only works on the test address. PaceLedger keeps only a fingerprint of it.</p>
+            <div className="tr-intake-link-row">
+              <span className="tr-intake-link-box">{newTestKey}</span>
+              <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={() => copy('tkey', newTestKey)}><Copy size={13} /> {copied === 'tkey' ? 'Copied!' : 'Copy key'}</button>
+            </div>
+            <button type="button" className="tr-link-btn" onClick={() => setNewTestKey('')}>I've sent it, hide it</button>
+          </div>
+        ) : (
+          <div className="tr-row-head" style={{ alignItems: 'center' }}>
+            <span className="tr-cl-muted">{status.hasTestKey ? <>Test key ending <strong>…{status.testKeyHint}</strong>, made {stamp(status.testKeyMadeAt)}.</> : 'No test key yet.'}</span>
+            <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={makeTestKey} disabled={busy}><KeyRound size={13} /> {status.hasTestKey ? 'Make a new test key' : 'Make a test key'}</button>
+          </div>
+        )}
+        <p className="tr-cl-muted">{status.testLastAt && status.testLastResult ? (() => {
+          const t = status.testLastResult;
+          const n = (k, one, many) => `${t[k] ?? 0} ${(t[k] ?? 0) === 1 ? one : many}`;
+          return <>Last test send {stamp(status.testLastAt)}: {n('disbImported', 'payout', 'payouts')} and {n('ledgerImported', 'line', 'lines')}. On the live address that would be {t.new ?? 0} new, {t.updated ?? 0} changed, {t.unchanged ?? 0} the same and {t.rejected ?? 0} rejected. Nothing was saved.</>;
+        })() : 'No test sends yet.'}</p>
       </section>
 
       <section className="tr-card tr-cl-card" aria-labelledby="pay-unmatched-h">

@@ -118,4 +118,58 @@ select public.pl_commission_new_key() as key2 \gset
 reset role; set role service_role;
 select pg_temp.expect_error(format($$select public.pl_commission_ingest(%L, '{}')$$, :'key'), 'bad_key');
 select pg_temp.check((public.pl_commission_ingest(:'key2', '{}')->>'success')::boolean, 'the new key works');
+
+\echo == 8 the test address: its own key, the same answer, nothing saved
+reset role;
+create temp table before_test as select (select count(*) from public.commission_lines) l, (select count(*) from public.commission_disbursements) d,
+  (select count(*) from public.commission_receipts) r, (select count(*) from public.commission_agent_links) k,
+  (select key_hash from public.commission_settings where id = 1) h,
+  (select md5(string_agg(t::text, '|' order by t.record_id)) from public.commission_lines t) lh,
+  (select md5(string_agg(t::text, '|' order by t.record_id)) from public.commission_disbursements t) dh;
+grant select on before_test to service_role, authenticated;
+set role service_role;
+select pg_temp.expect_error($$select public.pl_commission_ingest_test('plt_x', '{}')$$, 'no_test_key');
+reset role; set role authenticated;
+select pg_temp.as_user('22222222-2222-2222-2222-222222222222');
+select pg_temp.expect_error($$select public.pl_commission_new_test_key()$$, 'not_allowed');
+select pg_temp.expect_error($$select public.pl_commission_ingest_test('x', '{}')$$, 'permission denied');
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select public.pl_commission_new_test_key() as tkey \gset
+select pg_temp.check(:'tkey' ~ '^plt_[0-9a-f]{48}$', 'test key looks right (plt_, not plc_)');
+select pg_temp.check((public.pl_commission_status()->>'hasTestKey')::boolean and public.pl_commission_status()->>'testKeyHint' = right(:'tkey', 4)
+  and public.pl_commission_status()->>'testLastAt' is null, 'status shows the test key (last 4) and no test send yet');
+reset role; set role service_role;
+select pg_temp.expect_error(format($$select public.pl_commission_ingest_test(%L, '{}')$$, :'key2'), 'bad_key');
+select pg_temp.expect_error(format($$select public.pl_commission_ingest(%L, '{}')$$, :'tkey'), 'bad_key');
+-- Brand-new fake records: the answer says they'd be new, and nothing is kept.
+select public.pl_commission_ingest_test(:'tkey', replace(replace(:'c1', '"recordId": "', '"recordId": "TEST-'), '"recordId":"', '"recordId":"TEST-')::jsonb) as t1 \gset
+select pg_temp.check((:'t1'::jsonb)->>'disbImported' = '3' and (:'t1'::jsonb)->>'new' = '3' and ((:'t1'::jsonb)->>'success')::boolean
+  and ((:'t1'::jsonb)->>'test')::boolean and not ((:'t1'::jsonb)->>'saved')::boolean, 'test send: the live answer shape, marked test and not saved: ' || :'t1');
+-- Records the live address already has: the same answer the live one would give.
+select public.pl_commission_ingest_test(:'tkey', :'c2'::jsonb) as t2 \gset
+select pg_temp.check((:'t2'::jsonb)->>'ledgerImported' = '100' and (:'t2'::jsonb)->>'new' = '0', 'test send of rows already stored: none new, like the live address: ' || :'t2');
+select pg_temp.check((public.pl_commission_ingest_test(:'tkey', '{"disbursements":[{"recordId":"T-bad"}]}')->>'rejected') = '1', 'bad rows are reported the same way');
+select pg_temp.expect_error(format($$select public.pl_commission_ingest_test(%L, '{"disbursements": 5}')$$, :'tkey'), 'bad_body');
+reset role;
+select pg_temp.check((select l from before_test) = (select count(*) from public.commission_lines)
+  and (select d from before_test) = (select count(*) from public.commission_disbursements)
+  and (select r from before_test) = (select count(*) from public.commission_receipts)
+  and (select k from before_test) = (select count(*) from public.commission_agent_links), 'after test sends: no payouts, lines, links or log rows kept');
+select pg_temp.check((select h from before_test) = (select key_hash from public.commission_settings where id = 1), 'the live key is untouched');
+select pg_temp.check((select lh from before_test) = (select md5(string_agg(t::text, '|' order by t.record_id)) from public.commission_lines t)
+  and (select dh from before_test) = (select md5(string_agg(t::text, '|' order by t.record_id)) from public.commission_disbursements t),
+  'and every stored line and payout is exactly as it was (the update the test reported was undone)');
+set role service_role;
+select pg_temp.check((public.pl_commission_ingest(:'key2', '{}')->>'success')::boolean, 'the live key still works on the live address');
+reset role; set role authenticated;
+select pg_temp.as_user('11111111-1111-1111-1111-111111111111');
+select pg_temp.check(public.pl_commission_status()->>'testLastAt' is not null and (public.pl_commission_status()->'testLastResult'->>'test')::boolean,
+  'status shows when the last test send came in and its answer');
+select public.pl_commission_new_test_key() as tkey2 \gset
+reset role; set role service_role;
+select pg_temp.expect_error(format($$select public.pl_commission_ingest_test(%L, '{}')$$, :'tkey'), 'bad_key');
+select pg_temp.check((public.pl_commission_ingest_test(:'tkey2', '{}')->>'test')::boolean, 'a new test key turns the old test key off');
+select pg_temp.check((public.pl_commission_ingest(:'key2', '{}')->>'success')::boolean, 'and the live key still works');
+reset role;
+
 \echo ALL COMMISSION SQL TESTS PASSED

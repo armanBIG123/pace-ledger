@@ -12,6 +12,9 @@ verify_jwt = false
 [functions.commissions-ingest]
 verify_jwt = false
 
+[functions.commissions-ingest-test]
+verify_jwt = false
+
 [functions.contracting]
 verify_jwt = false
 

@@ -11,7 +11,7 @@ globalThis.fetch = async url => { throw new Error(`unexpected fetch ${url}`); };
 
 const BROWSER = ['activity-report', 'chat-notify', 'contracting', 'delete-account', 'google-create-event', 'presenter-availability', 'send-appointment-invite', 'send-intake-link', 'submit-promotion'];
 const noCache = h => /no-store/.test(h.get('cache-control') || '');
-for (const name of [...BROWSER, 'commissions-ingest']) {
+for (const name of [...BROWSER, 'commissions-ingest', 'commissions-ingest-test']) {
   globalThis.__served = null;
   const mod = await bundleFunction(name);
   const handler = mod.handle || globalThis.__served;
