@@ -23,30 +23,21 @@
 // Deploy with "Verify JWT" turned OFF: the hourly call sends the
 // x-report-token, not a PaceLedger sign-in. Sign-ins are checked here.
 
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+// Deploy: merging to main deploys it (.github/workflows/supabase-deploy.yml).
+// It uses ../_shared, so it can't be pasted into the Supabase editor.
 
-const env = (k: string, d = ''): string => {
-  try { return (typeof Deno !== 'undefined' ? Deno.env.get(k) : undefined) ?? d; } catch { return d; }
-};
-const SUPABASE_URL = env('SUPABASE_URL');
-const SERVICE_ROLE_KEY = env('SUPABASE_SERVICE_ROLE_KEY');
-const ANON_KEY = env('SUPABASE_ANON_KEY');
-const RESEND_API_KEY = env('RESEND_API_KEY');
-const FROM_EMAIL = env('INVITE_FROM_EMAIL');
-const APP_URL = env('APP_URL', 'https://big-pace-ledger.com').replace(/\/+$/, '');
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { ANON_KEY, APP_URL, SERVICE_ROLE_KEY, SUPABASE_URL } from '../_shared/env.ts';
+import { json, preflight } from '../_shared/http.ts';
+import { sendEmail } from '../_shared/email.ts';
+import { esc } from '../_shared/html.ts';
+export { esc };
 
 export const TZ = 'America/Chicago';
 export const SEND_HOUR = 7;
 const TESTS_PER_DAY = 10;
 const MAX_AGENT_ROWS = 150;
 
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Cache-Control': 'no-store',
-};
-const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 
 // ---- dates (Central time) -----------------------------------------------------
 export function central(now: Date) {
@@ -191,9 +182,6 @@ export function buildReport(raw: any) {
 export type Report = ReturnType<typeof buildReport>;
 
 // ---- the email -------------------------------------------------------------------
-export function esc(s: unknown) {
-  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
-}
 export const money = (v: number) => `${v < 0 ? '−' : ''}$${Math.round(Math.abs(v)).toLocaleString('en-US')}`;
 const fmt = (k: keyof Nums, v: number) => (k === 'premium' ? money(v) : Math.round(v).toLocaleString('en-US'));
 const md = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'short', day: 'numeric' });
@@ -359,19 +347,8 @@ export async function compose(admin: any, kind: 'daily' | 'weekly', from: string
   const prev = kind === 'weekly' ? await numbers(admin, addDays(from, -7), addDays(to, -7)) : null;
   return { ...renderEmail({ kind, cur, prev, sentAt }), from, to };
 }
-async function sendEmail(to: string[], mail: { subject: string; html: string; text: string }) {
-  if (!RESEND_API_KEY || !FROM_EMAIL) return { ok: false, error: 'email_not_configured' };
-  const payload = JSON.stringify({ from: FROM_EMAIL, to, subject: mail.subject, html: mail.html, text: mail.text });
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const res = await fetch('https://api.resend.com/emails', { method: 'POST', headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' }, body: payload });
-    if (res.ok) return { ok: true };
-    const body = await res.text().catch(() => '');
-    console.error('resend error', res.status, body);
-    if (res.status !== 429 && res.status < 500) return { ok: false, error: `send_failed_${res.status}` };
-    await new Promise(r => setTimeout(r, 1200 * (attempt + 1)));
-  }
-  return { ok: false, error: 'send_failed' };
-}
+// Up to 3 tries when Resend is busy or down.
+const send = (to: string[], mail: { subject: string; html: string; text: string }) => sendEmail({ to, subject: mail.subject, html: mail.html, text: mail.text }, { tries: 3 });
 const STUCK_MS = 20 * 60_000;
 // One report for one period, to everyone on the list, once.
 export async function sendOnce(admin: any, item: { kind: 'daily' | 'weekly'; from: string; to: string }, recipients: string[], now = new Date()) {
@@ -389,7 +366,7 @@ export async function sendOnce(admin: any, item: { kind: 'daily' | 'weekly'; fro
   }
   try {
     const mail = await compose(admin, item.kind, item.from, item.to, now);
-    const sent = await sendEmail(recipients, mail);
+    const sent = await send(recipients, mail);
     if (!sent.ok) throw new Error(sent.error);
     await admin.from('report_sends').update({ status: 'sent', sent_at: new Date().toISOString(), sent_to: recipients.join(', ') }).eq('id', row.id);
     await admin.from('report_settings').update({ last_error: null, last_error_at: null }).eq('id', true);
@@ -420,7 +397,8 @@ const sameText = (a: string, b: string) => {
 };
 
 export async function handle(req: Request): Promise<Response> {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
+  const pre = preflight(req);
+  if (pre) return pre;
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
   if (!SUPABASE_URL || !SERVICE_ROLE_KEY) return json({ error: 'not_configured' }, 500);
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
@@ -455,7 +433,7 @@ export async function handle(req: Request): Promise<Response> {
       const { count } = await admin.from('report_sends').select('id', { count: 'exact', head: true }).eq('test', true).eq('sent_by', me.id).gte('created_at', since);
       if ((count || 0) >= TESTS_PER_DAY) return json({ ok: false, error: 'daily_limit' });
       const mail = await compose(admin, kind, from, to);
-      const sent = await sendEmail([email], { ...mail, subject: `[Test] ${mail.subject}` });
+      const sent = await send([email], { ...mail, subject: `[Test] ${mail.subject}` });
       if (!sent.ok) return json({ ok: false, error: sent.error });
       await admin.from('report_sends').insert({ kind, period_start: from, period_end: to, test: true, status: 'sent', sent_at: new Date().toISOString(), sent_to: email, sent_by: me.id });
       return json({ ok: true, kind, to: email, subject: mail.subject });

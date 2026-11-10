@@ -26,39 +26,33 @@
 // Uses the secrets the Google Calendar functions already have:
 //   GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET
 // (SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY are
-// provided by Supabase.) No other packages: plain fetch only.
+// provided by Supabase.) No other packages: plain fetch only, plus the
+// shared helpers in ../_shared.
 //
-// Deploy: Supabase dashboard -> Edge Functions -> Deploy a new function ->
-// Via Editor, name it presenter-availability, paste this file, Deploy.
+// Deploy: merging to main deploys it (.github/workflows/supabase-deploy.yml).
+// It uses ../_shared, so it can't be pasted into the Supabase editor.
 
-const SUPABASE_URL = (Deno.env.get('SUPABASE_URL') || '').replace(/\/+$/, '');
-const ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY') || '';
-const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
-const GOOGLE_CLIENT_ID = Deno.env.get('GOOGLE_CLIENT_ID') || '';
-const GOOGLE_CLIENT_SECRET = Deno.env.get('GOOGLE_CLIENT_SECRET') || '';
+import { ANON_KEY, env, SERVICE_ROLE_KEY, SUPABASE_URL as BASE_URL } from '../_shared/env.ts';
+import { json as reply, preflight } from '../_shared/http.ts';
+
+const SUPABASE_URL = BASE_URL.replace(/\/+$/, '');
+const GOOGLE_CLIENT_ID = env('GOOGLE_CLIENT_ID');
+const GOOGLE_CLIENT_SECRET = env('GOOGLE_CLIENT_SECRET');
 
 const GOOGLE_TIMEOUT_MS = 5000;
 const CACHE_MS = 60_000;
 const MAX_PAGES = 5;
 
-// Open times are about people's schedules: never cached by a browser.
-const HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0, private',
-  'Pragma': 'no-cache',
-  'Expires': '0',
-  'Content-Type': 'application/json',
-};
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 type Busy = { s: number; e: number };
 type GoogleStatus = 'used' | 'off' | 'not_connected' | 'reconnect' | 'unavailable';
 
+// Open times are about people's schedules: never cached by a browser (the
+// shared reply headers say so).
 function json(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: HEADERS });
+  return reply(body, status);
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit = {}, ms = GOOGLE_TIMEOUT_MS): Promise<Response> {
@@ -176,7 +170,8 @@ export async function googleBusy(userId: string, from: number, to: number, tz: s
 }
 
 export async function handle(req: Request): Promise<Response> {
-  if (req.method === 'OPTIONS') return new Response('ok', { headers: HEADERS });
+  const pre = preflight(req);
+  if (pre) return pre;
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
   const auth = req.headers.get('Authorization') || '';
   if (!/^Bearer\s+\S+$/.test(auth)) return json({ ok: false, reason: 'not_signed_in' }, 401);

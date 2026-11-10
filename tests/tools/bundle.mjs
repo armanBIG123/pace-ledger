@@ -14,7 +14,7 @@ export async function bundleFunction(name) {
   await build({
     entryPoints: [path.join(REPO, 'supabase/functions', name, 'index.ts')],
     bundle: true, outfile, format: 'esm', platform: 'node', logLevel: 'warning',
-    banner: { js: 'globalThis.window = globalThis; globalThis.Deno = { env: { get: k => process.env[k] }, serve() {} };' },
+    banner: { js: 'globalThis.window = globalThis; globalThis.Deno = { env: { get: k => process.env[k] }, serve(h) { globalThis.__served = h; } };' },
     plugins: [{ name: 'esm-sh', setup(b) { b.onResolve({ filter: /^https:\/\/esm\.sh\/@supabase\/supabase-js/ }, () => ({ path: path.join(MOCK, 'supabase.js') })); } }],
   });
   return import(`${outfile}?t=${Date.now()}`);
