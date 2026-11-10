@@ -62,8 +62,13 @@ const SETUP = `window.__PL_SETUP = function (PL) {
   };
   PL.keyMade = null;
   PL.rpc.pl_commission_status = () => ({ hasKey: !!PL.keyMade, keyHint: PL.keyMade ? PL.keyMade.slice(-4) : null, keyMadeAt: PL.keyMade ? new Date().toISOString() : null, keyMadeBy: PL.keyMade ? 'Morgan Lee' : null,
-    lastAt: '2026-10-14T23:05:00Z', calls: 4, lines: PL.db.commission_lines.length, unmatched: 1 });
+    lastAt: '2026-10-14T23:05:00Z', calls: 4, lines: PL.db.commission_lines.length, unmatched: 1,
+    hasTestKey: !!PL.testKeyMade, testKeyHint: PL.testKeyMade ? PL.testKeyMade.slice(-4) : null, testKeyMadeAt: PL.testKeyMade ? new Date().toISOString() : null,
+    testLastAt: PL.testKeyMade ? '2026-11-10T21:30:00Z' : null,
+    testLastResult: PL.testKeyMade ? { success: true, test: true, saved: false, disbImported: 1, ledgerImported: 16, new: 17, updated: 0, unchanged: 0, rejected: 0 } : null });
   PL.rpc.pl_commission_new_key = () => { PL.keyMade = 'plc_' + 'ab12'.repeat(12); return PL.keyMade; };
+  PL.testKeyMade = null;
+  PL.rpc.pl_commission_new_test_key = () => { PL.testKeyMade = 'plt_' + 'cd34'.repeat(12); return PL.testKeyMade; };
   PL.rpc.pl_commission_rematch = () => 0;
   PL.rpc.pl_commission_unmatched = () => {
     const m = new Map();
@@ -147,6 +152,16 @@ try {
   await setup.getByRole('button', { name: "I've sent it, hide it" }).click();
   await page.waitForTimeout(500);
   ok(!/plc_ab12/.test(await setup.innerText()) && /Key ending …ab12/.test(await setup.innerText()), 'hidden after; only the last 4 show');
+  // The test address: its own key, nothing saved.
+  ok(/functions\/v1\/commissions-ingest-test/.test(await setup.innerText()) && /No test key yet/.test(await setup.innerText()) && /No test sends yet/.test(await setup.innerText()), 'the test address, no test key yet');
+  await setup.getByRole('button', { name: 'Make a test key' }).click();
+  await page.waitForTimeout(600);
+  ok(/test key\. It's shown this once/.test(await setup.innerText()) && /plt_cd34/.test(await setup.innerText()) && /Key ending …ab12/.test(await setup.innerText()), 'the test key shown once; the live key untouched');
+  await shot(page, `${SHOTS}/04b-setup-test-key.png`);
+  await page.locator('#pay-test-h').locator('xpath=..').getByRole('button', { name: "I've sent it, hide it" }).click();
+  await page.waitForTimeout(500);
+  ok(!/plt_cd34/.test(await setup.innerText()) && /Test key ending …cd34/.test(await setup.innerText()), 'test key hidden after; only the last 4 show');
+  ok(/Last test send/.test(await setup.innerText()) && /17 new/.test(await setup.innerText()) && /Nothing was saved/.test(await setup.innerText()), 'the last test send and what it would have done');
   ok(/90000005/.test(await setup.innerText()) && /5 lines/.test(await setup.innerText()), 'the code that matches no one');
   ok(/Last received/.test(await setup.innerText()) && /COMPANY lines/.test(await setup.innerText()), 'last send and the agency share');
   ok(await page.locator('.tr-pay-log tbody tr').count() === 2, 'the log of sends');

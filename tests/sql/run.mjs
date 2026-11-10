@@ -12,7 +12,9 @@ const S = f => path.join(here, f);
 const M = f => path.join(REPO, f);
 const SUITES = {
   'manage-team': { setup: [S('stubs/base.sql'), M('migration-manage-team-edits.sql')], test: S('manage-team.sql') },
-  commissions: { setup: [S('stubs/base.sql'), S('stubs/commissions-extra.sql'), M('migration-commissions.sql')], test: S('commissions.sql') },
+  // The test-address migration runs twice: it must be safe to run again.
+  commissions: { setup: [S('stubs/base.sql'), S('stubs/commissions-extra.sql'), M('migration-commissions.sql'),
+    M('supabase/migrations/20261110210000_commission_test_address.sql'), M('supabase/migrations/20261110210000_commission_test_address.sql')], test: S('commissions.sql') },
   // The reports migration runs twice: it must be safe to run again.
   reports: { setup: [S('stubs/reports-base.sql'), M('migration-activity-reports.sql'), M('migration-activity-reports.sql'), S('reports-seed.sql')], test: S('reports.sql') },
 };
