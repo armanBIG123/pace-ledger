@@ -29,16 +29,33 @@ ok(!names(c.initials).some(n => /exclusive/i.test(n)), 'the Exclusive / Non-excl
 ok(JSON.stringify(names(c.names)) === JSON.stringify(['Agent name', 'Agent party', 'Print name', 'Print agent name', 'Print name']), 'printed name: ' + names(c.names).join(', '));
 ok(c.signature.length === 3, 'all 3 signature spots');
 ok(c.dates.length === 6, 'all 6 date spots get today');
-ok(names(c.codes).join() === 'Agent code,Agent code', 'both Agent code boxes get their NPN (not Agent identifier)');
+ok(names(c.codes).join() === 'Agent code,Agent identifier,Agent code', 'Agent code and Agent identifier get their NPN');
 const left = v2.filter(x => ![...c.initials, ...c.names, ...c.signature, ...c.dates, ...c.emails, ...c.codes].includes(x)).map(x => x.name);
 console.log('   left for the agent:', left.join(', '));
-ok(left.every(n => /exclusive|Maintain|access|Confidential|Channel|No use|Address|Supplement title|Agent identifier/i.test(n)), 'only real choices are left to the agent');
+ok(left.every(n => /exclusive|Maintain|access|Confidential|Channel|No use|Address|Supplement title/i.test(n)), 'only real choices are left to the agent');
 // The NPN goes in only when PaceLedger has one, and never over what's already there.
 const withNpn = E.spotValues(c, { initials: 'JE', printed: 'Jordan Ellis', today: '2026-11-10', email: 'j@example.com', code: '12345678' });
 ok(withNpn['Agent code'] === '12345678', 'Agent code = NPN');
 ok(!('Agent code' in E.spotValues(c, { initials: 'JE', printed: 'Jordan Ellis', code: '' })), 'no NPN yet: Agent code is left for them');
 ok(!('Agent code' in E.spotValues(c, { code: '12345678' }, new Set(['Agent code']))), 'an Agent code they already typed stays');
-ok(!E.classifyAgentFields([f('Agent code', 'number'), f('Network agent code'), f('Agent identifier')]).codes.length, 'only a text box named Agent code (or NPN) gets it');
+ok(names(E.classifyAgentFields([f('Agent code', 'number'), f('Network agent code'), f('Agent identifier'), f('Agent ID')]).codes).join() === 'Agent identifier,Agent ID', 'only text boxes named Agent identifier, Agent code, Agent ID or NPN get it');
+// The agreement in use since Nov 2026 (fields from the DocuSeal template, Nov 10).
+const ACKS = ['Guidelines', 'Omissions', 'Coverage', 'Capacity', 'Compensation', 'Recruitment claim', 'Use of materials', 'Equipment use', 'Guidelines review',
+  'Application procedure', 'Chargeback', 'Advance repayment', 'Product help', 'Market representation', 'Illustration use', 'Illustration guarantee',
+  'Refinance recommendation', 'Policy funding', 'Tax advice prohibition', 'Tax advice prohibition', 'Commission prohibition', 'Disclosure requirement',
+  'Misrepresentation prohibition', 'Low-cost claim', 'Replacement procedure', 'Full disclosure', 'Examiner ethics', 'Policy delivery',
+  'Signature falsification', 'Loan prohibition', 'Calculator use', 'Data protection', 'Termination consequences'];
+let k = 0;
+const g = (name, type = 'text') => ({ uuid: `n${k++}`, name, type });
+const now = [g('Agent name'), g('Agent date', 'date'), g('Agent name'), g('Effective date', 'date'), g('Exclusive initial'), g('Agent signature', 'signature'),
+  g('Agent Name'), g('Agent date', 'date'), g('Address'), g('Email'), ...ACKS.map(n => g(`${n} acknowledgement`)),
+  g('Agent signature', 'signature'), g('Print agent name'), g('Date', 'date'), g('Agent identifier'), g('Print name'), g('Signature', 'signature'), g('Date', 'date')];
+const cn = E.classifyAgentFields(now);
+ok(now.length === 50 && cn.signature.length === 3 && cn.initials.length === 33 && cn.names.length === 5 && cn.emails.length === 1 && cn.codes.length === 1 && cn.dates.length === 5,
+  'current agreement: 3 signatures, 33 initials, 5 names, email, NPN and 5 dates are filled');
+ok(cn.left.join() === 'Exclusive initial,Address', 'current agreement: only the Exclusive initial and the address are left: ' + cn.left.join(', '));
+const opening = E.spotValues(cn, { printed: 'Jordan Ellis', today: '2026-11-10', email: 'j@example.com', code: '12345678' });
+ok(Object.keys(opening).length === 12, 'current agreement: opening it fills 12 spots (5 names, 5 dates, email, NPN) before any adopt step');
 // 2026.1 (the one in the screenshot)
 const v1 = [f('Agent'), f('Date', 'date'), f('Agreement Parties'), f('Benefits Initial'), f('Guidelines Initial'), f('Exclusive Initial'), f('Agent Type', 'radio'), f('Agent Signature', 'signature')];
 const c1 = E.classifyAgentFields(v1);
