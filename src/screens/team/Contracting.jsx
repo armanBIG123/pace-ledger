@@ -503,7 +503,7 @@ function SetupView({ user, settings, onBack, onChanged, setFlash, bootstrap }) {
                   {check.warnings.length ? <ul className="tr-ct-warn">{check.warnings.map(w => <li key={w}>{w}</li>)}</ul> : <p className="tr-ct-ok">Roles and fields look right.</p>}
                   {check.spots ? (
                     <>
-                      <p>Filled in from what agents adopt before signing: {check.spots.signature} signature, {check.spots.initials} initials{check.spots.names != null ? `, ${check.spots.names} printed name, ${check.spots.emails} email and ${check.spots.dates} date` : ''} spots.</p>
+                      <p>Filled in from what agents adopt before signing: {check.spots.signature} signature, {check.spots.initials} initials{check.spots.names != null ? `, ${check.spots.names} printed name, ${check.spots.emails} email${check.spots.codes != null ? `, ${check.spots.codes} agent code (their NPN)` : ''} and ${check.spots.dates} date` : ''} spots.</p>
                       {check.spots.left && check.spots.left.length ? <p>Left for the agent to fill in: {check.spots.left.join(', ')}.</p> : null}
                     </>
                   ) : null}

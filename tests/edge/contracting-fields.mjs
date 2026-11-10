@@ -29,9 +29,16 @@ ok(!names(c.initials).some(n => /exclusive/i.test(n)), 'the Exclusive / Non-excl
 ok(JSON.stringify(names(c.names)) === JSON.stringify(['Agent name', 'Agent party', 'Print name', 'Print agent name', 'Print name']), 'printed name: ' + names(c.names).join(', '));
 ok(c.signature.length === 3, 'all 3 signature spots');
 ok(c.dates.length === 6, 'all 6 date spots get today');
-const left = v2.filter(x => ![...c.initials, ...c.names, ...c.signature, ...c.dates].includes(x)).map(x => x.name);
+ok(names(c.codes).join() === 'Agent code,Agent code', 'both Agent code boxes get their NPN (not Agent identifier)');
+const left = v2.filter(x => ![...c.initials, ...c.names, ...c.signature, ...c.dates, ...c.emails, ...c.codes].includes(x)).map(x => x.name);
 console.log('   left for the agent:', left.join(', '));
-ok(left.every(n => /exclusive|Maintain|access|Confidential|Channel|No use|Agent code|Address|Email|Supplement title|Agent identifier/i.test(n)), 'only real choices are left to the agent');
+ok(left.every(n => /exclusive|Maintain|access|Confidential|Channel|No use|Address|Supplement title|Agent identifier/i.test(n)), 'only real choices are left to the agent');
+// The NPN goes in only when PaceLedger has one, and never over what's already there.
+const withNpn = E.spotValues(c, { initials: 'JE', printed: 'Jordan Ellis', today: '2026-11-10', email: 'j@example.com', code: '12345678' });
+ok(withNpn['Agent code'] === '12345678', 'Agent code = NPN');
+ok(!('Agent code' in E.spotValues(c, { initials: 'JE', printed: 'Jordan Ellis', code: '' })), 'no NPN yet: Agent code is left for them');
+ok(!('Agent code' in E.spotValues(c, { code: '12345678' }, new Set(['Agent code']))), 'an Agent code they already typed stays');
+ok(!E.classifyAgentFields([f('Agent code', 'number'), f('Network agent code'), f('Agent identifier')]).codes.length, 'only a text box named Agent code (or NPN) gets it');
 // 2026.1 (the one in the screenshot)
 const v1 = [f('Agent'), f('Date', 'date'), f('Agreement Parties'), f('Benefits Initial'), f('Guidelines Initial'), f('Exclusive Initial'), f('Agent Type', 'radio'), f('Agent Signature', 'signature')];
 const c1 = E.classifyAgentFields(v1);

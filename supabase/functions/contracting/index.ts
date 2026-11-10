@@ -145,6 +145,11 @@ async function nameOf(admin: any, id: string | null): Promise<string> {
   const { data } = await admin.from('profiles').select('display_name').eq('id', id).maybeSingle();
   return (data && data.display_name) || '';
 }
+// Their NPN as digits, or '' (not everyone has one when they sign).
+async function npnOf(admin: any, id: string): Promise<string> {
+  const { data } = await admin.from('profiles').select('npn').eq('id', id).maybeSingle();
+  return String((data && data.npn) || '').replace(/[^0-9]/g, '').slice(0, 15);
+}
 async function log(admin: any, userId: string | null, actorId: string | null, action: string, detail: string | null) {
   const [agentName, actorName] = await Promise.all([nameOf(admin, userId), nameOf(admin, actorId)]);
   const { error } = await admin.from('contracting_log').insert({
@@ -183,11 +188,14 @@ const roleIs = (s: any, role: string, id: number | null) => (id && Number(s.id) 
 // Templates mark initials two ways: DocuSeal "Initials" fields, or Text
 // fields named for them ("Guidelines acknowledgement", "Benefits Initial").
 // The Exclusive / Non-Exclusive election initials are never filled: the
-// agent picks one. Checkboxes, address, email and codes are left to them.
+// agent picks one. "Agent code" gets their NPN (the agent code BIG and
+// InsuraCloud use) when it's in PaceLedger. Checkboxes and the address are
+// left to them.
 const ELECTION_RE = /exclusive|election|agent\s*type/i;
 const INITIALS_RE = /initial|acknowledg/i;
 const NAME_RE = /^(print(ed)?\s+)?(agent('s)?\s+)?(full\s+)?name$|part(y|ies)$|^independent\s+agent$/i;
 const EMAIL_RE = /^(agent('s)?\s+)?e-?mail(\s+address)?$/i;
+const CODE_RE = /^(agent('s)?\s+)?(code|npn)$/i;
 export function classifyAgentFields(mine: any[]) {
   const nm = (f: any) => String(f.name || '').trim();
   const out = {
@@ -195,10 +203,11 @@ export function classifyAgentFields(mine: any[]) {
     initials: mine.filter(f => !ELECTION_RE.test(nm(f)) && (f.type === 'initials' || (f.type === 'text' && INITIALS_RE.test(nm(f))))),
     names: mine.filter(f => f.type === 'text' && NAME_RE.test(nm(f)) && !ELECTION_RE.test(nm(f))),
     emails: mine.filter(f => f.type === 'text' && EMAIL_RE.test(nm(f))),
+    codes: mine.filter(f => f.type === 'text' && CODE_RE.test(nm(f))),
     dates: mine.filter(f => f.type === 'date'),
     left: [] as string[],
   };
-  const filled = new Set([...out.signature, ...out.initials, ...out.names, ...out.emails, ...out.dates]);
+  const filled = new Set([...out.signature, ...out.initials, ...out.names, ...out.emails, ...out.codes, ...out.dates]);
   out.left = mine.filter(f => !filled.has(f)).map(f => nm(f) || `(unnamed ${f.type})`);
   return out;
 }
@@ -244,7 +253,7 @@ async function agreementSpots(row: any) {
 
 // What goes in each spot. skip: spots that already hold something (left as
 // they are).
-export function spotValues(spots: any, what: { signature?: string; initials?: string; printed?: string; today?: string; email?: string }, skip?: Set<string> | null) {
+export function spotValues(spots: any, what: { signature?: string; initials?: string; printed?: string; today?: string; email?: string; code?: string }, skip?: Set<string> | null) {
   const values: Record<string, string> = {};
   const put = (list: any[], v?: string) => list.forEach(f => {
     const k = fieldKey(f);
@@ -255,6 +264,7 @@ export function spotValues(spots: any, what: { signature?: string; initials?: st
   put(spots.names, what.printed);
   put(spots.dates, what.today);
   put(spots.emails, what.email);
+  put(spots.codes || [], what.code);
   return values;
 }
 export function cleanPrintedName(v: unknown): string {
@@ -286,11 +296,11 @@ async function fillTheRest(admin: any, row: any, me: any, detail: string): Promi
   const spots = await agreementSpots(row);
   if (!spots.filled) return true; // can't tell what's empty: leave it
   const initials = initialsFromLog(detail);
-  const values = spotValues(spots, { initials, printed: cleanPrintedName(row.agent_name), today: centralDay(), email: String(row.agent_email || me.email || '') }, spots.filled);
+  const values = spotValues(spots, { initials, printed: cleanPrintedName(row.agent_name), today: centralDay(), email: String(row.agent_email || me.email || ''), code: await npnOf(admin, me.id) }, spots.filled);
   const n = Object.keys(values).length;
   if (n) {
     await ds(`/submitters/${row.agent_submitter_id}`, { method: 'PUT', body: JSON.stringify({ values, send_email: false }) });
-    await log(admin, me.id, me.id, 'spots_filled', `Filled ${n} more spot${n === 1 ? '' : 's'} with their adopted initials and name`);
+    await log(admin, me.id, me.id, 'spots_filled', `Filled ${n} more spot${n === 1 ? '' : 's'} with their adopted initials, name and NPN`);
   }
   const empty = (list: any[]) => list.some(f => !spots.filled!.has(fieldKey(f)) && !values[fieldKey(f)]);
   return !empty(spots.signature) && !empty(spots.initials);
@@ -518,7 +528,7 @@ export async function handle(req: Request): Promise<Response> {
         // gets filled (not the template's, which may have changed since).
         const spots = await agreementSpots(row);
         if (!spots.signature.length && !spots.initials.length) return json({ error: 'no_signature_spots' }, 400);
-        const what = { initials, printed, today: centralDay(), email: String(row.agent_email || me.email || '') };
+        const what = { initials, printed, today: centralDay(), email: String(row.agent_email || me.email || ''), code: await npnOf(admin, me.id) };
         const put = async (sig: string) => {
           const values = spotValues(spots, { ...what, signature: sig });
           await ds(`/submitters/${row.agent_submitter_id}`, { method: 'PUT', body: JSON.stringify({ values, send_email: false }) });
@@ -531,8 +541,8 @@ export async function handle(req: Request): Promise<Response> {
         await admin.from('producer_agreements').update({ agent_name: printed }).eq('id', row.id).eq('status', 'sent');
         const ip = callerIp(req);
         await log(admin, me.id, me.id, 'signature_adopted',
-          `Adopted a drawn signature and initials "${initials}" as ${printed} for ${settings.agreement_version} (${spots.signature.length} signature, ${spots.initials.length} initials, ${spots.names.length} name, ${spots.emails.length} email and ${spots.dates.length} date spots filled)${ip ? ` from ${ip}` : ''}`);
-        return json({ ok: true, signatures: spots.signature.length, initials: spots.initials.length, names: spots.names.length, emails: spots.emails.length, dates: spots.dates.length });
+          `Adopted a drawn signature and initials "${initials}" as ${printed} for ${settings.agreement_version} (${spots.signature.length} signature, ${spots.initials.length} initials, ${spots.names.length} name, ${spots.emails.length} email, ${what.code ? spots.codes.length : 0} agent code and ${spots.dates.length} date spots filled)${ip ? ` from ${ip}` : ''}`);
+        return json({ ok: true, signatures: spots.signature.length, initials: spots.initials.length, names: spots.names.length, emails: spots.emails.length, codes: what.code ? spots.codes.length : 0, dates: spots.dates.length });
       }
 
       // ---- the contracting team countersigns ----------------------------------
@@ -641,7 +651,7 @@ export async function handle(req: Request): Promise<Response> {
         const agentRole = (t.submitters || []).find((r: any) => String(r.name || '').trim().toLowerCase() === AGENT_ROLE.toLowerCase());
         const agentFields = agentRole && agentRole.uuid ? (t.fields || []).filter((f: any) => f && f.submitter_uuid === agentRole.uuid) : [];
         const c = classifyAgentFields(agentFields);
-        const spots = { signature: c.signature.length, initials: c.initials.length, names: c.names.length, emails: c.emails.length, dates: c.dates.length, left: c.left };
+        const spots = { signature: c.signature.length, initials: c.initials.length, names: c.names.length, emails: c.emails.length, codes: c.codes.length, dates: c.dates.length, left: c.left };
         if (agentRole && !spots.signature) warnings.push(`The "${AGENT_ROLE}" role has no Signature field.`);
         if (agentRole && !spots.names) warnings.push(`The "${AGENT_ROLE}" role has no printed-name field (name one "Agent name" or "Print name").`);
         if (agentRole && !agentFields.some((f: any) => /agent\s*type|election|exclusive/i.test(String(f.name || '')))) warnings.push(`No Exclusive / Non-Exclusive field for the agent (name it with "Exclusive", e.g. "Exclusive initial" and "Non-exclusive initial").`);
