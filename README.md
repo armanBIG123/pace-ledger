@@ -74,7 +74,7 @@ The tables by area. Each table's access rules are in its migration.
 | Reports | `report_settings`, `report_sends`, `report_cron` |
 | Resources | `documents`, `important_links` |
 
-- **Migrations:** `supabase/migrations/` (once the live database layout is copied in), then the `migration-*.sql` files at the top level.
+- **Migrations:** `supabase/migrations/` starts from the live layout copied on Nov 10, 2026 (`*_baseline.sql`, recorded as already applied). New SQL goes there as numbered files. The older `migration-*.sql` files at the top level are history.
 - **Database functions (`rpc`):** each one is in the migration for its area.
 
 ## Server functions (`supabase/functions/`)
@@ -92,7 +92,8 @@ The tables by area. Each table's access rules are in its migration.
 | `send-intake-link` | Emails a client their intake form link. |
 | `submit-promotion` | Sends a promotion for approval and emails the office. |
 
-- **Still only in Supabase** until they're copied into the repo: `google-oauth-callback`, `google-calendar-events`, `zoom-oauth-callback`, `zoom-create-meeting` and `send-recruit-invite`.
+- **Copied in from Supabase:** `google-oauth-callback`, `google-calendar-events`, `zoom-oauth-callback`, `zoom-create-meeting` and `send-recruit-invite` (sign-ins, Google events, Zoom meetings and recruit invites).
+- **`supabase/config.toml`:** each function's Verify JWT setting. Every function has it off, because each one checks callers itself.
 - **`_shared/`:** what every function uses: reply headers, settings, email through Resend, the sign-in check and HTML escaping. Because of it, functions are deployed by the workflow and can't be pasted into the Supabase editor.
 - **Secrets** live in Supabase → Edge Functions → Secrets. Never put them in GitHub.
 
