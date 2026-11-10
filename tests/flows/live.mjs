@@ -12,8 +12,11 @@ const ok = (c, m) => { if (c) console.log('ok', m); else { failures++; console.l
 const MORGAN = { id: '11111111-1111-1111-1111-111111111111', email: 'morgan@example.com' };
 const JORDAN = { id: '22222222-2222-2222-2222-222222222222', email: 'jordan@example.com' };
 const DANA = { id: '33333333-3333-3333-3333-333333333333', email: 'dana@example.com' };
-const iso = d => d.toISOString().slice(0, 10);
-const now = new Date(); now.setHours(now.getHours() + 3, 0, 0, 0);
+// Dates by the local calendar (Central, like the agency), not UTC: in the
+// evening UTC is already tomorrow. The appointment is later today, never
+// past midnight (that could be next week on a Friday night).
+const iso = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const now = new Date(); now.setHours(Math.min(now.getHours() + 1, 23), 0, 0, 0);
 const sat = d => { const x = new Date(d); x.setDate(x.getDate() - ((x.getDay() + 1) % 7)); return iso(x); };
 const appt = (over = {}) => ({ id: 'ap-1', user_id: JORDAN.id, date_set_option: 'monday', category: 'weekday', week_of: sat(new Date()), appointment_date: iso(now),
   appointment_time: `${String(now.getHours()).padStart(2, '0')}:00:00`, appointment_timezone: 'America/Chicago', appointment_at: now.toISOString(), duration_minutes: 60,
