@@ -220,7 +220,7 @@ export function AgreementSheet({ name, onClose }) {
                 <button type="button" className="tr-link-btn tr-cl-inline" onClick={() => setState(s => ({ ...s, kind: 'adopt' }))}>Redo my signature</button>
               </p>
             ) : (
-              <p className="tr-ct-note">Your name, email and today's date are filled in. Adopt your signature once, then tap each spot. Every tap is recorded with the time, your email and your IP address.</p>
+              <p className="tr-ct-note">Your name, email, NPN and today's date are filled in. Adopt your signature once, then tap each signature and initials spot. Every tap is recorded with the time, your email and your IP address.</p>
             )}
             <DocuSealForm src={state.src} email={state.email} signature={(adopted && adopted.signature) || name} completeButton={state.prefilled}
               onCompleted={finished} onDeclined={() => { contractingChanged(); setState({ kind: 'declined' }); }} />

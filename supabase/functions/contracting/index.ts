@@ -188,14 +188,14 @@ const roleIs = (s: any, role: string, id: number | null) => (id && Number(s.id) 
 // Templates mark initials two ways: DocuSeal "Initials" fields, or Text
 // fields named for them ("Guidelines acknowledgement", "Benefits Initial").
 // The Exclusive / Non-Exclusive election initials are never filled: the
-// agent picks one. "Agent code" gets their NPN (the agent code BIG and
-// InsuraCloud use) when it's in PaceLedger. Checkboxes and the address are
-// left to them.
+// agent picks one. "Agent identifier" (or "Agent code") gets their NPN, the
+// agent code BIG and InsuraCloud use, when it's in PaceLedger. Checkboxes
+// and the address are left to them.
 const ELECTION_RE = /exclusive|election|agent\s*type/i;
 const INITIALS_RE = /initial|acknowledg/i;
 const NAME_RE = /^(print(ed)?\s+)?(agent('s)?\s+)?(full\s+)?name$|part(y|ies)$|^independent\s+agent$/i;
 const EMAIL_RE = /^(agent('s)?\s+)?e-?mail(\s+address)?$/i;
-const CODE_RE = /^(agent('s)?\s+)?(code|npn)$/i;
+const CODE_RE = /^(agent('s)?\s+)?(code|npn|identifier|id)$/i;
 export function classifyAgentFields(mine: any[]) {
   const nm = (f: any) => String(f.name || '').trim();
   const out = {
@@ -304,6 +304,20 @@ async function fillTheRest(admin: any, row: any, me: any, detail: string): Promi
   }
   const empty = (list: any[]) => list.some(f => !spots.filled!.has(fieldKey(f)) && !values[fieldKey(f)]);
   return !empty(spots.signature) && !empty(spots.initials);
+}
+
+// Opening the agreement, adopted or not: their name, email, today's date
+// and NPN go in the spots that are still empty. These are details, not a
+// signature, so they don't wait for the adopt step (an agent who taps "Sign
+// in the document instead" types only what PaceLedger can't know).
+async function fillBasics(admin: any, row: any, me: any): Promise<void> {
+  const spots = await agreementSpots(row);
+  if (!spots.filled) return; // can't tell what's empty: leave it
+  const values = spotValues(spots, { printed: cleanPrintedName(row.agent_name), today: centralDay(), email: String(row.agent_email || me.email || ''), code: await npnOf(admin, me.id) }, spots.filled);
+  const n = Object.keys(values).length;
+  if (!n) return;
+  await ds(`/submitters/${row.agent_submitter_id}`, { method: 'PUT', body: JSON.stringify({ values, send_email: false }) });
+  await log(admin, me.id, me.id, 'details_filled', `Filled ${n} spot${n === 1 ? '' : 's'} with their name, email, today's date and NPN`);
 }
 
 // The agent's Exclusive / Non-Exclusive choice: a picker whose value says
@@ -478,6 +492,8 @@ export async function handle(req: Request): Promise<Response> {
           let adopted = detail !== null;
           if (adopted) {
             try { adopted = await fillTheRest(admin, row, me, detail as string); } catch (e) { console.error('could not fill the rest', e); }
+          } else {
+            try { await fillBasics(admin, row, me); } catch (e) { console.error('could not fill the details', e); }
           }
           return json({ status: 'sent', src: await signingUrl(row.agent_submitter_id), email: row.agent_email, name: row.agent_name, adopted });
         }
@@ -507,6 +523,7 @@ export async function handle(req: Request): Promise<Response> {
         }).select().single();
         if (error) throw new Error(error.message);
         await log(admin, me.id, me.id, 'agreement_started', `Opened producer agreement ${settings.agreement_version} to sign`);
+        try { await fillBasics(admin, saved, me); } catch (e) { console.error('could not fill the details', e); }
         return json({ status: 'sent', src: a.embed_src || (await signingUrl(a.id)), email: me.email, name, adopted: false, agreement: saved });
       }
 

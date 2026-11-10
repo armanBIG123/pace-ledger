@@ -353,6 +353,11 @@ try {
   const tag = PL.db.producer_agreements.find(a => a.user_id === TAYLOR.id);
   const tSigner = DS.subs[tag.docuseal_submission_id].submitters.find(x => x.role === 'Agent');
   ok(tSigner.byUuid['t-name'] === 'Taylor Reed', "2026.2's lower-case \"Agent name\" gets their name when the agreement opens");
+  ok(tSigner.byUuid['t-print'] === 'Taylor Reed' && /^\d{4}-\d{2}-\d{2}$/.test(tSigner.byUuid['t-date']) && tSigner.byUuid['t-email'] === TAYLOR.email,
+    'opening it fills every name, date and email spot too, before any adopt step');
+  ok(['t-code', 't-code2', 't-ident'].every(k => tSigner.byUuid[k] === '12345678'), 'and their NPN, digits only, in Agent code and Agent identifier');
+  ok(!['t-sig', 't-ben', 't-guide', 't-excl', 't-nonex', 't-big'].some(k => tSigner.byUuid[k]), 'but no signature or initials until they adopt, and not the election');
+  ok(PL.db.contracting_log.some(l => l.action === 'details_filled' && l.user_id === TAYLOR.id && /NPN/.test(l.detail)), 'the details fill is logged');
   // What the older PaceLedger left: signature and name, no text initials;
   // they typed their own email.
   Object.assign(tSigner.byUuid, { 't-sig': SIG, 't-name': 'Taylor Q. Reed', 't-email': 'typed@example.com' });
@@ -365,13 +370,11 @@ try {
   ok(r.data.status === 'sent' && r.data.adopted === true, 'they go straight to the agreement');
   ok(DS.puts.length === putsT + 1 && top.id === tag.agent_submitter_id, 'one fill for the empty spots');
   ok(top.body.values['t-ben'] === 'TQR' && top.body.values['t-guide'] === 'TQR', 'the empty Text initials boxes get their adopted initials: ' + JSON.stringify(top.body.values));
-  ok(top.body.values['t-print'] === 'Taylor Q. Reed' && /^\d{4}-\d{2}-\d{2}$/.test(top.body.values['t-date']), 'and the empty name and date spots');
+  ok(!('t-print' in top.body.values) && !('t-date' in top.body.values), 'the name and date filled when it opened stay');
   ok(!['t-sig', 't-name', 't-email', 't-excl', 't-nonex', 't-big'].some(k => k in top.body.values), "what's already there, the election and BIG's spot are left alone");
   ok(tSigner.byUuid['t-email'] === 'typed@example.com', 'the email they typed stays');
   const fillLog = PL.db.contracting_log.find(l => l.action === 'spots_filled' && l.user_id === TAYLOR.id);
-  ok(top.body.values['t-code'] === '12345678' && top.body.values['t-code2'] === '12345678', 'both Agent code boxes get their NPN, digits only');
-  ok(!('t-ident' in top.body.values), 'Agent identifier is left for them');
-  ok(fillLog && /Filled 6 more spots/.test(fillLog.detail) && /NPN/.test(fillLog.detail), 'the fill is logged: ' + (fillLog && fillLog.detail));
+  ok(fillLog && /Filled 2 more spots/.test(fillLog.detail), 'the fill is logged: ' + (fillLog && fillLog.detail));
   r = await call(TAYLOR, { action: 'agreement-session' });
   ok(r.data.adopted === true && DS.puts.length === putsT + 1, 'opening it again sends nothing more');
   // A signature spot still empty (nothing stored to fill it with): they adopt once more.
