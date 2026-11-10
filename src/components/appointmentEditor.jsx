@@ -11,7 +11,7 @@ import { Pencil, Video, X } from 'lucide-react';
 import { loggedSummary, persistFollowUp } from '../data/appointments.js';
 import { fetchHierarchyPeopleShared } from '../data/team.js';
 import { durationLabel, fmtApptDateTime, todayStr, weekStartOf } from '../lib/dates.js';
-import { AppointmentForm, saveAppointmentChanges } from '../screens/Appointments.jsx';
+import { AppointmentForm, saveAppointmentChanges } from '../screens/appointments/AppointmentForm.jsx';
 import { appointmentEdited, deleteAppointmentWithUndo } from './appointmentPanel.jsx';
 import { appointmentTexts, CallButton, TextButton } from './contact.jsx';
 import { FollowUpModal } from './followUpModal.jsx';

@@ -1,98 +1,119 @@
 # PaceLedger
 
-Standalone version of the advisor appointment-pace tracker, backed by Supabase
-(real accounts + database) instead of Claude's artifact storage.
+Big Insurance Network's system for appointment pace. Advisors log the appointments they set and see what to do next. Managers coach their teams on pace, promotions, licensing and field training. The office runs contracting, commissions, reports and chat from the same place.
 
-## 1. Set up the database (one time)
+- **Site:** https://big-pace-ledger.com. It runs on Cloudflare, from `wrangler.jsonc`.
+- **Phone apps:** Capacitor (`capacitor.config.json`, `npm run cap:sync`).
+- **Data, sign-in and server functions:** Supabase.
 
-1. Open your Supabase project: https://supabase.com/dashboard
-2. Go to the **SQL Editor** → **New query**.
-3. Paste in the entire contents of `supabase-schema.sql` from this folder and click **Run**.
-   This creates the `profiles` and `appointments` tables and the security rules
-   that keep advisors from seeing each other's data while letting managers see everyone's.
+## Roles
 
-## 2. Decide on email confirmation
+| Role | Sees |
+|---|---|
+| `advisor` | **My work**: their own clients, appointments, calendar, growth path, resources and chat. |
+| `manager` | My work, plus the **Team** side for everyone under them. |
+| `super_manager` | Super-admin powers inside their own solar system (an agency inside BIG). The exceptions: no Profiles tab, and they can't make Super Managers or super admins. |
+| `super_admin` | Everything, in every solar system. Org Chart and Manage Team have a tab for each system. Only super admins have Profiles (with contracting) and the email reports. |
 
-By default, Supabase requires people to click a confirmation link in their
-email before they can log in for the first time.
+`src/lib/roles.js` decides who sees what. The database enforces the same rules with row-level security.
 
-- **Keep it on** (recommended) if advisors/managers will sign up with real
-  work email addresses — it's one extra click for them, no extra work for you.
-- **Turn it off** for faster internal testing: Supabase dashboard →
-  **Authentication** → **Providers** → **Email** → turn off "Confirm email."
+## Screens and their addresses
 
-## 3. Run it locally to test (optional but recommended)
+| Side | Screen | Address | Code |
+|---|---|---|---|
+| My work | Today | `/today` | `screens/Today.jsx`, `screens/today/` |
+| | Clients | `/clients`, `/clients/booked`, … | `screens/Clients.jsx`, `Pipeline.jsx`, `Appointments.jsx`, `screens/appointments/` |
+| | Calendar | `/calendar` | `screens/Calendar.jsx`, `screens/calendar/` |
+| | Growth | `/growth`, `/growth/pay`, … | `screens/Growth.jsx`, `Milestones.jsx`, `Commissions.jsx` |
+| | Resources | `/resources` | `screens/Documents.jsx` |
+| | Chat | `/chat`, `/chat/urgent`, … | `screens/Chat.jsx` |
+| Team | Team Overview | `/team` | `screens/team/TeamOverview.jsx` |
+| | Team Prospecting | `/team/prospecting` | `screens/team/TeamProspecting.jsx` |
+| | Team Pace | `/team/pace` | `screens/team/TeamPace.jsx`, with Recruits, Licensing, Field training and Promotion |
+| | Track Production | `/team/production` | `screens/team/TrackProduction.jsx` |
+| | Org Chart | `/team/org` | `screens/team/OrgChart.jsx` |
+| | Profiles | `/team/profiles` | `screens/team/Profiles.jsx`, with contracting |
+| | Client Forms | `/team/forms` | `screens/team/ClientForms.jsx` |
+| | Manage Team | `/team/manage` | `screens/team/ManageTeam.jsx` |
 
-You'll need [Node.js](https://nodejs.org) installed.
+`src/lib/routes.js` maps addresses to screens. If someone opens an address their role can't see, they land on Today. The public client intake form opens at `/?intake=<token>`.
 
-```bash
-cd pace-ledger
-npm install
-npm run dev
-```
-
-Open the URL it prints (usually `http://localhost:5173`), create a manager
-account and an advisor account, and confirm appointments save and the
-dashboards populate.
-
-## 4. Put the code on GitHub
-
-```bash
-cd pace-ledger
-git init
-git add .
-git commit -m "PaceLedger"
-```
-
-Then create a new empty repository at https://github.com/new (don't check
-"add a README" — this folder already has one), and run the two commands
-GitHub shows you on the next page, which will look like:
-
-```bash
-git remote add origin https://github.com/YOUR-USERNAME/pace-ledger.git
-git branch -M main
-git push -u origin main
-```
-
-## 5. Deploy on Cloudflare Pages
-
-1. Cloudflare dashboard → **Workers & Pages** → **Create** → **Pages** → **Connect to Git**.
-2. Pick the `pace-ledger` repository.
-3. Build settings:
-   - **Framework preset:** Vite
-   - **Build command:** `npm run build`
-   - **Build output directory:** `dist`
-4. Click **Save and Deploy**. You'll get a working `*.pages.dev` link in a minute or two.
-
-## 6. Attach your domain
-
-In that Pages project → **Custom domains** → **Set up a custom domain** →
-enter the domain you registered. Since it's already on Cloudflare DNS, this
-is usually automatic, including HTTPS.
-
-## How changes go live
-
-Changes are made on a separate branch and opened as a pull request on GitHub.
-Every branch is checked automatically (**Actions → Build check**): the site
-must build, and no file may use something it never imported. Merging the pull
-request into `main` is what puts it live: Cloudflare rebuilds the site in a
-minute or two, and the phone apps pick it up on their next launch.
-
-## Code layout
-
-Everything the app shows lives in `src/`:
+## Code layout (`src/`)
 
 | Folder | What's in it |
 |---|---|
-| `App.jsx` | Entry point: loads the session and profile, then shows the right layout. |
-| `views/` | The three layouts: advisor, manager/leader, super admin. |
-| `screens/` | One file per tab (Today, Prospecting, My Appointments, Follow Up, Business Plan, Calendar, Milestones, Documents). |
-| `screens/team/` | Team tabs: Team Pace, Team Prospecting, Track Production, Org Chart (with its milestone card), Manage Team. |
-| `components/` | Pieces shared by several screens: page layout, header, navigation, invites, reminders, pace widgets, level bodies (comet to galaxy) and milestone pieces. |
-| `data/` | Reading and saving data in Supabase: appointments, prospects, team, trainings, Google/Zoom. |
-| `lib/` | Plain helpers with no screens or data: dates, formatting, pace targets, milestones (progress to the next level and the biggest gap). |
-| other `src/*.js` | Feature helpers that predate this layout (hierarchy and promotions, licensing, invites, onboarding, business plan, documents, schedule, client intake, follow-up notes, phone-app features) and `styles.js` (all CSS). |
+| `App.jsx`, `views/` | Sign-in, the session and profile, and the layout for each role (`views/RoleViews.jsx`). |
+| `screens/` | One file per screen, with folders for the bigger screens' parts. |
+| `components/` | Pieces used on several screens: page layout, the appointment window, pace widgets, reminders, contact buttons and more. |
+| `data/` | Reading and saving in Supabase, one file per area. `data/live.js` is the shared data layer, described below. |
+| `lib/` | Plain helpers with no screens: dates, formatting, pace targets, routes, roles, credit splits. |
+| `styles/app.css` | All styles. The named sizes and colours are at the top: `--text-*`, `--radius-*`, the palette and `--night-*`. |
+| `assets/fonts/` | Newsreader and IBM Plex, served with the app. Their licences are alongside. |
 
-Database changes come as `migration-*.sql` files, run in the
-Supabase SQL Editor before the website change that needs them.
-`supabase-schema.sql` is the full schema for a brand-new project.
+**Keeping screens fresh.** `useLive(key, load, { topics })` from `data/live.js` keeps one copy of each query.
+
+- Screens asking for the same key share that copy and its request.
+- A copy reloads after a save on one of its topics, for example `changed('appointments')`.
+- It also reloads when the app comes back to the front after 30 seconds, and when a screen opens a copy that's over 30 seconds old.
+- There are no Refresh buttons.
+- The appointment save functions call `changed('appointments')` themselves.
+
+## Database (Supabase)
+
+The tables by area. Each table's access rules are in its migration.
+
+| Area | Tables |
+|---|---|
+| People | `profiles`, `org_directory` (view), `solar_systems`, `person_contacts`, `person_flags`, `profile_notes`, `audit_log`, `recruit_invites`, `onboarding_progress`, `licensing_progress`, `coaching_notes` |
+| Appointments and clients | `appointments`, `prospects`, `follow_up_notes`, `policy_notes`, `client_intake_candidates`, `business_plans` |
+| Calendar | `trainings`, `manager_availability_blocks`, `presenter_settings`, `presenter_hours`, `google_calendar_connections`, `zoom_connections`, `zoom_connected_managers` |
+| Team | `team_checklist`, `promotion_requests`, `wins`, `win_reactions`, `announcements`, `announcement_confirmations` |
+| Chat | `chat_messages`, `chat_reports`, `chat_blocks`, `chat_rules` |
+| Contracting | `contracting_cases`, `contracting_files`, `contracting_log`, `contracting_settings`, `contracting_staff`, `contracting_secrets`, `producer_agreements`, `agreements`, `entity_profiles`, `entity_documents`, `entity_checks` |
+| Commissions | `commission_receipts`, `commission_lines`, `commission_disbursements` |
+| Reports | `report_settings`, `report_sends`, `report_cron` |
+| Resources | `documents`, `important_links` |
+
+- **Migrations:** `supabase/migrations/` (once the live database layout is copied in), then the `migration-*.sql` files at the top level.
+- **Database functions (`rpc`):** each one is in the migration for its area.
+
+## Server functions (`supabase/functions/`)
+
+| Function | Does |
+|---|---|
+| `activity-report` | The daily and weekly activity emails, a preview, and a test email. |
+| `chat-notify` | Emails for Urgent help posts and reported messages. |
+| `commissions-ingest` | The webhook from the commission system (Minkoo). |
+| `contracting` | Contracting: DocuSeal agreements, encrypted details, staff emails. |
+| `delete-account` | Deletes an account (your own, or by an admin). |
+| `google-create-event` | Puts a booked appointment on Google Calendar and sends the invites. |
+| `presenter-availability` | A presenter's open times, using their Google Calendar. |
+| `send-appointment-invite` | The emailed invite with a calendar file, when Google isn't connected. |
+| `send-intake-link` | Emails a client their intake form link. |
+| `submit-promotion` | Sends a promotion for approval and emails the office. |
+
+- **Still only in Supabase** until they're copied into the repo: `google-oauth-callback`, `google-calendar-events`, `zoom-oauth-callback`, `zoom-create-meeting` and `send-recruit-invite`.
+- **`_shared/`:** what every function uses: reply headers, settings, email through Resend, the sign-in check and HTML escaping. Because of it, functions are deployed by the workflow and can't be pasted into the Supabase editor.
+- **Secrets** live in Supabase → Edge Functions → Secrets. Never put them in GitHub.
+
+## Scheduled jobs (pg_cron in Supabase)
+
+| Job | When | Does |
+|---|---|---|
+| `pl-activity-reports` | :07 every hour | Calls `activity-report`. It sends the daily report at 7 AM Central and the weekly one on Saturdays, once each. |
+| `pl-contracting-purge` | every 10 minutes | Removes contracting details past their keep-until time. |
+
+## Working on it
+
+```bash
+npm install
+npm run dev        # http://localhost:5173
+npm test           # unit, server functions, browser flows; SQL too if Postgres is reachable
+npm test -- live   # one group or file
+```
+
+- **Tests** are in `tests/`. GitHub runs them on every pull request (`.github/workflows/tests.yml`), along with the build check.
+- **Merging into `main`** puts it live:
+  - Cloudflare rebuilds the site;
+  - the deploy workflow runs new SQL and deploys any changed server functions;
+  - the phone apps pick it up on their next launch.
