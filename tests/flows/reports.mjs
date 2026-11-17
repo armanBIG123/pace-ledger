@@ -36,7 +36,7 @@ const SETUP = `window.__PL_SETUP = function (PL) {
   PL.fn['activity-report'] = body => {
     PL.fnCalls = (PL.fnCalls || []).concat([body]);
     const html = body.kind === 'weekly' ? window.__WEEKLY : window.__DAILY;
-    if (body.action === 'preview') return { ok: true, kind: body.kind, subject: body.kind === 'weekly' ? 'PaceLedger weekly · Oct 31 – Nov 6 · 4 set, 6 completed, 3 apps, $1,751' : 'PaceLedger daily · Fri, Nov 6 · 1 set, 4 completed, 2 apps, $1,500', html };
+    if (body.action === 'preview') return { ok: true, kind: body.kind, subject: body.kind === 'weekly' ? 'PaceLedger | Weekly Performance · Oct 31 – Nov 6 · 4 set, 6 completed, 3 apps, $1,751' : 'PaceLedger | Daily Performance · Fri, Nov 6 · 1 set, 4 completed, 2 apps, $1,500', html };
     if (body.action === 'send-test') return { ok: true, kind: body.kind, to: 'morgan@example.com' };
     return { ok: false, error: 'unknown_action' };
   };
@@ -85,7 +85,7 @@ try {
   await card.getByRole('button', { name: 'Preview weekly' }).click();
   const modal = page.locator('.tr-er-modal');
   await modal.locator('iframe').waitFor({ timeout: 5000 });
-  ok(/PaceLedger weekly · Oct 31 – Nov 6/.test(await modal.innerText()), 'the preview shows the subject');
+  ok(/Weekly Performance · Oct 31 – Nov 6/.test(await modal.innerText()), 'the preview shows the subject');
   const frame = page.frameLocator('.tr-er-modal iframe');
   ok(await frame.getByText('By team').isVisible(), 'and the email itself');
   await page.waitForTimeout(300);

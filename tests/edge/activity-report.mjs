@@ -50,8 +50,10 @@ ok(Array.isArray(loop.teams), 'a reporting loop does not hang');
 const week = R.buildReport(WEEK), prev = R.buildReport(PREV);
 const sentAt = at('2026-11-07T13:07:00Z');
 const dm = R.renderEmail({ kind: 'daily', cur: day, prev: null, sentAt });
-ok(dm.subject === 'PaceLedger daily · Fri, Nov 6 · 1 set, 4 completed, 2 apps, $1,500', 'daily subject: ' + dm.subject);
-ok(/Friday, November 6/.test(dm.html) && /as of Saturday 7:07 AM/.test(dm.html), 'daily title and as-of time');
+ok(dm.subject === 'PaceLedger | Daily Performance · Fri, Nov 6 · 1 set, 4 completed, 2 apps, $1,500', 'daily subject: ' + dm.subject);
+ok(/Friday, November 6/.test(dm.html) && /As of Sat, Nov 7, 7:07 AM CT/.test(dm.html) && /midnight to midnight Central Time \(CT\)/.test(dm.html), 'daily title, and the as-of time and day in Central Time');
+ok(/>\| Daily Performance</.test(dm.html), 'header: PaceLedger | Daily Performance');
+ok(!/WTD/.test(dm.html), 'no week or month to date given: just the Daily column');
 ok(/1 appointment from Fri doesn’t have an outcome logged yet, so it isn’t in Completed/.test(dm.html), 'not-logged note');
 ok(/By solar system/.test(dm.html) && /Big Huge Business/.test(dm.html), 'solar systems shown when there are two');
 ok(/Dana Dyna’s team/.test(dm.html) && /↳/.test(dm.html), 'teams with indent');
@@ -59,8 +61,22 @@ const dAgents = dm.html.split('By agent')[1];
 const rowAt = n => dAgents.indexOf(`<td class="a">${n}<`);
 ok(rowAt('Tasha Tee') > 0 && rowAt('Tasha Tee') < rowAt('Cy Sea') && rowAt('Cy Sea') < rowAt('Dana Dyna') && rowAt('Dana Dyna') < rowAt('Lee El') && rowAt('Arman Root') === -1, 'agents: most premium first, nobody without activity: Tasha, Cy, Dana, Lee');
 ok(/4 others had none/.test(dm.html), 'and how many had none (Arman, Pat, Marcus, Bo)');
+// Daily with the week and month to date (Oct 31 – Nov 6 is the WEEK fixture).
+const mtdRpt = R.buildReport({ ...DAY, from: '2026-11-01', to: '2026-11-06', company: { ...DAY.company, set: 3, completed: 5, apps: 2, premium: 1500 } });
+const dt = R.renderEmail({ kind: 'daily', cur: day, prev: null, sentAt, wtd: R.buildReport(WEEK), mtd: mtdRpt });
+const head = dt.html.split('</tr>')[0];
+ok(/Daily<br><small class="hd">Nov 6</.test(head) && /WTD<br><small class="hd">Oct 31 – Nov 6</.test(head) && /MTD<br><small class="hd">Nov 1 – 6</.test(head), 'columns: Daily (Nov 6), WTD (Oct 31 – Nov 6), MTD (Nov 1 – 6): ' + head.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' '));
+const setRow = dt.html.split('Appointments set')[1].split('</tr>')[0];
+ok(/class="b">1</.test(setRow) && /class="s">4</.test(setRow) && /class="s">3</.test(setRow), 'Appointments set: 1 that day, 4 week to date, 3 month to date');
+ok(/class="s">\$1,751</.test(dt.html.split('Target premium')[1].split('</tr>')[0]), 'premium week to date: $1,751');
+ok(/>Applications</.test(dt.html) && />Target premium</.test(dt.html) && !/Applications submitted|Total target premium/.test(dt.html + dt.text), 'labels: Applications and Target premium');
+ok(/WTD<\/b> is week to date: Oct 31 – Nov 6 \(weeks run Saturday to Friday\)/.test(dt.html) && /MTD<\/b> is month to date: Nov 1 – 6/.test(dt.html), 'a note says what WTD and MTD cover');
+ok(/Appointments set: 1 \(WTD 4, MTD 3\)/.test(dt.text), 'plain text has WTD and MTD: ' + (dt.text.match(/Appointments set.*/) || [''])[0]);
+ok(R.weekToDate('2026-11-16').from === '2026-11-14' && R.weekToDate('2026-11-14').from === '2026-11-14' && R.weekToDate('2026-11-13').from === '2026-11-07', 'week to date starts on Saturday (Mon Nov 16 → Sat Nov 14; a Saturday is its own start)');
+ok(R.monthToDate('2026-11-16').from === '2026-11-01' && R.monthToDate('2026-12-01').from === '2026-12-01', 'month to date starts on the 1st');
 const wm = R.renderEmail({ kind: 'weekly', cur: week, prev, sentAt });
-ok(wm.subject === 'PaceLedger weekly · Oct 31 – Nov 6 · 4 set, 6 completed, 3 apps, $1,751 (premium $0 last week)', 'weekly subject: ' + wm.subject);
+ok(wm.subject === 'PaceLedger | Weekly Performance · Oct 31 – Nov 6 · 4 set, 6 completed, 3 apps, $1,751 (premium $0 last week)', 'weekly subject: ' + wm.subject);
+ok(/>\| Weekly Performance</.test(wm.html) && /Central Time \(CT\)/.test(wm.html) && !/WTD/.test(wm.html), 'weekly header, Central Time, no WTD/MTD');
 ok(/This week/.test(wm.html) && /Last week/.test(wm.html) && /compared with the week before \(Oct 24 – 30\)/.test(wm.html), 'weekly compares with Oct 24 – 30');
 ok(/▲ \+3<\/b>/.test(wm.html) && /▼ −4<\/b>/.test(wm.html) && /−50%/.test(wm.html), 'company changes with arrows: apps ▲ +3, set ▼ −4 (−50%)');
 ok(/Marcus Em/.test(wm.html.split('By agent')[1]), 'Marcus is listed (activity this week)');
@@ -76,7 +92,7 @@ ok(Buffer.byteLength(big.html) < 95000 && /And 50 more people/.test(big.html), `
 const pc = R.renderEmail({ kind: 'weekly', cur: R.buildReport({ ...WEEK }), prev: R.buildReport({ ...WEEK, company: { ...WEEK.company, premium: 1500 } }), sentAt });
 ok(/\(premium ▲ 17% vs last week\)$/.test(pc.subject), 'subject with a percent when last week had premium: ' + pc.subject);
 fs.mkdirSync(path.join(OUT, 'report-emails'), { recursive: true });
-fs.writeFileSync(path.join(OUT, 'report-emails', 'daily.html'), dm.html);
+fs.writeFileSync(path.join(OUT, 'report-emails', 'daily.html'), dt.html);
 fs.writeFileSync(path.join(OUT, 'report-emails', 'weekly.html'), wm.html);
 
 // ---- sending: once per period, retries, test emails ----
@@ -120,6 +136,8 @@ try {
   ok(r.ran.length === 2 && r.ran.every(x => x.sent) && emails.length === 2, 'Saturday 7 AM: daily and weekly sent: ' + JSON.stringify(r.ran.map(x => x.subject)));
   ok(emails.every(e => e.to.join() === 'agency@example.com,arman@example.com,dynamite@example.com' && e.from === 'PaceLedger <reports@example.com>'), 'to all three, from PaceLedger');
   ok(PL.db.report_sends.filter(x => x.status === 'sent').length === 2, 'both recorded as sent');
+  const daily = emails.find(e => /Daily Performance/.test(e.subject));
+  ok(daily && /WTD<br><small class="hd">Oct 31 – Nov 6</.test(daily.html) && /MTD<br><small class="hd">Nov 1 – 6</.test(daily.html), "the daily sent on Saturday has Friday's week and month to date");
   const admin = (await import(path.join(TESTS, 'mock/supabase.js'))).createClient();
   r = await R.runDue(admin, at('2026-11-07T14:07:00Z'));
   ok(r.ran.every(x => x.skipped === 'already_sent') && emails.length === 2, 'the 8 AM run sends nothing again');
@@ -155,11 +173,11 @@ try {
   r = await handleCall({ action: 'preview', kind: 'weekly' }, { user: ADVISOR });
   ok(r.status === 403, 'an advisor cannot preview');
   r = await handleCall({ action: 'preview', kind: 'weekly' }, { user: ADMIN });
-  ok(r.status === 200 && r.data.ok && /PaceLedger weekly/.test(r.data.subject) && /<html/.test(r.data.html), 'a super admin previews the weekly: ' + r.data.subject);
+  ok(r.status === 200 && r.data.ok && /Weekly Performance/.test(r.data.subject) && /<html/.test(r.data.html), 'a super admin previews the weekly: ' + r.data.subject);
   const before = emails.length;
   r = await handleCall({ action: 'send-test', kind: 'daily' }, { user: ADMIN });
   const last = emails[emails.length - 1];
-  ok(r.data.ok && emails.length === before + 1 && last.to.join() === ADMIN.email && /^\[Test\] PaceLedger daily/.test(last.subject), 'a test goes only to them, marked [Test]');
+  ok(r.data.ok && emails.length === before + 1 && last.to.join() === ADMIN.email && /^\[Test\] PaceLedger \| Daily Performance/.test(last.subject), 'a test goes only to them, marked [Test]');
   ok(PL.db.report_sends.some(x => x.test && x.sent_by === ADMIN.id), 'the test is recorded as a test');
   for (let i = 0; i < 9; i++) await handleCall({ action: 'send-test', kind: 'daily' }, { user: ADMIN });
   r = await handleCall({ action: 'send-test', kind: 'daily' }, { user: ADMIN });
