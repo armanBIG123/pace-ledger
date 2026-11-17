@@ -86,8 +86,8 @@ export const METRICS: { key: keyof Nums; label: string; short: string }[] = [
   { key: 'added', label: 'Team members added', short: 'Added' },
   { key: 'set', label: 'Appointments set', short: 'Set' },
   { key: 'completed', label: 'Appointments completed', short: 'Completed' },
-  { key: 'apps', label: 'Applications submitted', short: 'Apps' },
-  { key: 'premium', label: 'Total target premium', short: 'Premium' },
+  { key: 'apps', label: 'Applications', short: 'Apps' },
+  { key: 'premium', label: 'Target premium', short: 'Premium' },
 ];
 const num = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const zero = (): Nums => ({ added: 0, set: 0, completed: 0, apps: 0, premium: 0 });
