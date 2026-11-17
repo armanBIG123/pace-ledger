@@ -1,17 +1,17 @@
 // My work → Clients: everyone you've put on your list, booked, presented,
-// sold or recruited, one profile per person, with the next step on top. It
-// replaced Pipeline's five stage tabs; those lists are still a tap away
-// under "Other lists". Stages come from lib/clients.js.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+// sold or recruited, one profile per person, with the next step on top.
+// One menu: the pipeline bar (Prospects → Appointments → Log outcome →
+// Follow up → Waiting on carrier → Clients) filters the list in place, and
+// with nothing picked the list comes in sections, Do now first. The older
+// lists are under More. Stages and due dates come from lib/clients.js.
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLive } from '../data/live.js';
-import { CalendarPlus, Check, ChevronLeft, ChevronRight, GitMerge, ListChecks, NotebookPen, Pencil, Plus, Presentation, Search, UserPlus, X } from 'lucide-react';
-import { addPolicyNote, fetchAppointmentsImOn, fetchMyAppointments, fetchPolicyNotes, isRecruitType, isSaleType, linkAppointmentToProspect, logPresentedAppointment, persistFollowUp, updatePolicyFields } from '../data/appointments.js';
-import { ALL_CHARACTERISTICS, fetchMyProspects, insertProspect, prospectToAppointmentPrefill, updateProspect } from '../data/prospects.js';
-import { fetchRecruitSignups } from '../data/recruits.js';
-import { fetchOrgDirectory } from '../data/team.js';
-import { fetchMyIntakeStatus } from '../clientIntake.js';
-import { addFollowUpNote, fetchMyFollowUpNotes } from '../followUpNotes.js';
-import { buildClients, CLIENT_FILTERS, CLIENT_STAGES, clientMatches, dayWord, filterCounts, filterLabel, inFilter, initialsOf, sortClients } from '../lib/clients.js';
+import { Award, CalendarDays, CalendarPlus, Check, ChevronDown, ChevronLeft, ChevronRight, Clock, GitMerge, Hourglass, ListChecks, MessageCircle, NotebookPen, Pencil, Phone, Plus, Presentation, Search, Snowflake, UserPlus, Users, X } from 'lucide-react';
+import { addPolicyNote, fetchPolicyNotes, isRecruitType, isSaleType, linkAppointmentToProspect, logPresentedAppointment, persistFollowUp, updateNextContact, updatePolicyFields } from '../data/appointments.js';
+import { ALL_CHARACTERISTICS, insertProspect, prospectToAppointmentPrefill, updateProspect } from '../data/prospects.js';
+import { CLIENT_TOPICS, clientsKey, loadClientsData } from '../data/clientsData.js';
+import { addFollowUpNote } from '../followUpNotes.js';
+import { buildClients, CLIENT_STAGES, clientMatches, clientSections, dayWord, dueBadge, filterCounts, filterLabel, inFilter, initialsOf, PIPELINE, pipelineCounts, plusDays, sortClients, touchDays } from '../lib/clients.js';
 import { fmtApptDateTime, todayStr } from '../lib/dates.js';
 import { fmtCurrency } from '../lib/format.js';
 import { Modal, SkelBlock, TitleInfo } from '../components/ui.jsx';
@@ -29,9 +29,152 @@ const firstOf = n => (n || '').trim().split(/\s+/)[0] || n;
 const NOT_SAME = 'pl_not_same';
 const readNotSame = () => { try { return new Set(JSON.parse(localStorage.getItem(NOT_SAME) || '[]')); } catch { return new Set(); } };
 
-function StageChip({ stage, short = false }) {
-  const s = CLIENT_STAGES[stage];
-  return <span className={`tr-cl-chip tr-cl-chip-${stage}`}>{short && s.short ? s.short : s.label}</span>;
+function StageChip({ c, short = false }) {
+  const s = CLIENT_STAGES[c.stage];
+  return <span className={`tr-cl-chip tr-cl-chip-${c.stage}`}>{c.chip || (short && s.short ? s.short : s.label)}</span>;
+}
+const dayOf = d => dayWord(new Date(`${d}T12:00:00`).getTime());
+const dialable = phone => String(phone || '').replace(/[^\d+]/g, '');
+
+// The pipeline bar: each stage with its count, left to right in the order
+// people move through. Tapping one shows just those people; tapping it
+// again shows everyone.
+const STAGE_ICONS = { prospect: Users, booked: CalendarDays, outcome: ListChecks, followup: MessageCircle, pending: Hourglass, client: Award };
+function StageBar({ counts, on, onPick }) {
+  // Phones: keep the picked stage in view on the sideways strip.
+  const strip = useRef(null);
+  useEffect(() => {
+    const el = strip.current;
+    const sel = el && el.querySelector('.tr-clbar-on');
+    if (!sel || el.scrollWidth <= el.clientWidth) return;
+    const a = el.getBoundingClientRect(), b = sel.getBoundingClientRect();
+    if (b.left < a.left || b.right > a.right) el.scrollLeft += b.left - a.left - 40;
+  }, [on]);
+  return (
+    <div className="tr-clbar" ref={strip} role="group" aria-label="Pipeline">
+      {PIPELINE.map((k, i) => {
+        const Icon = STAGE_ICONS[k];
+        const c = counts[k];
+        return (
+          <Fragment key={k}>
+            {i > 0 ? <ChevronRight size={16} className="tr-clbar-arrow" aria-hidden="true" /> : null}
+            <button type="button" aria-pressed={on === k} className={`tr-clbar-stage tr-clbar-${k} ${on === k ? 'tr-clbar-on' : ''}`} onClick={() => onPick(on === k ? 'all' : k)}>
+              <span className="tr-clbar-top"><Icon size={14} aria-hidden="true" /> {filterLabel(k)}</span>
+              <span className="tr-clbar-n">{c.n}</span>
+              <span className={`tr-clbar-sub ${c.warn ? 'tr-clbar-warn' : ''}`}>{c.sub}</span>
+            </button>
+          </Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
+// More: the stages that sit off the bar, and the older lists.
+const OTHER_LISTS = [['names', 'Prospecting tools'], ['booked', 'Appointments by week'], ['outcome', 'Outcomes and reschedules'], ['followup', 'Intake forms and recruit links'], ['won', 'Submitted and issued premium']];
+function ClientsMore({ counts, onFilter, onOpenList }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const down = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const key = e => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('pointerdown', down);
+    document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('pointerdown', down); document.removeEventListener('keydown', key); };
+  }, [open]);
+  const show = ['recruited', 'closed', 'presented'].filter(f => counts[f] > 0);
+  const go = run => { setOpen(false); run(); };
+  return (
+    <span className="tr-more tr-cl-moremenu" ref={ref}>
+      <button type="button" className="tr-cl-pill" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(v => !v)}>
+        More <ChevronDown size={14} aria-hidden="true" />
+      </button>
+      {open ? (
+        <span role="menu" className="tr-more-pop tr-cl-more-pop">
+          {show.length ? <span className="tr-cl-more-label">Show</span> : null}
+          {show.map(f => (
+            <button key={f} type="button" role="menuitem" className="tr-more-item" onClick={() => go(() => onFilter(f))}>
+              {filterLabel(f)} <span className="tr-cl-count">{counts[f]}</span>
+            </button>
+          ))}
+          {onOpenList ? <span className="tr-cl-more-label">Other lists</span> : null}
+          {onOpenList ? OTHER_LISTS.map(([k, label]) => (
+            <button key={k} type="button" role="menuitem" className="tr-more-item" onClick={() => go(() => onOpenList(k))}>{label}</button>
+          )) : null}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+const FILTER_HINTS = {
+  prospect: 'Highest score first. Book from any row.',
+  booked: 'Soonest first. Booked someone new? Log the appointment here.',
+  outcome: 'Appointments that already happened. Log how each one went, oldest first.',
+  followup: 'Nothing booked yet. Due ones first; the date comes from the last outcome or touch.',
+  pending: 'Sold, not issued yet. Oldest first.',
+  client: 'Issued policies. Deliver them, then ask for referrals.',
+  recruited: 'People who joined your team.',
+  closed: "Said not interested. They come back to Follow up when it's time to check in.",
+  presented: 'People your team booked that you presented.',
+};
+
+// One card of people: a title, a count, a line on what's in it, and the rows.
+function PeopleCard({ id, title, hint, people, renderRow, limit = 0, fold = false, cta = null, empty = 'No one here right now.' }) {
+  const [open, setOpen] = useState(!fold);
+  const [all, setAll] = useState(false);
+  const shown = limit && !all ? people.slice(0, limit) : people;
+  return (
+    <section className={`tr-cl-sec tr-cl-sec-${id}`} aria-labelledby={`cl-sec-${id}`}>
+      <div className="tr-cl-sec-head">
+        <div className="tr-cl-sec-titles">
+          <h2 className="tr-cl-sec-title" id={`cl-sec-${id}`}>{title}<span className="tr-cl-sec-n">{people.length}</span></h2>
+          {hint ? <p className="tr-cl-sec-hint">{hint}</p> : null}
+        </div>
+        {cta}
+        {fold ? <button type="button" className="tr-link-btn" aria-expanded={open} onClick={() => setOpen(v => !v)}>{open ? 'Hide' : 'Show'}</button> : null}
+      </div>
+      {!open ? null : people.length ? (
+        <ul className="tr-cl-list">{shown.map(renderRow)}</ul>
+      ) : <p className="tr-cl-empty">{empty}</p>}
+      {open && limit && people.length > limit && !all ? (
+        <button type="button" className="tr-cl-showall" onClick={() => setAll(true)}>Show all {people.length}</button>
+      ) : null}
+    </section>
+  );
+}
+
+// When to reach out again, on a profile with nothing booked: the date, and
+// quick ways to move it.
+function NextContact({ c, busy, onSet }) {
+  const today = todayStr();
+  const badge = dueBadge(c);
+  const opts = [['Tomorrow', 1], ['In 3 days', 3], ['1 week', 7], ['2 weeks', 14]];
+  const ready = !!(c.touchAppt && c.touchAppt.nextContactReady);
+  return (
+    <div className="tr-cl-nextc">
+      <div className="tr-cl-nextc-line">
+        <Clock size={15} aria-hidden="true" />
+        <span>Reach out {c.dueIn === 0 ? 'today' : c.dueIn < 0 ? `by ${dayOf(c.dueOn)}` : dayOf(c.dueOn)}</span>
+        {badge && c.dueIn <= 0 ? <span className={`tr-cl-due tr-cl-due-${badge.tone}`}>{badge.cold ? <Snowflake size={12} aria-hidden="true" /> : null}{badge.text}</span>
+          : c.dueIn > 1 ? <span className="tr-cl-nextc-in">in {c.dueIn} days</span> : null}
+      </div>
+      {ready ? (
+        <div className="tr-cl-nextc-opts" role="group" aria-label="Reach out again">
+          <span className="tr-cl-nextc-label">Move it:</span>
+          {opts.map(([label, n]) => {
+            const d = plusDays(today, n);
+            return <button key={n} type="button" className={`tr-pill-btn ${c.dueOn === d ? 'tr-pill-btn-on' : ''}`} aria-pressed={c.dueOn === d} disabled={busy} onClick={() => onSet(d)}>{label}</button>;
+          })}
+          <label className="tr-cl-nextc-date">
+            <span className="tr-sr-only">Pick a date to reach out</span>
+            <input type="date" value={c.dueOn} min={today} disabled={busy} onChange={e => { if (e.target.value) onSet(e.target.value); }} />
+          </label>
+        </div>
+      ) : null}
+    </div>
+  );
 }
 function Avatar({ c, big = false }) {
   return <span className={`tr-cl-avatar tr-cl-avatar-${c.stage} ${big ? 'tr-cl-avatar-big' : ''}`} aria-hidden="true">{initialsOf(c.name)}</span>;
@@ -142,12 +285,12 @@ function PolicyCard({ pol, c, user, nameOf, onChanged }) {
 
 // selected / onSelect(key, name): the open profile (kept by the app, so
 // Cancel on the appointment form comes back to it). intent from elsewhere:
-// { open: key } (search), { search } or { add: true } (+ New → Add a
-// prospect). bar: the pipeline bar (Pipeline.jsx), under the heading.
-export function ClientsBody({ user, selected, onSelect, onLogAppointment, intent, onIntentConsumed, bar = null }) {
+// { open: key } (search), { search }, { add: true } (+ New → Add a
+// prospect) or { filter: 'followup' } (Today). onOpenList(stage): one of
+// the older lists (Pipeline.jsx), from More.
+export function ClientsBody({ user, selected, onSelect, onLogAppointment, intent, onIntentConsumed, onOpenList = null }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
-  const [sort, setSort] = useState('next');
   const [flash, setFlash] = useState('');
   const [outcome, setOutcome] = useState(null); // { appt, presenter }
   const [saving, setSaving] = useState(false);
@@ -163,14 +306,7 @@ export function ClientsBody({ user, selected, onSelect, onLogAppointment, intent
   // Everyone on your list with their appointments, notes and forms. The
   // shared data layer reloads it after any appointment or intake change,
   // and when you come back to the app.
-  const live = useLive(['clients', user.id], async () => {
-    const [prospects, appointments, presenting, notes, intakes, signups, org] = await Promise.all([
-      fetchMyProspects(user.id), fetchMyAppointments(user.id), fetchAppointmentsImOn(user.id).catch(() => []),
-      fetchMyFollowUpNotes(user.id).catch(() => []), fetchMyIntakeStatus(user.id).catch(() => []),
-      fetchRecruitSignups('2000-01-01', todayStr()).catch(() => ({ rows: [] })), fetchOrgDirectory().catch(() => []),
-    ]);
-    return { prospects, appointments, presenting, notes, intakes, signups: (signups && signups.rows) || [], org };
-  }, { topics: ['appointments', 'intake', 'prospects'] });
+  const live = useLive(clientsKey(user.id), () => loadClientsData(user.id), { topics: CLIENT_TOPICS });
   const data = live.data || null;
   const load = live.reload;
   // Edits from the appointment window (an Undo-able delete is applied in place).
@@ -184,6 +320,7 @@ export function ClientsBody({ user, selected, onSelect, onLogAppointment, intent
     if (intent.open) onSelect(intent.open);
     if (intent.search) { onSelect(null); setQuery(intent.search); setFilter('all'); }
     if (intent.add) { onSelect(null); setFormError(''); setForm({ editing: null }); }
+    if (intent.filter) { onSelect(null); setQuery(''); setFilter(intent.filter); }
     onIntentConsumed && onIntentConsumed();
   }, [intent]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -265,6 +402,25 @@ export function ClientsBody({ user, selected, onSelect, onLogAppointment, intent
       if (!res.ok) { setFlash("Couldn't save the note. Check your connection and try again."); return; }
     }
     await load();
+  }
+  // A touch (Called, Left voicemail…): saved as a note, and for someone
+  // with nothing booked it also moves when to reach out again.
+  async function touch(c, tag) {
+    setNoting(true);
+    const ready = c.touchAppt && c.touchAppt.nextContactReady;
+    const when = ready ? plusDays(todayStr(), touchDays(tag)) : '';
+    if (when) await updateNextContact(c.touchAppt.id, when);
+    await saveNote(c, tag);
+    setNoting(false);
+    if (when) setFlash(`Logged “${tag}”. Reach out again ${dayOf(when)}.`);
+  }
+  async function setNextContact(c, date) {
+    if (!c.touchAppt) return;
+    setNoting(true);
+    const ok = await updateNextContact(c.touchAppt.id, date);
+    setNoting(false);
+    if (!ok) { setFlash("Couldn't save the date. Check your connection and try again."); return; }
+    setFlash(`Reach out to ${firstOf(c.name)} ${dayOf(date)}.`);
   }
   async function addReferrals(c) {
     if (!c.prospect) return;
@@ -367,7 +523,7 @@ export function ClientsBody({ user, selected, onSelect, onLogAppointment, intent
           <Avatar c={c} big />
           <div>
             <h1 className="tr-cl-name">{c.name}</h1>
-            <div className="tr-cl-head-tags"><StageChip stage={c.stage} /><ForTag c={c} />{c.virtual ? <span className="tr-cl-muted">Not on your list yet</span> : null}</div>
+            <div className="tr-cl-head-tags"><StageChip c={c} /><ForTag c={c} />{c.virtual ? <span className="tr-cl-muted">Not on your list yet</span> : null}</div>
           </div>
         </header>
         {flashEl}
@@ -382,6 +538,18 @@ export function ClientsBody({ user, selected, onSelect, onLogAppointment, intent
             {secondary.map(s => <button key={s.label} type="button" className="tr-btn tr-btn-ghost" onClick={s.run}><s.Icon size={15} aria-hidden="true" /> {s.label}</button>)}
           </div>
           {c.presented ? <p className="tr-cl-muted">{firstOf(c.owner.name) || 'Your teammate'} booked {first}, so {first} is on their list. You see {first} here because you presented.</p> : null}
+          {c.stage === 'followup' && !c.presented ? <NextContact c={c} busy={noting} onSet={d => setNextContact(c, d)} /> : null}
+          {!c.presented && (c.appts.length || p) ? (
+            <div className="tr-cl-touch">
+              <span className="tr-cl-touch-label">Log a touch</span>
+              <div className="tr-fu-quicktags tr-cl-quicktags" role="group" aria-label="Quick notes">
+                {QUICK_NOTE_TAGS.map(tag => (
+                  <button key={tag} type="button" className="tr-pill-btn" disabled={noting} title={`Log "${tag}" with today's date`}
+                    onClick={() => touch(c, tag)}>+ {tag}</button>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </section>
 
         {c.virtual ? (
@@ -413,14 +581,6 @@ export function ClientsBody({ user, selected, onSelect, onLogAppointment, intent
             <h3 className="tr-cl-h" id="cl-tl-h">Everything so far</h3>
             {!c.presented && (c.appts.length || p) ? <button type="button" className="tr-link-btn" onClick={() => addNote(c)}>Add a note</button> : null}
           </div>
-          {!c.presented && (c.appts.length || p) ? (
-            <div className="tr-fu-quicktags tr-cl-quicktags" role="group" aria-label="Quick notes">
-              {QUICK_NOTE_TAGS.map(tag => (
-                <button key={tag} type="button" className="tr-pill-btn" disabled={noting} title={`Log "${tag}" with today's date`}
-                  onClick={async () => { setNoting(true); await saveNote(c, tag); setNoting(false); }}>+ {tag}</button>
-              ))}
-            </div>
-          ) : null}
           {c.timeline.length ? (
             <ol className="tr-cl-timeline">
               {c.timeline.map((t, i) => (
@@ -466,7 +626,7 @@ export function ClientsBody({ user, selected, onSelect, onLogAppointment, intent
                 <p className="tr-cl-muted">People {first} sent you, and where they are now.</p>
                 <ul className="tr-cl-refs">
                   {c.referrals.map(k => byKey.get(k)).filter(Boolean).map(r => (
-                    <li key={r.key}><button type="button" onClick={() => pick(r.key)}><span>{r.name}</span><StageChip stage={r.stage} short /></button></li>
+                    <li key={r.key}><button type="button" onClick={() => pick(r.key)}><span>{r.name}</span><StageChip c={r} short /></button></li>
                   ))}
                 </ul>
               </>
@@ -481,66 +641,110 @@ export function ClientsBody({ user, selected, onSelect, onLogAppointment, intent
 
   // ---- everyone -----------------------------------------------------------
   const counts = filterCounts(clients);
-  const shown = sortClients(clients.filter(c => inFilter(c, filter) && clientMatches(c, query)), sort);
-  // Searching looks through everyone: "Not interested" and the people you
-  // presented for your team too.
-  const extra = query.trim() && filter === 'all' ? sortClients(clients.filter(c => !inFilter(c, 'all') && clientMatches(c, query)), sort) : [];
-  const list = [...shown, ...extra];
-  const chips = CLIENT_FILTERS.filter(f => f === 'all' || f === filter || counts[f] > 0);
+  const bar = pipelineCounts(clients);
+  const searching = !!query.trim();
+  const logNew = () => onLogAppointment({});
+  const addName = () => { setFormError(''); setForm({ editing: null }); };
+  const actIcon = k => (k === 'log' || k === 'logPresented' ? <ListChecks size={14} aria-hidden="true" /> : k === 'book' ? <CalendarPlus size={14} aria-hidden="true" /> : k === 'policy' ? <Check size={14} aria-hidden="true" /> : null);
+  const row = c => {
+    const badge = dueBadge(c);
+    const call = c.stage === 'followup' && !c.presented ? dialable(c.phone) : '';
+    const strong = c.action && (c.action.kind === 'log' || c.action.kind === 'logPresented');
+    return (
+      <li key={c.key} className={`tr-cl-item ${c.rank <= 1 ? 'tr-cl-item-now' : ''}`}>
+        <button type="button" className="tr-cl-row" onClick={() => pick(c.key)}>
+          <Avatar c={c} />
+          <span className="tr-cl-row-main">
+            <span className="tr-cl-row-top"><strong>{c.name}</strong><StageChip c={c} short /><ForTag c={c} /></span>
+            <span className="tr-cl-row-next">{c.presented ? <span className="tr-cl-for-inline">For {firstOf(c.owner.name) || 'your team'} · </span> : null}{c.next}</span>
+            {c.sub ? <span className="tr-cl-row-sub">{c.sub}</span> : null}
+          </span>
+        </button>
+        <div className="tr-cl-row-side">
+          {badge ? <span className={`tr-cl-due tr-cl-due-${badge.tone}`}>{badge.cold ? <Snowflake size={12} aria-hidden="true" /> : null}{badge.text}</span> : null}
+          {call ? (
+            <span className="tr-cl-qbtns">
+              <a className="tr-cl-qbtn" href={`tel:${call}`} aria-label={`Call ${c.name}`} title={`Call ${c.name}`}><Phone size={15} aria-hidden="true" /></a>
+              <a className="tr-cl-qbtn" href={`sms:${call}`} aria-label={`Text ${c.name}`} title={`Text ${c.name}`}><MessageCircle size={15} aria-hidden="true" /></a>
+            </span>
+          ) : null}
+          {c.action ? (
+            <button type="button" className={`tr-btn tr-btn-sm ${strong ? 'tr-btn-brass' : 'tr-btn-ghost'} tr-cl-row-act`} onClick={() => act(c, c.action)} aria-label={`${c.action.label}: ${c.name}`}>
+              {actIcon(c.action.kind)}{c.action.label}
+            </button>
+          ) : null}
+        </div>
+      </li>
+    );
+  };
+  const bookBtn = <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={logNew}><CalendarPlus size={14} aria-hidden="true" /> Log an appointment</button>;
+  const nameBtn = <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={addName}><Plus size={14} aria-hidden="true" /> Add a name</button>;
+
+  let body;
+  if (clients.length === 0) {
+    body = <div className="tr-card tr-cl-empty-all"><p className="tr-empty">No one yet. Add a name, or log an appointment, and they show up here.</p><div className="tr-cl-actions">{bookBtn}{nameBtn}</div></div>;
+  } else if (searching) {
+    // Searching looks through everyone: "Not interested" and the people you
+    // presented for your team too.
+    const found = sortClients(clients.filter(c => clientMatches(c, query)), 'next');
+    body = <PeopleCard key="search" id="search" title="Matches" hint={`Everyone whose name or phone has “${query.trim()}”.`} people={found} renderRow={row} empty={`No one matches “${query.trim()}”.`} />;
+  } else if (filter === 'all') {
+    const secs = clientSections(clients);
+    const also = [
+      counts.client > 0 ? ['client', `${counts.client} client${counts.client === 1 ? '' : 's'}`] : null,
+      counts.recruited > 0 ? ['recruited', `${counts.recruited} recruited`] : null,
+      counts.closed > 0 ? ['closed', `${counts.closed} not interested`] : null,
+    ].filter(Boolean);
+    body = (
+      <>
+        {secs.map(sc => (
+          <PeopleCard key={sc.key} id={sc.key} title={sc.title} hint={sc.hint} people={sc.people} renderRow={row} limit={sc.limit} fold={sc.fold}
+            cta={sc.key === 'soon' ? bookBtn : null}
+            empty={sc.key === 'now' ? "You're all caught up: nothing to log and no follow-ups due." : 'No one here right now.'} />
+        ))}
+        {also.length ? (
+          <p className="tr-cl-also">Also on your list: {also.map(([f, label], i) => (
+            <Fragment key={f}>{i ? ' · ' : ''}<button type="button" className="tr-link-btn tr-cl-inline" onClick={() => setFilter(f)}>{label}</button></Fragment>
+          ))}</p>
+        ) : null}
+      </>
+    );
+  } else {
+    const people = sortClients(clients.filter(c => inFilter(c, filter)), 'next');
+    body = (
+      <PeopleCard key={filter} id={filter} title={filterLabel(filter)} hint={FILTER_HINTS[filter]} people={people} renderRow={row}
+        cta={filter === 'booked' ? bookBtn : filter === 'prospect' ? nameBtn : null} />
+    );
+  }
   return (
     <div className="tr-clients">
-      <div className="tr-row-head tr-screen-head">
-        <TitleInfo title="Clients" info="Up top: your pipeline, from first name to results; tap a stage for that list. Below: everyone you've put on your list, booked, presented, sold or recruited, one profile each, with the next step on top. Stages set themselves from what you log; there's nothing to move by hand." />
-        <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={() => { setFormError(''); setForm({ editing: null }); }}><Plus size={14} aria-hidden="true" /> Add a name</button>
+      <div className="tr-cl-top">
+        <TitleInfo title="Clients" info="Up top: your pipeline, left to right in the order people move through it. Log an appointment when you book someone; log the outcome after it happens. Tap a stage to see only those people. Below: everyone, sorted by what needs you first. Stages and follow-up dates set themselves from what you log." />
+        <div className="tr-search-row tr-cl-search">
+          <Search size={15} className="tr-search-icon" aria-hidden="true" />
+          <input className="tr-search-input" type="search" placeholder="Find a client" aria-label="Find a client by name or phone" value={query} onChange={e => setQuery(e.target.value)} />
+          {query ? <button type="button" className="tr-icon-btn" onClick={() => setQuery('')} aria-label="Clear search"><X size={15} /></button> : null}
+        </div>
+        <div className="tr-cl-top-acts">
+          <button type="button" className="tr-btn tr-btn-ghost" onClick={addName}><Plus size={15} aria-hidden="true" /> Add a name</button>
+          <button type="button" className="tr-btn tr-btn-brass" onClick={logNew}><CalendarPlus size={16} aria-hidden="true" /> Log an appointment</button>
+        </div>
       </div>
-      {bar}
-      {flashEl}
-      <div className="tr-search-row tr-cl-search">
-        <Search size={15} className="tr-search-icon" aria-hidden="true" />
-        <input className="tr-search-input" type="search" placeholder="Find a client" aria-label="Find a client by name or phone" value={query} onChange={e => setQuery(e.target.value)} />
-        {query ? <button type="button" className="tr-icon-btn" onClick={() => setQuery('')} aria-label="Clear search"><X size={15} /></button> : null}
-      </div>
-      <div className="tr-cl-filters" role="group" aria-label="Show">
-        {chips.map(f => (
-          <button key={f} type="button" className={`tr-cl-filter ${filter === f ? 'tr-cl-filter-on' : ''}`} aria-pressed={filter === f} onClick={() => setFilter(f)}>
-            {filterLabel(f)} <span className="tr-cl-count">{counts[f]}</span>
+      <StageBar counts={bar} on={filter} onPick={f => { setQuery(''); setFilter(f); }} />
+      <div className="tr-cl-subbar">
+        <button type="button" className={`tr-cl-pill ${filter === 'all' && !searching ? 'tr-cl-pill-on' : ''}`} aria-pressed={filter === 'all'} onClick={() => { setQuery(''); setFilter('all'); }}>
+          Everyone <span className="tr-cl-count">{counts.all}</span>
+        </button>
+        {['recruited', 'closed', 'presented'].includes(filter) ? (
+          <button type="button" className="tr-cl-pill tr-cl-pill-on" aria-pressed="true" onClick={() => setFilter('all')} aria-label={`${filterLabel(filter)}: show everyone instead`}>
+            {filterLabel(filter)} <span className="tr-cl-count">{counts[filter]}</span> <X size={13} aria-hidden="true" />
           </button>
-        ))}
+        ) : null}
+        <ClientsMore counts={counts} onFilter={f => { setQuery(''); setFilter(f); }} onOpenList={onOpenList} />
+        <p className="tr-cl-subbar-hint">{filter === 'all' ? 'Log an appointment when you book someone. Log the outcome after it happens.' : 'Showing one stage. Tap it again, or Everyone, to see everyone.'}</p>
       </div>
-      <div className="tr-cl-sortrow">
-        <span className="tr-cl-muted">{list.length} {list.length === 1 ? 'person' : 'people'}</span>
-        <label className="tr-cl-sort"><span className="tr-sr-only">Sort</span>
-          <select value={sort} onChange={e => setSort(e.target.value)} aria-label="Sort">
-            <option value="next">Next step first</option>
-            <option value="recent">Recent activity</option>
-            <option value="name">Name A to Z</option>
-          </select>
-        </label>
-      </div>
-      {list.length === 0 ? (
-        <div className="tr-card"><p className="tr-empty">{clients.length === 0 ? 'No one yet. Add a name, or book an appointment, and they show up here.' : query ? `No one matches “${query.trim()}”.` : 'No one here right now.'}</p></div>
-      ) : (
-        <ul className="tr-cl-list">
-          {list.map(c => (
-            <li key={c.key} className="tr-cl-item">
-              <button type="button" className="tr-cl-row" onClick={() => pick(c.key)}>
-                <Avatar c={c} />
-                <span className="tr-cl-row-main">
-                  <span className="tr-cl-row-top"><strong>{c.name}</strong><ForTag c={c} /><StageChip stage={c.stage} short /></span>
-                  <span className="tr-cl-row-next">{c.presented ? <span className="tr-cl-for-inline">For {firstOf(c.owner.name) || 'your team'} · </span> : null}{c.next}{c.sub ? ` · ${c.sub}` : ''}</span>
-                </span>
-                <ChevronRight size={16} className="tr-cl-row-go" aria-hidden="true" />
-              </button>
-              {c.action ? (
-                <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm tr-cl-row-act" onClick={() => act(c, c.action)} aria-label={`${c.action.label}: ${c.name}`}>
-                  {c.action.kind === 'log' || c.action.kind === 'logPresented' ? <ListChecks size={14} aria-hidden="true" /> : c.action.kind === 'book' ? <CalendarPlus size={14} aria-hidden="true" /> : c.action.kind === 'policy' ? <Check size={14} aria-hidden="true" /> : null}
-                  {c.action.label}
-                </button>
-              ) : null}
-            </li>
-          ))}
-        </ul>
-      )}
+      {flashEl}
+      {body}
       {modals}
     </div>
   );

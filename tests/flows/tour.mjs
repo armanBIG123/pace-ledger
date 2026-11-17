@@ -130,9 +130,9 @@ const sameRow = async (page, a, b) => { const [x, y] = [await a.boundingBox(), a
 // Desktop
 await go('d01-today', JORDAN, [], { check: async p => ok(await p.getByText('Last 6 weeks').isVisible(), 'Today: the six-week pace trend shows beside Team wins') });
 await go('d02-clients', JORDAN, ['Clients'], { title: 'Clients', check: async p => {
-  const chips = p.locator('.tr-cl-filters > *');
-  const ys = new Set(await chips.evaluateAll(els => els.map(e => Math.round(e.getBoundingClientRect().top))));
-  ok(ys.size === 1, 'Clients: the filter chips stay on one line');
+  const stages = p.locator('.tr-clbar-stage');
+  const ys = new Set(await stages.evaluateAll(els => els.map(e => Math.round(e.getBoundingClientRect().top))));
+  ok(ys.size === 1 && await stages.count() === 6, 'Clients: the pipeline bar stays on one line, six stages');
 } });
 await go('d03-calendar', JORDAN, ['Calendar'], { title: 'Calendar' });
 await go('d04-growth', JORDAN, ['Growth'], { title: 'Growth' });

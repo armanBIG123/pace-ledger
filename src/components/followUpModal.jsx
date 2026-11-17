@@ -10,13 +10,16 @@
 // Used on Today, Pipeline (Appointments, Log outcome, Follow-up), and by leaders
 // for appointments they presented (presenter: no time picking, no intake).
 // onEdit: "Edit the appointment" instead (wrong time or details).
+// With nothing booked next (and no sale), it also sets when to reach out
+// again: picked from the outcome (lib/clients.js), and easy to change.
 import { useEffect, useState } from 'react';
-import { CalendarClock, Check, CircleX, ThumbsUp, UserX } from 'lucide-react';
+import { CalendarClock, Check, CircleX, Clock, ThumbsUp, UserX } from 'lucide-react';
 import { boolToYesNo, isRecruitType, rescheduleAppointment, typeLabel, YES_NO_OPTIONS, yesNoToBool } from '../data/appointments.js';
 import { sendAppointmentInviteEmail } from '../data/integrations.js';
 import { knownRecruitsSince, recruitsFromSignupsSince } from '../data/recruits.js';
 import { fetchInviteForAppointment, inviteState } from '../invites.js';
-import { detectTimezone, fmtApptDateTime } from '../lib/dates.js';
+import { detectTimezone, fmtApptDateTime, todayStr } from '../lib/dates.js';
+import { dayWord, nextContactDays, plusDays } from '../lib/clients.js';
 import { Modal, openPicker, PillChoice } from './ui.jsx';
 import { initialSplit, SplitControl, splitToSave, useSplitPartner } from './split.jsx';
 
@@ -59,6 +62,34 @@ function RecruitSignupStatus({ appointment, presenter, setByName }) {
   );
 }
 
+// When to reach out again: the date (set from the outcome) and quick changes.
+const NEXT_CHOICES = [['Tomorrow', 1], ['In 2 days', 2], ['1 week', 7], ['2 weeks', 14]];
+function NextContactPick({ outcome, value, onChange }) {
+  const today = todayStr();
+  const days = nextContactDays(outcome);
+  const choices = NEXT_CHOICES.some(([, n]) => n === days) ? NEXT_CHOICES : [...NEXT_CHOICES, [days >= 60 ? `In ${Math.round(days / 30)} months` : `In ${days} days`, days]];
+  const when = dayWord(new Date(`${value}T12:00:00`).getTime());
+  const away = Math.round((new Date(`${value}T12:00:00`) - new Date(`${today}T12:00:00`)) / 864e5);
+  const why = { no_show: "they didn't show", rescheduled: 'it needs a new time', went_well: 'it went well and nothing is booked yet', not_interested: "they weren't interested, so check back later" }[outcome] || 'nothing is booked yet';
+  return (
+    <div className="tr-log-next">
+      <div className="tr-log-next-head"><Clock size={15} aria-hidden="true" /> <span>Next contact</span></div>
+      <p className="tr-log-next-when">{when.charAt(0).toUpperCase() + when.slice(1)}{away > 1 ? ` · in ${away} days` : ''}</p>
+      <p className="tr-log-next-why">Set for you because {why}. Change it if you need to.</p>
+      <div className="tr-log-next-opts" role="group" aria-label="Next contact">
+        {choices.map(([label, n]) => {
+          const d = plusDays(today, n);
+          return <button key={n} type="button" className={`tr-pill-btn ${value === d ? 'tr-pill-btn-on' : ''}`} aria-pressed={value === d} onClick={() => onChange(d)}>{label}</button>;
+        })}
+        <label className="tr-log-next-date">
+          <span className="tr-sr-only">Pick a date</span>
+          <input type="date" value={value} min={today} onChange={e => { if (e.target.value) onChange(e.target.value); }} onClick={openPicker} />
+        </label>
+      </div>
+    </div>
+  );
+}
+
 export function FollowUpModal({ appointment, onClose, onSave, saving, onRescheduled = null, presenter = false, setByName = '', onEdit = null }) {
   const [outcome, setOutcome] = useState(appointment.outcome || '');
   const [followUpScheduled, setFollowUpScheduled] = useState(boolToYesNo(appointment.followUpScheduled));
@@ -86,6 +117,10 @@ export function FollowUpModal({ appointment, onClose, onSave, saving, onReschedu
   const [emailClient, setEmailClient] = useState(false);
   const [moving, setMoving] = useState(false);
   const [err, setErr] = useState('');
+  // When to reach out again ('' until an outcome is picked; then from it,
+  // unless you've changed it).
+  const [nextOn, setNextOn] = useState(appointment.nextContactOn || '');
+  const [nextPicked, setNextPicked] = useState(!!appointment.nextContactOn);
   // Recruits count from sign-ups once the database update is in; until we
   // know, the question stays hidden (it only shows if it's still needed).
   const [since, setSince] = useState(knownRecruitsSince());
@@ -96,10 +131,15 @@ export function FollowUpModal({ appointment, onClose, onSave, saving, onReschedu
   const full = MET.includes(outcome) || (!outcome && !!appointment.followUpCompletedAt);
   const missed = MISSED.includes(outcome);
   const busy = saving || moving;
+  // Only for your own appointments, once the database keeps the date, with
+  // nothing booked next and no sale.
+  const asksNext = !presenter && !!appointment.nextContactReady && !!outcome
+    && (full ? officiallySold !== 'yes' && followUpScheduled !== 'yes' : missed && moveNow === false);
 
   function pick(value) {
     setOutcome(value);
     setErr('');
+    if (!nextPicked) setNextOn(plusDays(todayStr(), nextContactDays(value)));
     // Rescheduled usually means you know the new time; a no-show usually doesn't.
     if (MISSED.includes(value) && canMove && moveNow === null) setMoveNow(value === 'rescheduled');
   }
@@ -129,6 +169,7 @@ export function FollowUpModal({ appointment, onClose, onSave, saving, onReschedu
       interestedTax: full ? yesNoToBool(interestedTax) : null,
       interestedInsurance: full ? yesNoToBool(interestedInsurance) : null,
       clientIntake: full && !presenter && clientIntake === 'yes',
+      ...(appointment.nextContactReady && !presenter ? { nextContactOn: asksNext ? nextOn || plusDays(todayStr(), nextContactDays(outcome)) : '' } : {}),
     });
   }
 
@@ -260,6 +301,8 @@ export function FollowUpModal({ appointment, onClose, onSave, saving, onReschedu
           )}
         </div>
       )}
+
+      {asksNext ? <NextContactPick outcome={outcome} value={nextOn || plusDays(todayStr(), nextContactDays(outcome))} onChange={d => { setNextOn(d); setNextPicked(true); }} /> : null}
 
       {err && <div className="tr-error">{err}</div>}
       <div className="tr-form-actions">

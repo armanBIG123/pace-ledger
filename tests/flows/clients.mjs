@@ -1,4 +1,4 @@
-// Clients (replaces Pipeline's five tabs), start to finish, against the preview build.
+// Clients (one menu: the pipeline bar filters the list; follow-up dates), start to finish, against the preview build.
 // Usage: node tests/flows/clients.mjs (after tests/tools/build-app.mjs; npm test runs it all)
 import fs from 'node:fs';
 import path from 'node:path';
@@ -23,7 +23,7 @@ const appt = (client, days, over = {}) => {
   return { id: `ap-${++n}`, user_id: JORDAN.id, date_set_option: 'monday', category: 'weekday', week_of: sat(d), appointment_date: iso(d), appointment_time: '18:00:00',
     appointment_timezone: 'America/Chicago', appointment_at: d.toISOString(), duration_minutes: 60, presenter: 'Dana Brooks', presenter_id: DANA.id, client_name: client,
     presentation_type: 'sale', split_user_id: null, split_percent: null, officially_sold: false, officially_recruited: false, outcome: null, status: null, follow_up_completed_at: null,
-    is_follow_up: false, prospect_id: null, created_at: at(days - 4).toISOString(), ...over };
+    is_follow_up: false, prospect_id: null, next_contact_on: null, created_at: at(days - 4).toISOString(), ...over };
 };
 const done = (o, extra = {}) => ({ outcome: o, follow_up_completed_at: at(-1, 20).toISOString(), status: o === 'went_well' || o === 'not_interested' ? 'completed' : o === 'no_show' ? 'not_completed' : 'needs_reschedule', ...extra });
 const P = (id, first, last, over = {}) => ({ id, user_id: JORDAN.id, first_name: first, last_name: last, relationship_strength: 7, notes: null, source: null, phone: null, email: null,
@@ -94,25 +94,36 @@ try {
   let page = await open(JORDAN, base());
   const tabs = await page.locator('header button:visible, nav button:visible, [role=tab]:visible').allInnerTexts(); console.log('   tabs:', tabs.join(' | ').replace(/\s+/g, ' '));
   ok(tabs.some(t => /Clients/.test(t)) && !tabs.some(t => /Pipeline/.test(t)), 'the tab is called Clients');
+  await page.waitForTimeout(600);
+  const todayText = await page.locator('main').innerText();
+  ok(/Follow up with/.test(todayText) && /Walk In/.test(todayText), 'Today: follow-ups that are due');
   await toClients(page);
   const names = await page.locator('.tr-cl-row-top strong').allInnerTexts();
   console.log('   order:', names.join(', '));
   ok(names[0] === 'Aisha Brown' || names[0] === 'Grace Kim', 'needs outcome is first');
   ok(!names.includes('Tom Becker'), 'Everyone leaves out Not interested');
   ok(names.includes('Kevin Tran') && names.includes('Rob Smith') && names.includes('Walk In'), 'people booked but not on the list still show');
-  const chipText = (await page.locator('.tr-cl-filters').innerText()).replace(/\s+/g, ' ');
-  console.log('   chips:', chipText);
-  ok(/Everyone 10/.test(chipText) && /Not interested 1/.test(chipText), 'chip counts');
+  const barText = (await page.locator('.tr-clbar').innerText()).replace(/\s+/g, ' ');
+  console.log('   bar:', barText);
+  ok(/Prospects .*Appointments .*Log outcome .*Follow up .*Waiting on carrier .*Clients/.test(barText), 'the pipeline bar, left to right');
+  ok(/Log outcome 2 Oldest: 1 day/.test(barText) && /Waiting on carrier 1 \$1,200/.test(barText), 'bar: counts and what each needs');
+  ok(/Everyone 10/.test((await page.locator('.tr-cl-subbar').innerText()).replace(/\s+/g, ' ')), 'Everyone count');
+  const secs = (await page.locator('.tr-cl-sec-title').allInnerTexts()).map(t => t.replace(/\s+/g, ' '));
+  console.log('   sections:', secs.join(' | '));
+  ok(/^Do now/.test(secs[0]) && secs.some(t => /^Coming up/.test(t)) && secs.some(t => /^Waiting on the carrier/.test(t)) && secs.some(t => /^Recently issued/.test(t)), 'the list comes in sections, Do now first');
   ok(/Log how it went/.test(await rowOf(page, 'Aisha Brown').innerText()), 'Aisha: Log how it went');
-  ok(/Follow-up .* with Dana/.test(await rowOf(page, 'Maria Lopez').innerText()), 'Maria: follow-up booked, with Dana');
-  ok(/Requirements open · \$2,400/.test(await rowOf(page, 'Sam Carter').innerText()), 'Sam: requirements open, $2,400');
-  ok(/Ask for referrals · Issued/.test(await rowOf(page, 'Lee Grant').innerText()), 'Lee: client, ask for referrals');
-  ok(/Call to book · 3 of 9 scored/.test(await rowOf(page, 'Priya Shah').innerText()), 'Priya: call to book, scored');
-  ok(/Rebook: no show/.test(await rowOf(page, 'Walk In').innerText()), 'Walk In: rebook');
+  ok(/Follow-up .* with Dana/.test(await rowOf(page, 'Maria Lopez').innerText()) && /Follow-up booked/.test(await rowOf(page, 'Maria Lopez').innerText()), 'Maria: follow-up booked, with Dana');
+  ok(/Requirements open\s+\$2,400/.test(await rowOf(page, 'Sam Carter').innerText()), 'Sam: requirements open, $2,400');
+  ok(/Ask for referrals\s+Issued/.test(await rowOf(page, 'Lee Grant').innerText()), 'Lee: client, ask for referrals');
+  ok(/Call to book\s+3 of 9 scored/.test(await rowOf(page, 'Priya Shah').innerText()), 'Priya: call to book, scored');
+  ok(/Rebook: no show/.test(await rowOf(page, 'Walk In').innerText()) && /Due today/.test(await rowOf(page, 'Walk In').innerText()), 'Walk In: rebook, due today');
+  ok(/Due (tomorrow|[A-Z][a-z]{2})/.test(await rowOf(page, 'Rob Smith').innerText()), 'Rob: went well, due in 2 days');
   await shot(page, `${SHOTS}/01-list-desktop.png`, { fullPage: true });
-  await page.locator('.tr-cl-filter', { hasText: 'Not interested' }).click();
-  ok((await page.locator('.tr-cl-row-top strong').allInnerTexts()).join() === 'Tom Becker', 'Not interested filter shows Tom');
-  await page.locator('.tr-cl-filter', { hasText: 'Everyone' }).click();
+  await page.getByRole('button', { name: /^More/ }).click();
+  await page.getByRole('menuitem', { name: /Not interested/ }).click();
+  ok((await page.locator('.tr-cl-row-top strong').allInnerTexts()).join() === 'Tom Becker', 'More → Not interested shows Tom');
+  ok(/check back/.test(await rowOf(page, 'Tom Becker').innerText()), 'Tom: when to check back in');
+  await page.getByRole('button', { name: /^Everyone/ }).click();
   await page.getByLabel('Find a client by name or phone').fill('555-0163');
   ok((await page.locator('.tr-cl-row-top strong').allInnerTexts()).join() === 'Sam Carter', 'search by phone');
   await page.getByLabel('Find a client by name or phone').fill('tom');
@@ -125,11 +136,16 @@ try {
   await modal(page).getByRole('radio', { name: 'Went well' }).click();
   await modal(page).locator('.tr-field', { hasText: 'Sold a policy?' }).getByRole('button', { name: 'No' }).click().catch(() => {});
   await modal(page).locator('.tr-field', { hasText: 'Follow-up appointment scheduled?' }).getByRole('button', { name: 'No' }).click().catch(() => {});
+  const nextBox = await modal(page).locator('.tr-log-next').innerText().catch(() => '');
+  ok(/Next contact/.test(nextBox) && /in 2 days/.test(nextBox), `went well, nothing booked: next contact in 2 days (${nextBox.replace(/\s+/g, ' ').slice(0, 80)})`);
+  await shot(page, `${SHOTS}/01b-log-outcome.png`);
+  await modal(page).locator('.tr-log-next').getByRole('button', { name: '1 week' }).click();
   await modal(page).getByRole('button', { name: /^Save/ }).click();
   await page.waitForSelector('text=How did it go with Aisha Brown?', { state: 'detached' });
   await page.waitForTimeout(700);
   let db = await state(page);
   ok(db.appointments.find(a => a.id === 'ap-1').outcome === 'went_well', 'outcome saved');
+  ok(db.appointments.find(a => a.id === 'ap-1').next_contact_on === iso(at(7)), `the next contact you picked is saved (${db.appointments.find(a => a.id === 'ap-1').next_contact_on})`);
   ok(/Book the follow-up/.test(await rowOf(page, 'Aisha Brown').innerText()), 'Aisha moves on: Book the follow-up');
 
   // ---- 3. Sam's profile: policy, split, timeline -----------------------------
@@ -216,36 +232,51 @@ try {
   const walk = db.prospects.find(x => x.first_name === 'Walk' && x.last_name === 'In');
   ok(walk && db.appointments.find(a => a.client_name === 'Walk In').prospect_id === walk.id, 'added and linked');
   ok(/Edit details/.test(await page.locator('.tr-cl-profile').innerText()), 'now a full profile');
+  ok(/Reach out today/.test(await page.locator('.tr-cl-nextc').innerText()), 'Walk In: reach out today (a no-show logged yesterday)');
+  await page.locator('.tr-cl-quicktags').getByRole('button', { name: '+ Left voicemail' }).click();
+  await page.waitForTimeout(900);
+  db = await state(page);
+  const walkAppt = db.appointments.find(a => a.client_name === 'Walk In');
+  ok(walkAppt.next_contact_on === iso(at(2)) && db.follow_up_notes.some(x => x.appointment_id === walkAppt.id && x.note === 'Left voicemail'), 'a touch saves the note and moves the next contact 2 days on');
+  ok(/Reach out again/.test(await page.locator('.tr-flash').innerText().catch(() => '')), 'and says when');
+  await page.locator('.tr-cl-nextc').getByRole('button', { name: '1 week' }).click();
+  await page.waitForTimeout(700);
+  db = await state(page);
+  ok(db.appointments.find(a => a.client_name === 'Walk In').next_contact_on === iso(at(7)), 'move it: 1 week');
+  await shot(page, `${SHOTS}/05b-follow-up-profile.png`, { fullPage: true });
 
-  // ---- 9. The pipeline bar on top, and the way back ----------------------------
+  // ---- 9. The bar filters in place; the older lists are under More --------------
   await page.locator('.tr-cl-back').click();
   await page.waitForSelector('.tr-cl-list');
-  const bar = (await page.locator('.tr-stages').innerText()).replace(/\s+/g, ' ');
-  console.log('   bar:', bar);
-  ok(/Prospects .*Appointments .*Log outcomes .*Follow-up meetings .*Results/.test(bar), 'the pipeline bar is at the top of Clients, in order');
-  ok(/Results \d+ submitted · \d+ issued in [A-Z][a-z]{2}/.test(bar), 'Results: submitted vs. issued');
-  const barY = await page.locator('.tr-stages').boundingBox(), listY = await page.locator('.tr-cl-list').boundingBox();
-  ok(barY.y < listY.y, 'above the list');
-  await page.getByRole('tab', { name: /Results/ }).click();
+  // (Sam is a client by now: his policy was issued in step 3.)
+  await page.locator('.tr-clbar').getByRole('button', { name: /^Clients/ }).click();
+  await page.waitForTimeout(400);
+  ok(await page.locator('.tr-clbar').getByRole('button', { name: /^Clients/, pressed: true }).count() === 1, 'Clients is picked on the bar');
+  const onlyNames = (await page.locator('.tr-cl-row-top strong').allInnerTexts()).sort().join();
+  const onlyTitle = await page.locator('.tr-cl-sec-title').first().innerText();
+  ok(onlyNames === 'Lee Grant,Sam Carter' && /^Clients/.test(onlyTitle), `the list shows just that stage (${onlyNames} / ${onlyTitle.replace(/\s+/g, ' ')})`);
+  await shot(page, `${SHOTS}/06-stage.png`);
+  await page.locator('.tr-clbar').getByRole('button', { name: /Appointments/ }).click();
+  await page.waitForTimeout(300);
+  ok(await page.locator('.tr-cl-sec-head').getByRole('button', { name: /Log an appointment/ }).count() === 1, 'Appointments has its own Log an appointment button');
+  await shot(page, `${SHOTS}/06b-appointments.png`);
+  await page.locator('.tr-clbar').getByRole('button', { name: /Appointments/ }).click();
+  await page.waitForTimeout(300);
+  ok(/^Do now/.test(await page.locator('.tr-cl-sec-title').first().innerText()), 'tapping it again shows everyone');
+  await page.getByRole('button', { name: /^More/ }).click();
+  await page.getByRole('menuitem', { name: 'Submitted and issued premium' }).click();
   await page.waitForTimeout(800);
-  ok(await page.getByRole('tab', { name: /Results/, selected: true }).count() === 1 && await page.getByRole('button', { name: /Submitted premium/ }).count() === 1, 'Results opens submitted vs. issued premium, highlighted');
-  await shot(page, `${SHOTS}/06-results.png`);
-  await page.getByRole('tab', { name: /Prospects/ }).click();
-  await page.waitForTimeout(800);
-  ok(await page.getByRole('tab', { name: /Prospects/, selected: true }).count() === 1, 'Prospects opens the prospect list');
+  ok(await page.getByRole('button', { name: /Submitted premium/ }).count() === 1, 'More → Submitted and issued premium');
   await page.locator('.tr-pipeline-head .tr-cl-back').click();
   await page.waitForSelector('.tr-cl-list');
   ok(true, 'back to Clients');
   await openProfile(page, 'Priya Shah');
-  ok(await page.locator('.tr-stages').count() === 0, "not on one person's profile");
+  ok(await page.locator('.tr-clbar').count() === 0, "not on one person's profile");
   await page.locator('.tr-cl-back').click();
   await page.waitForSelector('.tr-cl-list');
 
   // ---- 10. A brand-new name booked is added to the list ---------------------------
-  await page.getByRole('tab', { name: /Appointments/ }).click();
-  await page.waitForTimeout(700);
-  const newBtn = page.getByRole('button', { name: /Log appointment/ }).first();
-  await newBtn.click();
+  await page.locator('.tr-cl-top-acts').getByRole('button', { name: /Log an appointment/ }).click();
   await page.waitForTimeout(500);
   const form = page.locator('form, .tr-form').filter({ hasText: 'Client phone' }).first();
   const clientInput = form.locator('input').first();
@@ -254,6 +285,7 @@ try {
   await page.waitForTimeout(300);
   ok(/Nora Quinn will be added to your list when you save/.test(await form.innerText()), 'a new name says it will be added');
   await shot(page, `${SHOTS}/07-new-name.png`);
+  ok(/When you save: Counts toward \w+ Batch/.test(await form.innerText()), 'the form says what saving does');
   const dateIn = form.locator('input[type="date"]').first();
   await dateIn.fill(iso(at(4)));
   const timeIn = form.locator('input[type="time"]').first();
@@ -269,6 +301,20 @@ try {
   const nora = db.prospects.find(x => x.first_name === 'Nora' && x.last_name === 'Quinn');
   const noraAppt = db.appointments.find(a => a.client_name === 'Nora Quinn');
   ok(nora && noraAppt && noraAppt.prospect_id === nora.id, `booked and added to the list (${!!nora}, ${!!noraAppt})`);
+  const booked = page.locator('.tr-booked');
+  const bookedText = await booked.innerText().catch(() => '');
+  ok(/Booked/i.test(bookedText) && /Nora Quinn/.test(bookedText) && /of 33 set this week/.test(bookedText) && /of [58] for \w+ Batch/.test(bookedText), 'Booked: who, when and the week so far ' + bookedText.replace(/\s+/g, ' '));
+  await shot(page, `${SHOTS}/07b-booked.png`);
+  await booked.getByRole('button', { name: 'Open profile' }).click();
+  await page.waitForSelector('.tr-cl-profile');
+  ok(/Nora Quinn/.test(await page.locator('.tr-cl-profile').innerText()), "Open profile: Nora's profile on Clients");
+  await page.locator('.tr-cl-back').click();
+  await page.waitForSelector('.tr-cl-list');
+  await page.locator('.tr-cl-top-acts').getByRole('button', { name: /Log an appointment/ }).click();
+  await page.waitForTimeout(400);
+  await page.getByRole('button', { name: /^Cancel$/ }).first().click();
+  await page.waitForSelector('.tr-cl-list');
+  ok(true, 'Cancel goes back to Clients');
   ok(errs(page).length === 0, 'no errors (advisor) ' + errs(page).join(' | '));
   await page.context().close();
 
@@ -278,7 +324,8 @@ try {
   const grace = rowOf(page, 'Grace Kim');
   ok(await grace.count() === 1 && /for Jordan/.test(await grace.innerText()), 'Dana sees Grace Kim, for Jordan');
   ok(await rowOf(page, 'Sam Carter').count() === 0, "Everyone: only what needs Dana's outcome from the team");
-  await page.locator('.tr-cl-filter', { hasText: 'You presented' }).click();
+  await page.getByRole('button', { name: /^More/ }).click();
+  await page.getByRole('menuitem', { name: /You presented/ }).click();
   ok(/for Jordan/.test(await rowOf(page, 'Sam Carter').innerText()), 'You presented: Sam Carter, the sale they split');
   await shot(page, `${SHOTS}/08-presenter-list.png`, { fullPage: true });
   await openProfile(page, 'Sam Carter');

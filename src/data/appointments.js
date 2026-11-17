@@ -70,6 +70,10 @@ export function rowToRecord(row) {
     inviteeEmails: row.invitee_emails || [],
     inviteMethod: row.invite_method || '',
     inviteSentAt: row.invite_sent_at || null,
+    // When to reach out again ('' = worked out from the outcome; lib/clients.js).
+    // nextContactReady: the database has the column (it's only ever saved then).
+    nextContactOn: row.next_contact_on || '',
+    nextContactReady: Object.prototype.hasOwnProperty.call(row, 'next_contact_on'),
   };
 }
 
@@ -243,7 +247,18 @@ export async function saveFollowUp(id, data, followUpTimezone) {
   // "no" if a follow-up is edited/re-saved later without touching this
   // question, so the candidate record it created is never orphaned.
   if (data.clientIntake === true) updatePayload.client_intake_requested = true;
+  // When to reach out again (only sent once the database has the column).
+  if (data.nextContactOn !== undefined) updatePayload.next_contact_on = data.nextContactOn || null;
   const { error } = await supabase.from('appointments').update(updatePayload).eq('id', id);
+  invalidateAppointments();
+  return !error;
+}
+
+// A new "reach out again" date for a client, on the appointment their next
+// step comes from (Clients → Follow up). date: 'YYYY-MM-DD', or '' to go
+// back to the date worked out from the outcome.
+export async function updateNextContact(id, date) {
+  const { error } = await supabase.from('appointments').update({ next_contact_on: date || null }).eq('id', id);
   invalidateAppointments();
   return !error;
 }
@@ -645,6 +660,7 @@ export function applyFollowUpToList(prev, id, data, followUpTimezone, newAppt) {
     followUpAppointmentTimezone: scheduled ? followUpTimezone : '',
     followUpAppointmentAt: newAppt ? newAppt.appointmentAt : a.followUpAppointmentAt,
     clientIntakeRequested: a.clientIntakeRequested || data.clientIntake === true,
+    ...(data.nextContactOn !== undefined ? { nextContactOn: data.nextContactOn || '' } : {}),
     ...(data.split !== undefined ? {
       splitUserId: data.officiallySold && data.split ? data.split.userId : '',
       splitPercent: data.officiallySold && data.split ? data.split.percent : null,

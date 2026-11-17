@@ -1,5 +1,5 @@
 // Today: four number tiles, one "Do next" list (appointments coming up, then what needs you), folds for the rest of the week, and team wins.
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, CalendarDays, Check, CheckCheck, CheckCircle2, ChevronDown, ChevronUp, ClipboardCheck, FileText, List as ListIcon, Pencil, Phone, Plus, Presentation, Sparkles, Target, UserPlus, Users, Video, Wallet, X } from 'lucide-react';
 import { computeOnboarding, fetchMyOnboarding, onboardingDay, saveOnboardingSnapshot, setOnboardingVisibility, shouldShowOnboarding } from '../onboarding.js';
 import { isNativeApp, onAppResume, reminderPermission, requestReminderPermission } from '../native.js';
@@ -30,6 +30,9 @@ import { dayWord, intakeStatusText } from '../lib/intakeStatus.js';
 import { FirstThirtyDays } from './today/FirstThirtyDays.jsx';
 import { TodayTask } from './today/TodayTask.jsx';
 import { useNeedsYou } from './today/needsYou.jsx';
+import { useLive } from '../data/live.js';
+import { CLIENT_TOPICS, clientsKey, loadClientsData } from '../data/clientsData.js';
+import { buildClients, dueBadge, followUpsDue } from '../lib/clients.js';
 
 export function TodayBody({ user, onNavigate, initialIntent = null, onIntentConsumed }) {
   const [loading, setLoading] = useState(true);
@@ -88,6 +91,9 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
   // "Logged for you" rows you've hidden (this device).
   const [seenLogged, setSeenLogged] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('pl_logged_seen') || '[]')); } catch { return new Set(); } });
   const savedSnapshotFor = useRef('');
+  // Follow-ups due (going cold first), from the same copy Clients shows.
+  const clientsLive = useLive(clientsKey(user.id), () => loadClientsData(user.id), { topics: CLIENT_TOPICS });
+  const dueFollowUps = useMemo(() => (clientsLive.data ? followUpsDue(buildClients({ ...clientsLive.data, userId: user.id })) : []), [clientsLive.data, user.id]);
 
   const load = useCallback(async () => {
     const start = new Date(); start.setHours(0, 0, 0, 0);
@@ -415,6 +421,21 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
       more: presentedToLog.length > 1 ? { label: 'See all', run: () => setLogAll('presented') } : { label: 'See all', run: () => onNavigate('followup', 'presented') },
     });
   }
+  // Follow-ups that are due: one row, Open goes to the first (going cold or
+  // longest overdue), See all opens Clients → Follow up.
+  if (dueFollowUps.length) {
+    const c = dueFollowUps[0];
+    const b = dueBadge(c);
+    const n = dueFollowUps.length;
+    mustDo.push({
+      key: 'followups', Icon: Phone, tone: c.cold || c.dueIn < 0 ? 'rust' : 'amber',
+      title: n === 1 ? <>Follow up with <strong>{c.name}</strong></> : <>Follow up with <strong>{n} people</strong></>,
+      meta: n === 1 ? [b && b.text, c.next].filter(Boolean).join(' · ')
+        : `${dueFollowUps.slice(0, 2).map(x => x.name).join(', ')}${n > 2 ? ` and ${n - 2} more` : ''}${dueFollowUps.some(x => x.cold) ? ' · some going cold' : ''}`,
+      action: { label: 'Open', run: () => onNavigate('clients', { open: c.key }) },
+      more: n > 1 ? { label: 'See all', run: () => onNavigate('clients', { filter: 'followup' }) } : null,
+    });
+  }
   // Your appointments a presenter logged for you in the last three days.
   appointments
     .filter(x => x.userId === user.id && x.outcomeLoggedBy && x.outcomeLoggedBy !== user.id && x.followUpCompletedAt
@@ -520,13 +541,6 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
     title: <>Reschedule <strong>{x.client}</strong></>, meta: `Was ${fmtApptDateTime(x)}`,
     // Opens it ready to pick the new time.
     action: { label: 'Reschedule', run: () => openAppointment(x) },
-  }));
-  appointments.filter(x => x.status === 'needs_follow_up' && isPastAppointment(x)).forEach(x => later.push({
-    key: `fu-${x.id}`, Icon: ClipboardCheck, tone: 'amber',
-    title: <>Follow up with <strong>{x.client}</strong></>,
-    meta: x.followUpAppointmentDate ? `Next meeting ${fmtDisplayDate(x.followUpAppointmentDate)}` : `Met ${fmtDisplayDate(x.appointmentDate)}`,
-    // Opens its card on Follow-up (notes, next meeting, intake).
-    action: { label: 'Open', run: () => onNavigate('followup', { view: 'needs', open: x.id }) },
   }));
   // Intake forms that need a nudge: sent 3+ days ago and not filled in, or
   // made and never sent (over an hour ago). One row; Send again opens the
@@ -634,10 +648,8 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
 
   // ---- More this week -----------------------------------------------
   const reschedCount = later.filter(t => t.key.startsWith('rs-')).length;
-  const followCount = later.filter(t => t.key.startsWith('fu-')).length;
   const weekBits = [
     reschedCount ? `${reschedCount} to reschedule` : '',
-    followCount ? `${followCount} follow-up${followCount === 1 ? '' : 's'}` : '',
     staleCount ? `${staleCount} quiet prospect${staleCount === 1 ? '' : 's'}` : '',
     weekAppts.length ? `${weekAppts.length} appointment${weekAppts.length === 1 ? '' : 's'} later this week` : '',
   ].filter(Boolean);

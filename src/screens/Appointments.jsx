@@ -4,13 +4,14 @@
 // Pipeline → Won. The form, the list groups and Submitted Premium are in
 // ./appointments/.
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Download, Plus, Search, X } from 'lucide-react';
+import { CheckCircle2, ChevronDown, ChevronRight, Download, Plus, Search, X } from 'lucide-react';
 import { isNativeApp } from '../native.js';
-import { DATE_SET_OPTIONS } from '../lib/pace.js';
+import { DATE_SET_OPTIONS, WEEKLY_TOTAL_TARGET, dateSetMeta } from '../lib/pace.js';
 import { addMinutesToDateTime, addMinutesToTime, apptEndMs, apptStartMs, fmtApptDateTime, shiftWeekStr, todayStr, weekStartOf } from '../lib/dates.js';
 import { downloadCSV } from '../lib/format.js';
 import { applyFollowUpToList, fetchAppointmentsImPresenting, fetchMyAppointments, insertAppointment, inviteFailureMessage, isPastAppointment, isRecruitType, isSaleType, ISSUED_PREMIUM_VIEW, markInviteSent, persistFollowUp, SOLD_PREMIUM_VIEW, STATUS_OPTIONS, typeLabel, upsertAppointment } from '../data/appointments.js';
 import { useLive } from '../data/live.js';
+import { normName } from '../data/prospects.js';
 import { createZoomMeeting, fetchZoomConnectionStatus, pushAppointmentToGoogleCalendar, sendAppointmentInviteEmail, startZoomConnect, updateAppointmentZoomUrl } from '../data/integrations.js';
 import { PageHead, SkeletonRows, TypeFilter, useIsPhone, WeekNav } from '../components/ui.jsx';
 import { MyCoachingNotes, PaceStrip, PaceTrend, PersonalBests } from '../components/pace.jsx';
@@ -25,7 +26,39 @@ import { OpenRequirementsBody } from './appointments/SubmittedPremium.jsx';
 const NONE = [];
 const NO_ZOOM = { connected: false };
 
-export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initialIntent, onIntentConsumed, cameFrom = null, onReturn, section = null }) {
+// Right after you log an appointment: who and when, where your week's pace
+// stands now, and what next (back where you were, another one, or their
+// profile).
+function BookedCard({ record, intake, me, week, back, onDone, onAnother, onOpen }) {
+  const counted = week.filter(a => a.weekOf === record.weekOf && !a.isFollowUp);
+  const meta = dateSetMeta(record.dateSetOption);
+  const inBatch = counted.filter(a => a.dateSetOption === record.dateSetOption).length;
+  const presenter = record.presenterId && record.presenterId !== me.id ? record.presenter : '';
+  const sent = record.inviteSentAt && record.inviteeEmails && record.inviteeEmails.length ? record.inviteeEmails : [];
+  return (
+    <div className="tr-booked" role="status">
+      <span className="tr-booked-icon" aria-hidden="true"><CheckCircle2 size={22} /></span>
+      <div className="tr-booked-main">
+        <div className="tr-booked-kicker">Booked</div>
+        <div className="tr-booked-name">{record.client}</div>
+        <div className="tr-booked-when">{fmtApptDateTime(record)}{presenter ? ` · ${presenter} presents` : ''}{record.zoomUrl ? ' · Zoom link ready' : ''}</div>
+        {sent.length ? <div className="tr-booked-sent">Invite sent to {sent.join(', ')}</div> : null}
+        {intake ? <div className="tr-booked-sent">{intake}</div> : null}
+        <div className="tr-booked-pace">
+          <span><strong>{counted.length}</strong> of {WEEKLY_TOTAL_TARGET} set this week</span>
+          <span><strong>{inBatch}</strong> of {meta.target} for {meta.batchLabel}</span>
+        </div>
+      </div>
+      <div className="tr-booked-acts">
+        <button type="button" className="tr-btn tr-btn-brass tr-btn-sm" onClick={onDone}>{back ? 'Done' : 'Got it'}</button>
+        <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onAnother}>Log another</button>
+        {onOpen ? <button type="button" className="tr-btn tr-btn-ghost tr-btn-sm" onClick={onOpen}>Open profile</button> : null}
+      </div>
+    </div>
+  );
+}
+
+export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initialIntent, onIntentConsumed, cameFrom = null, onReturn, section = null, onOpenClient = null }) {
   const isPhone = useIsPhone();
   // Yours, the ones someone else set that you're presenting (they count
   // toward your pace), and whether your Zoom is connected.
@@ -53,6 +86,9 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
   const [statusView, setStatusView] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [pendingPrefillData, setPendingPrefillData] = useState(null);
+  // The one you just booked: { record, back } (back: you opened the form
+  // from another screen, so Done takes you there).
+  const [booked, setBooked] = useState(null);
 
   // Arriving here from a prospect's "Log appointment" button — jump
   // straight to the weekly view with the log form open, pre-filled with
@@ -66,6 +102,7 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
       fromElsewhere.current = !!cameFrom;
       setStatusView(null);
       setPendingPrefillData(prefillData);
+      setBooked(null);
       setShowForm(true);
       onPrefillConsumed();
     }
@@ -158,7 +195,8 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
   // Editing opens the same window as on Calendar and Today, right where you
   // are (the form at the top of the page could be far off-screen).
   function openEdit(appt) { openAppointment(appt); }
-  function openNewForm() { fromElsewhere.current = false; setShowForm(true); }
+  function openNewForm() { fromElsewhere.current = false; setBooked(null); setShowForm(true); }
+  function doneBooked() { const back = booked && booked.back; setBooked(null); if (back && onReturn) onReturn(); }
   useAppointmentEdits(change => {
     if (change.reload) refresh();
     else setAppointments(prev => applyAppointmentEdit(prev, change));
@@ -244,10 +282,13 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
     setSaving(false);
     setAppointments(prev => upsertAppointment(prev, record));
     if (listNote) setNotice({ kind: 'warn', text: listNote });
+    setBooked({ record, back: fromElsewhere.current && !!onReturn });
     closeForm();
+    window.scrollTo(0, 0);
     // "Send them the client intake form": emailed, or the send window opens.
     if (form.sendIntake) {
       const n = await sendIntakeAfterBooking(user, record);
+      if (n && n.kind === 'ok') setBooked(b => (b && b.record.id === record.id ? { ...b, intake: n.text } : b));
       if (n) setNotice(prev => (prev && prev.kind === 'warn' ? prev : prev ? { kind: n.kind, text: `${prev.text} ${n.text}` } : n));
     }
   }
@@ -313,7 +354,13 @@ export function MyAppointmentsBody({ user, prefillData, onPrefillConsumed, initi
         {/* A save that fails shows in the form itself (on a phone the form
             covers the page). */}
         {error && !showForm && <div className="tr-error">{error}</div>}
-        {notice && <div className={notice.kind === 'ok' ? 'tr-flash' : 'tr-error'}>{notice.text}</div>}
+        {booked && !showForm ? (
+          <BookedCard record={booked.record} intake={booked.intake || ''} me={user} week={[...appointments, ...presenting]}
+            back={booked.back} onDone={doneBooked} onAnother={openNewForm}
+            onOpen={onOpenClient ? () => { const r = booked.record; setBooked(null); onOpenClient(r.prospectId ? `p:${r.prospectId}` : `n:${normName(r.client)}`, r.client); } : null} />
+        ) : null}
+        {/* The card already says what was sent; problems still show. */}
+        {notice && !(booked && !showForm && notice.kind === 'ok') && <div className={notice.kind === 'ok' ? 'tr-flash' : 'tr-error'}>{notice.text}</div>}
         {showForm && (
           <AppointmentForm user={user} weekMonday={weekMonday} prefillData={pendingPrefillData} onCancel={cancelForm} onSubmit={handleFormSubmit} saving={saving} sheet={isPhone} saveError={error} />
         )}
