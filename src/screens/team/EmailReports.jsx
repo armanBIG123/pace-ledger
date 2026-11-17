@@ -109,7 +109,7 @@ export function EmailReportsCard() {
       <p className="tr-er-sub">Company, team and agent numbers: team members added, appointments set and completed, applications and target premium.</p>
       <ul className="tr-er-kinds">
         <li>
-          <label className="tr-checkbox-field"><input type="checkbox" checked={daily} onChange={e => setDaily(e.target.checked)} /> <span><strong>Daily</strong> at 7 AM Central, for the day before</span></label>
+          <label className="tr-checkbox-field"><input type="checkbox" checked={daily} onChange={e => setDaily(e.target.checked)} /> <span><strong>Daily</strong> at 7 AM Central, for the day before, with week and month to date</span></label>
           <small>{lastSent(state.sends, 'daily')}</small>
         </li>
         <li>

@@ -1,7 +1,8 @@
 // Edge Function: activity-report
 // Emails the daily and weekly activity reports (migration-activity-reports.sql).
 //
-//   Daily    every morning at 7 AM Central: yesterday.
+//   Daily    every morning at 7 AM Central: yesterday, with the week to
+//            date (weeks run Saturday to Friday) and the month to date.
 //   Weekly   Saturdays at 7 AM Central: Saturday to Friday just finished,
 //            compared with the week before.
 //
@@ -65,6 +66,9 @@ export function lastWeek(now: Date) {
   return { from: addDays(thisSat, -7), to: addDays(thisSat, -1) };
 }
 export const periodFor = (kind: string, now: Date) => (kind === 'weekly' ? lastWeek(now) : lastDay(now));
+// The week (Saturday to Friday) and the month a day falls in, up to that day.
+export const weekToDate = (day: string) => ({ from: addDays(day, -((dayOfWeek(day) + 1) % 7)), to: day });
+export const monthToDate = (day: string) => ({ from: `${day.slice(0, 8)}01`, to: day });
 // What should have gone out by now: yesterday's daily from 7 AM, and on
 // Saturdays from 7 AM the week just finished.
 export function due(now: Date, s: { daily_on?: boolean; weekly_on?: boolean }) {
@@ -192,6 +196,8 @@ export function range(from: string, to: string) {
   const sameMonth = from.slice(0, 7) === to.slice(0, 7);
   return `${md(from)} – ${sameMonth ? Number(to.slice(8)) : md(to)}`;
 }
+// "Nov 16" for one day, "Nov 14 – 16" for more.
+export const span = (from: string, to: string) => (from === to ? md(from) : range(from, to));
 export const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-US')} ${n === 1 ? one : many}`;
 
 const C = { ink: '#13212E', text: '#33414D', muted: '#6B7785', line: '#E3E7EC', brass: '#C49A3C', green: '#2E7D5B', rust: '#B0432F' };
@@ -213,11 +219,12 @@ const CSS = `.t{border-collapse:collapse;width:100%;margin:0 0 6px;font-size:14p
 .t td{padding:7px 6px;border-bottom:1px solid ${C.line};vertical-align:top;text-align:right;white-space:nowrap}
 .t .a{text-align:left;white-space:normal}
 .t small{font-size:11px}
+.s{font-size:18px;font-weight:bold;color:${C.text}}.hd{font-weight:normal;text-transform:none;letter-spacing:0}
 .m{color:${C.muted}}.u{color:${C.green}}.d{color:${C.rust}}.z{color:#A6AFB9}.b{font-size:18px;font-weight:bold}
 h2{margin:26px 0 4px;font-size:17px;color:${C.ink}}
 .n{margin:0 0 10px;font-size:12px;line-height:1.5;color:${C.muted}}
 .t th.a{width:34%}
-@media (max-width:520px){.t{font-size:13px}.t th{padding:6px 2px;font-size:9px;letter-spacing:0}.t td{padding:6px 2px}.t th.a{width:auto}.t small{font-size:10px}.b{font-size:16px}.w{padding:16px 12px 20px !important}}`;
+@media (max-width:520px){.t{font-size:13px}.t th{padding:6px 2px;font-size:9px;letter-spacing:0}.t td{padding:6px 2px}.t th.a{width:auto}.t small{font-size:10px}.b,.s{font-size:16px}.w{padding:16px 12px 20px !important}}`;
 
 function numCell(k: keyof Nums, now: number, before: number | null) {
   const nothing = !now && !before;
@@ -235,30 +242,39 @@ const table = (rows: string) => `<table class="t" role="presentation" cellpaddin
 const h2 = (t: string) => `<h2>${esc(t)}</h2>`;
 const note = (t: string) => `<p class="n">${t}</p>`;
 
-export function renderEmail({ kind, cur, prev, sentAt }: { kind: 'daily' | 'weekly'; cur: Report; prev: Report | null; sentAt: Date }) {
+// Daily: cur is the day, wtd and mtd the week and month to date (company
+// totals only). Weekly: cur is the week, prev the week before.
+export function renderEmail({ kind, cur, prev, sentAt, wtd = null, mtd = null }: { kind: 'daily' | 'weekly'; cur: Report; prev: Report | null; sentAt: Date; wtd?: Report | null; mtd?: Report | null }) {
   const weekly = kind === 'weekly' && !!prev;
+  const toDate = kind === 'daily' && !!wtd && !!mtd;
+  const name = kind === 'weekly' ? 'Weekly Performance' : 'Daily Performance';
   const prevNums = (list: { id: string; nums: Nums }[] | undefined) => new Map((list || []).map(x => [x.id, x.nums]));
   const prevTeams = prevNums(prev?.teams), prevAgents = prevNums(prev?.agents), prevSystems = prevNums(prev?.systems);
   const c = cur.company, p = prev?.company || null;
   const before = (m: Map<string, Nums>, id: string, k: keyof Nums) => (weekly ? (m.get(id) || zero())[k] : null);
 
   const title = kind === 'weekly' ? `Week of ${range(cur.from, cur.to)}` : longDay(cur.from);
-  const asOf = new Date(sentAt).toLocaleString('en-US', { timeZone: TZ, weekday: 'long', hour: 'numeric', minute: '2-digit' });
+  // Every day and time in the report is Central Time; say so up front.
+  const asOf = `${new Date(sentAt).toLocaleString('en-US', { timeZone: TZ, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })} CT`;
   const intro = kind === 'weekly'
-    ? `Saturday to Friday${prev ? `, compared with the week before (${esc(range(prev.from, prev.to))})` : ''}. Everything logged in PaceLedger by ${esc(asOf)}.`
-    : `Everything logged in PaceLedger for ${esc(shortDay(cur.from))}, as of ${esc(asOf)}.`;
+    ? `Saturday to Friday${prev ? `, compared with the week before (${esc(range(prev.from, prev.to))})` : ''}. Days run midnight to midnight Central Time (CT). Everything logged in PaceLedger as of ${esc(asOf)}.`
+    : `Everything logged in PaceLedger on ${esc(shortDay(cur.from))}, midnight to midnight Central Time (CT). As of ${esc(asOf)}.`;
 
   // Company
+  const colHead = (label: string, from: string, to: string) => `<th>${esc(label)}<br><small class="hd">${esc(span(from, to))}</small></th>`;
   const scoreHead = weekly
     ? '<tr><th class="a">Company</th><th>This week</th><th>Last week</th><th>Change</th></tr>'
-    : `<tr><th class="a">Company</th><th>${esc(shortDay(cur.from))}</th></tr>`;
+    : `<tr><th class="a">Company</th>${colHead('Daily', cur.from, cur.to)}${toDate ? colHead('WTD', wtd!.from, wtd!.to) + colHead('MTD', mtd!.from, mtd!.to) : ''}</tr>`;
   const scoreRows = METRICS.map(m => {
     const big = `<td class="b">${esc(fmt(m.key, c[m.key]))}</td>`;
-    if (!weekly) return `<tr>${nameCell(m.label, '')}${big}</tr>`;
+    if (!weekly) return `<tr>${nameCell(m.label, '')}${big}${toDate ? `<td class="s">${esc(fmt(m.key, wtd!.company[m.key]))}</td><td class="s">${esc(fmt(m.key, mtd!.company[m.key]))}</td>` : ''}</tr>`;
     const ch = change(m.key, c[m.key], p![m.key]);
     const pc = ch.arrow ? pctChange(c[m.key], p![m.key]) : '';
     return `<tr>${nameCell(m.label, '')}${big}<td class="m">${esc(fmt(m.key, p![m.key]))}</td><td class="${ch.cls}"><b>${ch.arrow ? `${ch.arrow} ` : ''}${esc(ch.text)}</b>${pc ? `<br><small>${esc(pc)}</small>` : ''}</td></tr>`;
   }).join('');
+  const toDateNote = toDate
+    ? note(`<b>WTD</b> is week to date: ${esc(span(wtd!.from, wtd!.to))} (weeks run Saturday to Friday). <b>MTD</b> is month to date: ${esc(span(mtd!.from, mtd!.to))}.`)
+    : '';
   const dayWord = kind === 'weekly' ? 'this week' : shortDay(cur.from).split(',')[0];
   const notLogged = cur.notLogged
     ? note(`${esc(plural(cur.notLogged, 'appointment'))} from ${esc(dayWord)} ${cur.notLogged === 1 ? 'doesn’t' : 'don’t'} have an outcome logged yet, so ${cur.notLogged === 1 ? 'it isn’t' : 'they aren’t'} in Completed.`)
@@ -287,21 +303,22 @@ export function renderEmail({ kind, cur, prev, sentAt }: { kind: 'daily' | 'week
   const html = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><style>${CSS}</style></head>
 <body style="margin:0;padding:0;background:#EBEEF2"><div style="padding:20px 10px;background:#EBEEF2;font-family:Arial,Helvetica,sans-serif;color:${C.text}">
 <div style="max-width:680px;margin:0 auto;background:#ffffff;border-radius:10px;overflow:hidden">
-<div style="background:${C.ink};padding:16px 24px"><span style="font-family:Georgia,'Times New Roman',serif;font-size:20px;font-weight:bold;color:${C.brass}">PaceLedger</span><span style="font-size:13px;color:#C9D1DA;padding-left:10px">${kind === 'weekly' ? 'Weekly report' : 'Daily report'}</span></div>
+<div style="background:${C.ink};padding:16px 24px"><span style="font-family:Georgia,'Times New Roman',serif;font-size:20px;font-weight:bold;color:${C.brass}">PaceLedger</span><span style="font-size:16px;color:#C9D1DA;padding-left:8px">| ${name}</span></div>
 <div class="w" style="padding:22px 24px 26px">
 <h1 style="margin:0 0 6px;font-size:22px;color:${C.ink}">${esc(title)}</h1>
 <p style="margin:0 0 18px;font-size:13px;line-height:1.5;color:${C.muted}">${intro}</p>
 ${table(scoreHead + scoreRows)}
+${toDateNote}
 ${notLogged}
 ${systems}
 ${teamsPart}
 ${agentsPart}
 <div style="margin-top:24px;padding-top:14px;border-top:1px solid ${C.line};font-size:12px;line-height:1.6;color:${C.muted}">
-<b style="color:${C.text}">How these are counted</b> (from what’s logged in PaceLedger, Central time)<br>
+<b style="color:${C.text}">How these are counted</b> (from what’s logged in PaceLedger; all days and times are Central Time)<br>
 <b>Added:</b> people who signed up through a recruit link, for the person they joined under.
 <b>Set:</b> new appointments on the day they were set, the same as Pace (not follow-ups), for the person who set them.
 <b>Completed:</b> appointments that took place with an outcome of Went well or Not interested, follow-ups included.
-<b>Apps:</b> appointments logged as Sold. <b>Premium:</b> their target premium. A split sale counts for both people, with the premium shared, and once in team and company totals.<br>
+<b>Apps:</b> appointments logged as Sold. <b>Premium:</b> their target premium. A split sale counts for both people, with the premium shared, and once in team and company totals.${toDate ? ' <b>WTD:</b> Saturday through the report day. <b>MTD:</b> the 1st of the month through the report day.' : ''}<br>
 <a href="${esc(APP_URL)}/team" style="color:#24548A">Open PaceLedger</a> · Super admins choose who gets this in Team &amp; admin → Team overview → Email reports.
 </div></div></div></div></body></html>`;
 
@@ -314,14 +331,15 @@ ${agentsPart}
       : ` (premium ${money(p.premium)} last week)`;
   }
   const subject = kind === 'weekly'
-    ? `PaceLedger weekly · ${range(cur.from, cur.to)} · ${subjectNums}${vsLast}`
-    : `PaceLedger daily · ${shortDay(cur.from)} · ${subjectNums}`;
+    ? `PaceLedger | Weekly Performance · ${range(cur.from, cur.to)} · ${subjectNums}${vsLast}`
+    : `PaceLedger | Daily Performance · ${shortDay(cur.from)} · ${subjectNums}`;
 
   const line = (label: string, n: Nums, was: Nums | null) => `${label}: ${METRICS.map(m => `${fmt(m.key, n[m.key])} ${unit(m.key, n[m.key])}${was ? ` (${change(m.key, n[m.key], was[m.key]).text})` : ''}`).join(', ')}`;
   const text = [
-    `PaceLedger ${kind === 'weekly' ? 'weekly' : 'daily'} report: ${title}`,
+    `PaceLedger | ${name}: ${title}`,
+    kind === 'weekly' ? 'Saturday to Friday, Central Time (CT).' : `${shortDay(cur.from)}, midnight to midnight Central Time (CT).${toDate ? ` WTD: ${span(wtd!.from, wtd!.to)}. MTD: ${span(mtd!.from, mtd!.to)}.` : ''}`,
     '',
-    ...METRICS.map(m => `${m.label}: ${fmt(m.key, c[m.key])}${weekly ? ` (last week ${fmt(m.key, p![m.key])}, ${change(m.key, c[m.key], p![m.key]).text})` : ''}`),
+    ...METRICS.map(m => `${m.label}: ${fmt(m.key, c[m.key])}${weekly ? ` (last week ${fmt(m.key, p![m.key])}, ${change(m.key, c[m.key], p![m.key]).text})` : ''}${toDate ? ` (WTD ${fmt(m.key, wtd!.company[m.key])}, MTD ${fmt(m.key, mtd!.company[m.key])})` : ''}`),
     cur.notLogged ? `${plural(cur.notLogged, 'appointment')} without an outcome logged yet (not in Completed).` : '',
     '',
     cur.teams.length ? 'By team (each leader and everyone under them):' : '',
@@ -345,7 +363,14 @@ async function numbers(admin: any, from: string, to: string) {
 export async function compose(admin: any, kind: 'daily' | 'weekly', from: string, to: string, sentAt = new Date()) {
   const cur = await numbers(admin, from, to);
   const prev = kind === 'weekly' ? await numbers(admin, addDays(from, -7), addDays(to, -7)) : null;
-  return { ...renderEmail({ kind, cur, prev, sentAt }), from, to };
+  // Daily: the week and month to date too (the same day when it's the first of either).
+  let wtd = null, mtd = null;
+  if (kind === 'daily') {
+    const w = weekToDate(to), mo = monthToDate(to);
+    wtd = w.from === from ? cur : await numbers(admin, w.from, w.to);
+    mtd = mo.from === from ? cur : mo.from === w.from ? wtd : await numbers(admin, mo.from, mo.to);
+  }
+  return { ...renderEmail({ kind, cur, prev, sentAt, wtd, mtd }), from, to };
 }
 // Up to 3 tries when Resend is busy or down.
 const send = (to: string[], mail: { subject: string; html: string; text: string }) => sendEmail({ to, subject: mail.subject, html: mail.html, text: mail.text }, { tries: 3 });
