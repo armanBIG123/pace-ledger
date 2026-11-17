@@ -1,4 +1,4 @@
-import { buildClients, clientMatches, filterCounts, inFilter, sortClients, whenOf } from '../../src/lib/clients.js';
+import { buildClients, clientMatches, clientSections, dueBadge, filterCounts, followUpsDue, inFilter, pipelineCounts, sortClients, whenOf } from '../../src/lib/clients.js';
 let f = 0; const ok = (c, m) => { if (c) console.log('ok', m); else { f++; console.log('FAIL', m); } };
 const ME = 'me', DANA = 'dana';
 const day = n => { const d = new Date(Date.now() + n * 864e5); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
@@ -47,7 +47,7 @@ const by = n => list.find(c => c.name === n);
 ok(list.length === 13, `one profile per person (${list.length}: 10 on the list, Rob Smith, Walk In, Grace Kim)`);
 ok(by('Priya Shah').stage === 'prospect' && by('Priya Shah').action.kind === 'book', 'Priya: prospect, Book');
 ok(by('Aisha Brown').stage === 'outcome' && by('Aisha Brown').action.kind === 'log', 'Aisha: needs outcome, Log outcome');
-ok(by('Maria Lopez').stage === 'followup' && /^Follow-up .* with Dana$/.test(by('Maria Lopez').next) && by('Maria Lopez').action.kind === 'change', `Maria: follow-up booked (${by('Maria Lopez').next} / ${by('Maria Lopez').sub})`);
+ok(by('Maria Lopez').stage === 'booked' && by('Maria Lopez').chip === 'Follow-up booked' && /^Follow-up .* with Dana$/.test(by('Maria Lopez').next) && by('Maria Lopez').action.kind === 'change', `Maria: a booked follow-up counts as an appointment (${by('Maria Lopez').next})`);
 ok(by('Kevin Tran').stage === 'booked' && by('Kevin Tran').appts.length === 1, 'Kevin: unlinked appointment matched by name, booked');
 ok(by('Sam Carter').stage === 'pending' && by('Sam Carter').next === 'Requirements open', `Sam: sold, pending (${by('Sam Carter').sub})`);
 const sam = by('Sam Carter');
@@ -83,4 +83,45 @@ ok(two[0].stage === 'followup', 'an old unlogged appointment followed by a logge
 ok(whenOf(appt('X', 0)).startsWith('Today · '), 'today reads "Today · 6:00 PM"');
 const sold = buildClients({ prospects: [pros('q2', 'Marked', 'Sold', { markedSold: true })], userId: ME });
 ok(sold[0].stage === 'client', 'marked sold on the list with no appointment: client');
+
+// ---- Follow-ups: when to reach out again --------------------------------------
+ok(by('Walk In').dueOn === day(0) && by('Walk In').dueNow && dueBadge(by('Walk In')).text === 'Due today', `no show logged yesterday: due today (${by('Walk In').dueOn})`);
+ok(by('Nina Hall').dueIn === 0, 'rescheduled with no new time: due the day after it was logged');
+ok(by('Rob Smith').dueIn === 1 && !by('Rob Smith').dueNow && dueBadge(by('Rob Smith')).text === 'Due tomorrow', 'went well, nothing booked: 2 days after it was logged');
+ok(by('Tom Becker').stage === 'closed' && by('Tom Becker').dueIn === 89 && /check back/.test(by('Tom Becker').sub), `not interested: check back in 90 days (${by('Tom Becker').sub})`);
+ok(by('Maria Lopez').dueOn === '' && by('Kevin Tran').dueOn === '', 'nothing due while an appointment is booked');
+const F = (client, n, loggedDaysAgo, o, extra = {}) => appt(client, n, { ...logged(o), followUpCompletedAt: iso(-loggedDaysAgo), ...extra });
+const fu = buildClients({
+  appointments: [
+    F('Cold Case', -20, 19, 'went_well'),
+    F('Quiet Case', -60, 59, 'went_well'),
+    F('Set Later', -2, 1, 'went_well', { nextContactOn: day(5) }),
+    F('Check Back', -96, 95, 'not_interested'),
+    F('Touched', -20, 19, 'went_well', { id: 'touch1', nextContactOn: day(0) }),
+  ],
+  notes: [{ id: 'nt', appointment_id: 'touch1', author_id: ME, note: 'Left voicemail', created_at: iso(-1) }],
+  userId: ME,
+});
+const fb = n => fu.find(c => c.name === n);
+ok(fb('Cold Case').dueNow && fb('Cold Case').cold && /^Going cold · 19 days$/.test(dueBadge(fb('Cold Case')).text), `no contact in 19 days and due: going cold (${dueBadge(fb('Cold Case')).text})`);
+ok(fb('Quiet Case').quiet && !fb('Quiet Case').dueNow && dueBadge(fb('Quiet Case')).text === 'Gone quiet', 'over a month past due: gone quiet, not in Do now');
+ok(fb('Set Later').dueIn === 5 && !fb('Set Later').dueNow, 'a date you picked wins over the worked-out one');
+ok(fb('Check Back').stage === 'followup' && fb('Check Back').checkBack && fb('Check Back').next === 'Check back in' && fb('Check Back').dueNow, 'not interested 95 days ago: time to check back in');
+ok(fb('Touched').dueNow && !fb('Touched').cold && / · last: Left voicemail$/.test(fb('Touched').sub), `a touch yesterday: due today, not cold, and shows (${fb('Touched').sub})`);
+ok(fb('Touched').touchAppt && fb('Touched').touchAppt.id === 'touch1', 'a touch saves on the appointment the next step comes from');
+const due = followUpsDue(fu).map(c => c.name);
+ok(due[0] === 'Cold Case' && !due.includes('Quiet Case') && !due.includes('Set Later'), `due now: going cold first (${due.join(', ')})`);
+ok(sortClients(fu, 'next').map(c => c.name).indexOf('Quiet Case') > sortClients(fu, 'next').map(c => c.name).indexOf('Set Later'), 'gone quiet sorts after the rest');
+
+// ---- Sections and the pipeline bar ------------------------------------------------
+const secs = clientSections(list);
+const sec = k => (secs.find(s => s.key === k) || { people: [] }).people.map(c => c.name);
+ok(secs[0].key === 'now' && sec('now')[0] === 'Aisha Brown' && sec('now').includes('Walk In') && sec('now').includes('Nina Hall') && sec('now').includes('Grace Kim'), `Do now: outcomes first, then follow-ups due (${sec('now').join(', ')})`);
+ok(sec('soon').includes('Maria Lopez') && sec('soon').includes('Kevin Tran'), 'Coming up: booked appointments and follow-ups');
+ok(sec('later').join() === 'Rob Smith', 'Follow up later: due after today');
+ok(sec('carrier').join() === 'Sam Carter' && sec('prospects').includes('Priya Shah'), 'waiting on the carrier, and prospects');
+ok(!secs.some(s => s.people.some(c => c.name === 'Tom Becker')), 'not interested stays out of Everyone');
+const bar = pipelineCounts(list);
+ok(bar.outcome.n === 2 && bar.outcome.warn && bar.booked.n === 2 && bar.followup.n === 3 && bar.pending.n === 1 && bar.client.n === 1 && bar.prospect.n >= 1, `bar counts (${JSON.stringify(Object.fromEntries(Object.entries(bar).map(([k, v]) => [k, v.n])))})`);
+ok(/^2 due/.test(bar.followup.sub) && /^\$1,200/.test(bar.pending.sub), `bar: follow-ups due, your share waiting (${bar.followup.sub} / ${bar.pending.sub})`);
 console.log(f ? `${f} FAILED` : 'ALL CLIENT TESTS PASSED'); process.exit(f ? 1 : 0);

@@ -297,6 +297,19 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
   const shownErr = err || saveError;
 
   const firstOf = n => String(n || '').trim().split(/\s+/)[0] || 'They';
+  // New ones: what saving does, in one line above Save.
+  const saveNote = (() => {
+    if (editing) return '';
+    const to = [
+      ...(inviteClient && clientEmail.trim() ? [client.trim() ? firstOf(client) : 'the client'] : []),
+      ...(inviteMe && user.email ? ['you'] : []),
+    ];
+    const more = extraEmails.split(/[\s,;]+/).filter(Boolean).length;
+    if (more) to.push(`${more} more`);
+    const who = to.length > 1 ? `${to.slice(0, -1).join(', ')} and ${to[to.length - 1]}` : to[0] || '';
+    return `Counts toward ${meta.batchLabel}${who ? ` · invite goes to ${who}` : ''}${sendIntake ? ' · intake form goes out' : ''}`;
+  })();
+  const saveNoteEl = saveNote ? <p className="tr-appt-savenote"><strong>When you save:</strong> {saveNote}</p> : null;
   const fields = (
     <>
       {forOther && (
@@ -523,7 +536,7 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
         </div>
         <div className="tr-fsheet-body" onKeyDown={handleKeyDown}>{fields}</div>
         <div className="tr-fsheet-actions">
-          {shownErr && <div className="tr-error">{shownErr}</div>}
+          {shownErr ? <div className="tr-error">{shownErr}</div> : saveNoteEl}
           <button type="button" className="tr-btn tr-btn-brass" onClick={submit} disabled={saving || checking}>{saveLabel}</button>
           {onDelete ? <button type="button" className="tr-link-btn tr-appt-delete-link" onClick={onDelete} disabled={saving || checking}>Delete this appointment</button> : null}
         </div>
@@ -540,7 +553,7 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
         </div>
         <div className="tr-modal-body" onKeyDown={handleKeyDown}>{fields}</div>
         <div className="tr-modal-foot">
-          {shownErr && <div className="tr-error">{shownErr}</div>}
+          {shownErr ? <div className="tr-error">{shownErr}</div> : saveNoteEl}
           <div className="tr-form-actions">
             {deleteBtn}
             <button type="button" className="tr-btn tr-btn-ghost" onClick={onCancel}>Cancel</button>
@@ -554,7 +567,7 @@ export function AppointmentForm({ user, weekMonday, editing, prefillData, onCanc
     <div className="tr-card tr-form" onKeyDown={handleKeyDown}>
       <h3 className="tr-h3">{title}</h3>
       {fields}
-      {shownErr && <div className="tr-error">{shownErr}</div>}
+      {shownErr ? <div className="tr-error">{shownErr}</div> : saveNoteEl}
       <div className="tr-form-actions">
         {deleteBtn}
         <button type="button" className="tr-btn tr-btn-ghost" onClick={onCancel}>Cancel</button>

@@ -201,7 +201,8 @@ try {
   // ---- Dana presented Grace for Jordan: hers to log, Jordan's to manage -------
   page = await open(DANA, base());
   await toClients(page);
-  await page.getByRole('button', { name: /You presented/ }).click();
+  await page.getByRole('button', { name: /^More/ }).click();
+  await page.getByRole('menuitem', { name: /You presented/ }).click();
   await page.waitForTimeout(300);
   await openProfile(page, 'Grace Kim');
   const g = card(page, 'Appointments');

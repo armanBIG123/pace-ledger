@@ -347,8 +347,8 @@ export function TypeFilter({ value, onChange }) {
 export function TypeChoice({ recruit, sale, onToggleRecruit, onToggleSale }) {
   return (
     <div className="tr-pillrow">
-      <button type="button" className={`tr-pill-btn tr-pill-recruit ${recruit ? 'tr-pill-btn-active-recruit' : ''}`} onClick={onToggleRecruit}>Recruit</button>
-      <button type="button" className={`tr-pill-btn tr-pill-sale ${sale ? 'tr-pill-btn-active-sale' : ''}`} onClick={onToggleSale}>Sale</button>
+      <button type="button" className={`tr-pill-btn tr-pill-recruit ${recruit ? 'tr-pill-btn-active-recruit' : ''}`} aria-pressed={!!recruit} onClick={onToggleRecruit}>Recruit</button>
+      <button type="button" className={`tr-pill-btn tr-pill-sale ${sale ? 'tr-pill-btn-active-sale' : ''}`} aria-pressed={!!sale} onClick={onToggleSale}>Sale</button>
     </div>
   );
 }
