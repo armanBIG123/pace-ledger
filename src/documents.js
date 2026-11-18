@@ -1,11 +1,13 @@
 import { supabase } from './supabaseClient.js';
 
 // ---------------------------------------------------------------------
-// documents (data layer) — each solar system's PDF/PPTX library, open to
+// documents (data layer) — each solar system's library of PDFs, PPTX
+// decks and MP4 videos (file_type 'pdf' | 'pptx' | 'mp4'), open to
 // everyone in it; upload/delete/rename is for super admins and Super
 // Managers. New files go in the solar system's own folder (BHB/...).
 // DocumentsBody itself (the UI) lives in screens/Documents.jsx.
 // ---------------------------------------------------------------------
+const TYPES = { pdf: 'application/pdf', pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', mp4: 'video/mp4' };
 export async function fetchDocuments() {
   const { data, error } = await supabase.from('documents').select('*').order('created_at', { ascending: false });
   if (error) { console.error(error); return []; }
@@ -13,7 +15,11 @@ export async function fetchDocuments() {
 }
 export async function uploadDocument(file, title, userId, userName, fileType, folder = '') {
   const filePath = `${folder ? `${folder}/` : ''}${crypto.randomUUID()}-${file.name}`;
-  const { error: uploadErr } = await supabase.storage.from('documents').upload(filePath, file);
+  // Stored with its real type, so videos play in the browser (some
+  // computers hand over an .mp4 with no type at all).
+  const contentType = file.type || TYPES[fileType] || 'application/octet-stream';
+  const body = file.type ? file : new File([file], file.name, { type: contentType });
+  const { error: uploadErr } = await supabase.storage.from('documents').upload(filePath, body, { contentType });
   if (uploadErr) return { ok: false, error: uploadErr.message };
   const { data, error: insertErr } = await supabase.from('documents').insert({
     title: title.trim(), file_path: filePath, file_size: file.size, file_type: fileType,
@@ -65,9 +71,11 @@ export async function deleteImportantLink(id) {
 }
 // Generated fresh on every download click — the bucket is private, so
 // this is the only way to actually retrieve a file, and it expires
-// quickly rather than being a permanent, shareable link.
-export async function getDocumentDownloadUrl(filePath) {
-  const { data, error } = await supabase.storage.from('documents').createSignedUrl(filePath, 60);
+// quickly rather than being a permanent, shareable link. Watching a video
+// needs longer (the player keeps fetching as it plays and seeks), and
+// download: a file name makes the browser save it rather than open it.
+export async function getDocumentDownloadUrl(filePath, { seconds = 60, download = null } = {}) {
+  const { data, error } = await supabase.storage.from('documents').createSignedUrl(filePath, seconds, download ? { download } : undefined);
   if (error) { console.error(error); return null; }
   return data.signedUrl;
 }

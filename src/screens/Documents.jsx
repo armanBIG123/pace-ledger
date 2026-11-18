@@ -1,6 +1,6 @@
-// Documents and Important Links.
+// Resources: PDF and PPTX documents, videos, and Important Links.
 import { useCallback, useEffect, useState } from 'react';
-import { Download, FileText, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Download, FileText, Pencil, Play, Plus, Trash2, Video, X } from 'lucide-react';
 import { addImportantLink, deleteDocument, deleteImportantLink, fetchDocuments, fetchImportantLinks, formatFileSize, getDocumentDownloadUrl, updateDocumentTitle, updateImportantLink, uploadDocument } from '../documents.js';
 import { PageHead, SkeletonCards } from '../components/ui.jsx';
 import { isAdmin } from '../lib/roles.js';
@@ -146,7 +146,7 @@ export function ImportantLinksSection({ user }) {
 export function DocumentsBody({ user }) {
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState('pdf'); // 'pdf' | 'pptx' | 'links'
+  const [view, setView] = useState('pdf'); // 'pdf' | 'pptx' | 'mp4' | 'links'
   const [showUpload, setShowUpload] = useState(false);
   const [title, setTitle] = useState('');
   const [file, setFile] = useState(null);
@@ -156,6 +156,9 @@ export function DocumentsBody({ user }) {
   const [editingId, setEditingId] = useState(null);
   const [editTitle, setEditTitle] = useState('');
   const [renaming, setRenaming] = useState(false);
+  // The video playing on Videos: { id, url } (one at a time).
+  const [playing, setPlaying] = useState(null);
+  const [opening, setOpening] = useState(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -166,7 +169,13 @@ export function DocumentsBody({ user }) {
 
   const pdfDocs = documents.filter(d => (d.file_type || 'pdf') === 'pdf');
   const pptxDocs = documents.filter(d => d.file_type === 'pptx');
-  const activeDocs = view === 'pdf' ? pdfDocs : pptxDocs;
+  const videoDocs = documents.filter(d => d.file_type === 'mp4');
+  const activeDocs = view === 'pdf' ? pdfDocs : view === 'mp4' ? videoDocs : pptxDocs;
+  const KIND = {
+    pdf: { name: 'PDF Documents', file: 'PDF file', what: 'PDF', thing: 'document', accept: 'application/pdf', ext: /\.pdf$/i },
+    pptx: { name: 'PPTX Documents', file: 'PPTX file', what: 'PPTX', thing: 'document', accept: '.pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation', ext: /\.pptx$/i },
+    mp4: { name: 'Videos', file: 'MP4 video', what: 'MP4', thing: 'video', accept: 'video/mp4,.mp4', ext: /\.mp4$/i },
+  }[view === 'links' ? 'pdf' : view];
 
   function switchView(v) {
     setView(v);
@@ -174,28 +183,48 @@ export function DocumentsBody({ user }) {
     setError('');
     setTitle('');
     setFile(null);
+    setPlaying(null);
   }
 
   async function handleUpload() {
-    if (!file) { setError(`Choose a ${view === 'pdf' ? 'PDF' : 'PPTX'} file to upload.`); return; }
-    if (!title.trim()) { setError('Give the document a title.'); return; }
+    if (!file) { setError(`Choose a${KIND.what === 'MP4' ? 'n' : ''} ${KIND.what} file to upload.`); return; }
+    if (!KIND.ext.test(file.name)) { setError(`That isn't a${KIND.what === 'MP4' ? 'n' : ''} ${KIND.what} file. Choose one that ends in .${view}.`); return; }
+    if (!title.trim()) { setError(`Give the ${KIND.thing} a title.`); return; }
     setUploading(true);
     setError('');
     const res = await uploadDocument(file, title, user.id, user.displayName, view, user.writerSystemShort);
     setUploading(false);
-    if (!res.ok) { setError(res.error || 'Upload failed. Try again.'); return; }
+    if (!res.ok) {
+      const big = /exceeded the maximum|too large|payload too large|413/i.test(res.error || '');
+      const type = /mime type|not supported/i.test(res.error || '');
+      setError(big ? `That file is bigger than your storage upload limit (${formatFileSize(file.size)}). Try a shorter or smaller video, or raise the limit in Supabase.`
+        : type ? `Storage isn't set up to take ${KIND.what} files yet: the database update for videos needs to run first.`
+          : res.error || 'Upload failed. Try again.');
+      return;
+    }
     setDocuments(prev => [res.record, ...prev]);
     setTitle(''); setFile(null); setShowUpload(false);
   }
+  // Videos play right here, from a link that lasts long enough to watch.
+  async function handleWatch(doc) {
+    if (playing && playing.id === doc.id) { setPlaying(null); return; }
+    setError('');
+    setOpening(doc.id);
+    const url = await getDocumentDownloadUrl(doc.file_path, { seconds: 4 * 60 * 60 });
+    setOpening(null);
+    if (url) setPlaying({ id: doc.id, url });
+    else setError('Could not open the video. Try again.');
+  }
   function handleDelete(doc) {
+    if (playing && playing.id === doc.id) setPlaying(null);
     return confirmDelete({
-      title: `Delete "${doc.title}"?`, body: 'The file comes off Resources for everyone.', undoText: 'Document deleted',
+      title: `Delete "${doc.title}"?`, body: 'The file comes off Resources for everyone.', undoText: doc.file_type === 'mp4' ? 'Video deleted' : 'Document deleted',
       item: doc, setList: setDocuments, sort: newestFirst, commit: () => deleteDocument(doc.id, doc.file_path),
     });
   }
   async function handleDownload(doc) {
     setDownloadingId(doc.id);
-    const url = await getDocumentDownloadUrl(doc.file_path);
+    const url = await getDocumentDownloadUrl(doc.file_path, doc.file_type === 'mp4' ? { download: `${doc.title.replace(/[\\/:*?"<>|]/g, '').trim() || 'video'}.mp4` } : {});
     setDownloadingId(null);
     if (url) window.open(url, '_blank');
     else setError('Could not generate a download link. Try again.');
@@ -223,7 +252,7 @@ export function DocumentsBody({ user }) {
 
   return (
     <div className="tr-flat">
-    <PageHead title="Resources" sub="Presentations, documents and links for the team." />
+    <PageHead title="Resources" sub="Presentations, documents, videos and links for the team." />
     <div className="tr-appts-shell" style={{ marginTop: 14 }}>
       <nav className="tr-appts-sidebar tr-docs-tabs" aria-label="Resources">
         <button
@@ -239,6 +268,12 @@ export function DocumentsBody({ user }) {
           <span className="tr-mono">{pptxDocs.length}</span>
         </button>
         <button
+          type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'mp4' ? 'tr-sidebar-item-active' : ''}`}
+          onClick={() => switchView('mp4')}>
+          <span>Videos</span>
+          <span className="tr-mono">{videoDocs.length}</span>
+        </button>
+        <button
           type="button" className={`tr-sidebar-item tr-sidebar-item-week ${view === 'links' ? 'tr-sidebar-item-active' : ''}`}
           onClick={() => switchView('links')}>
           <span>Important Links</span>
@@ -248,10 +283,10 @@ export function DocumentsBody({ user }) {
         {view === 'links' ? <ImportantLinksSection user={user} /> : (
         <>
         <div className="tr-row-head">
-          <h3 className="tr-h3">{view === 'pdf' ? 'PDF Documents' : 'PPTX Documents'}</h3>
+          <h3 className="tr-h3">{KIND.name}</h3>
           {isAdmin(user) && (
             <button className="tr-btn tr-btn-brass" onClick={() => setShowUpload(v => !v)}>
-              <Plus size={16} /> {showUpload ? 'Close' : 'Upload document'}
+              <Plus size={16} /> {showUpload ? 'Close' : `Upload ${KIND.thing}`}
             </button>
           )}
         </div>
@@ -261,29 +296,29 @@ export function DocumentsBody({ user }) {
             <div className="tr-form-grid">
               <label className="tr-field tr-field-wide">
                 <span>Title</span>
-                <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. New Product Presentation" />
+                <input value={title} onChange={e => setTitle(e.target.value)} placeholder={view === 'mp4' ? 'e.g. PaceLedger for Advisors' : 'e.g. New Product Presentation'} />
               </label>
               <label className="tr-field tr-field-wide">
-                <span>{view === 'pdf' ? 'PDF file' : 'PPTX file'}</span>
-                <input
-                  type="file"
-                  accept={view === 'pdf' ? 'application/pdf' : '.pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation'}
-                  onChange={e => setFile(e.target.files[0] || null)} />
+                <span>{KIND.file}</span>
+                <input type="file" accept={KIND.accept} onChange={e => setFile(e.target.files[0] || null)} />
               </label>
             </div>
+            {view === 'mp4' && <p className="tr-note">MP4 only. Big videos take a while: keep this page open until it says it’s done.</p>}
             <div className="tr-form-actions">
-              <button type="button" className="tr-btn tr-btn-brass" onClick={handleUpload} disabled={uploading}>{uploading ? 'Uploading…' : 'Upload'}</button>
+              <button type="button" className="tr-btn tr-btn-brass" onClick={handleUpload} disabled={uploading}>
+                {uploading ? `Uploading${file ? ` ${formatFileSize(file.size)}` : ''}…` : 'Upload'}
+              </button>
             </div>
           </div>
         )}
         {loading ? <SkeletonCards count={3} /> : activeDocs.length === 0 ? (
-          <div className="tr-card"><p className="tr-empty">No {view === 'pdf' ? 'PDF' : 'PPTX'} documents uploaded yet.</p></div>
+          <div className="tr-card"><p className="tr-empty">{view === 'mp4' ? 'No videos uploaded yet.' : `No ${KIND.what} documents uploaded yet.`}</p></div>
         ) : (
           activeDocs.map(doc => (
             <div key={doc.id} className="tr-card tr-document-card">
               <div className="tr-policy-head">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
-                  <FileText size={20} className="tr-document-icon" />
+                  {doc.file_type === 'mp4' ? <Video size={20} className="tr-document-icon" /> : <FileText size={20} className="tr-document-icon" />}
                   <div style={{ flex: 1, minWidth: 0 }}>
                     {editingId === doc.id ? (
                       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -306,18 +341,28 @@ export function DocumentsBody({ user }) {
                 </div>
                 {editingId !== doc.id && (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {doc.file_type === 'mp4' && (
+                      <button type="button" className="tr-btn tr-btn-sm tr-btn-brass" onClick={() => handleWatch(doc)} disabled={opening === doc.id}
+                        aria-expanded={!!(playing && playing.id === doc.id)}>
+                        {playing && playing.id === doc.id ? <><X size={13} /> Close</> : <><Play size={13} /> {opening === doc.id ? 'Opening…' : 'Watch'}</>}
+                      </button>
+                    )}
                     <button type="button" className="tr-btn tr-btn-sm tr-btn-ghost" onClick={() => handleDownload(doc)} disabled={downloadingId === doc.id}>
                       <Download size={13} /> {downloadingId === doc.id ? 'Preparing…' : 'Download'}
                     </button>
                     {isAdmin(user) && (
                       <>
-                        <button type="button" className="tr-icon-btn" onClick={() => startRename(doc)} title="Rename document"><Pencil size={14} /></button>
-                        <button type="button" className="tr-icon-btn" onClick={() => handleDelete(doc)} title="Delete document"><Trash2 size={14} /></button>
+                        <button type="button" className="tr-icon-btn" onClick={() => startRename(doc)} title={`Rename ${doc.file_type === 'mp4' ? 'video' : 'document'}`}><Pencil size={14} /></button>
+                        <button type="button" className="tr-icon-btn" onClick={() => handleDelete(doc)} title={`Delete ${doc.file_type === 'mp4' ? 'video' : 'document'}`}><Trash2 size={14} /></button>
                       </>
                     )}
                   </div>
                 )}
               </div>
+              {playing && playing.id === doc.id && (
+                <video className="tr-video" src={playing.url} controls autoPlay playsInline preload="metadata" aria-label={doc.title}
+                  onError={() => setError('This video won’t play here. Try Download instead.')} />
+              )}
             </div>
           ))
         )}
