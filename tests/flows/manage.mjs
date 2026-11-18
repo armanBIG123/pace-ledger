@@ -110,6 +110,7 @@ try {
   await page.getByRole('button', { name: 'Edit Jordan Ellis' }).click();
   await page.waitForSelector('#tr-edit-person-title');
   ok(await page.getByRole('button', { name: 'Save changes' }).isDisabled(), 'Save is off until something changes');
+  await sheet(page).locator('.tr-ep-history li').first().waitFor({ timeout: 8000 });   // it loads after the window opens
   ok(/UA → SA/.test(await sheet(page).locator('.tr-ep-history').innerText()), "the window shows Jordan's recent changes");
   await sheet(page).getByLabel('Comp level').selectOption('FA');
   ok(/Comp level: UA → FA/.test(await sheet(page).locator('.tr-ep-changes').innerText()), 'it says what will change');
