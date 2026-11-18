@@ -16,7 +16,7 @@ import { auditAction } from '../../lib/personEdits.js';
 import { EditPersonSheet, logTime } from './EditPerson.jsx';
 import { InviteShare } from '../../components/invites.jsx';
 import { createLeaderInvite, moveToSystem } from '../../data/solarSystems.js';
-import { isGalaxyAdmin, roleLabel } from '../../lib/roles.js';
+import { activityToolsOn, isGalaxyAdmin, roleLabel } from '../../lib/roles.js';
 import { useSystemTabs } from '../../lib/systemScope.js';
 import { SystemTabs } from '../../components/systemTabs.jsx';
 import { NoMatches, PeopleToolbar, SortHeader, usePeopleRows, useSort } from '../../components/peopleList.jsx';
@@ -31,6 +31,7 @@ export function ManageUsersView({ user = null, currentUserId, currentUserName })
   const tabs = useSystemTabs(user);
   const tabSystem = tabs.systems.find(x => x.id === tabs.current) || null;
   const systemName = id => (systems.find(x => x.id === id) || {}).short_name || '';
+  const systemOf = u => systems.find(x => x.id === u.solar_system_id) || null;
   const [users, setUsers] = useState([]);
   const [phones, setPhones] = useState(null); // Map(id -> digits); null before the database update
   const [loading, setLoading] = useState(true);
@@ -122,7 +123,8 @@ export function ManageUsersView({ user = null, currentUserId, currentUserName })
     setUsers(prev => prev.map(u => (u.id === id ? { ...u,
       display_name: person.display_name ?? u.display_name, role: person.role ?? u.role,
       manager_id: person.manager_id !== undefined ? person.manager_id : u.manager_id,
-      hierarchy_tier: person.hierarchy_tier !== undefined ? person.hierarchy_tier : u.hierarchy_tier } : u)));
+      hierarchy_tier: person.hierarchy_tier !== undefined ? person.hierarchy_tier : u.hierarchy_tier,
+      activity_tools: person.activity_tools !== undefined ? person.activity_tools : u.activity_tools } : u)));
     if (changes.some(c => c.key === 'phone')) {
       setPhones(prev => { const m = new Map(prev || []); if (person.phone) m.set(id, person.phone); else m.delete(id); return m; });
     }
@@ -231,6 +233,7 @@ export function ManageUsersView({ user = null, currentUserId, currentUserName })
                   <td className="tr-mt-name">
                     <button type="button" className="tr-mt-name-btn" onClick={() => { setSaved(''); setEditing(u); }}>{u.display_name}</button>{u.id === currentUserId ? ' (you)' : ''}
                     <div className="tr-tenure">Joined {joinedDate(u.created_at)}</div>
+                    {!activityToolsOn(u, systemOf(u)) ? <span className="tr-mt-tools-off" title="Contracting, Resources and Chat only">Activity tools off</span> : null}
                   </td>
                   <td className="tr-mt-email">
                     <div className="tr-mt-contact">{u.email || '—'}</div>
@@ -301,6 +304,7 @@ export function ManageUsersView({ user = null, currentUserId, currentUserName })
         roleLocked={!canEditRole(editing)}
         uplineOptions={uplineChoices(editing)}
         lockOwn={!canEditRow(editing)}
+        tools={'activity_tools' in editing ? { on: activityToolsOn(editing, systemOf(editing)), canChange: galaxy } : null}
         onClose={() => setEditing(null)}
         onSaved={handleSaved}
       />

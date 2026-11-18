@@ -1,5 +1,6 @@
 import { phoneDigits, personChanges, needsReason, changesPayload, auditAction } from '../../src/lib/personEdits.js';
 import { personMatches } from '../../src/components/peopleList.jsx';
+import { activityToolsOn } from '../../src/lib/roles.js';
 let fails = 0;
 const ok = (c, m) => { if (c) console.log('ok', m); else { fails++; console.log('FAIL', m); } };
 ok(phoneDigits('(214) 555-0187') === '2145550187', 'formats to digits');
@@ -30,5 +31,16 @@ ok(auditAction('Changed hierarchy tier') === 'Changed comp level' && auditAction
 ok(personMatches({ display_name: 'Riley Park', phone: '2145550187' }, '555-01'), 'search finds part of a phone number');
 ok(!personMatches({ display_name: 'Riley Park', phone: '2145550187' }, '55'), 'two digits is too short');
 ok(!personMatches({ display_name: 'Riley Park' }, '214'), 'no phone, no phone match');
+// activity tools: on/off per person, else the solar system's default; super admins always on
+const BIG = { activity_tools_default: true }, BHB = { activity_tools_default: false };
+ok(activityToolsOn({ role: 'advisor', activity_tools: null }, BHB) === false && activityToolsOn({ role: 'manager' }, BHB) === false, 'BHB: off unless turned on');
+ok(activityToolsOn({ role: 'advisor', activity_tools: true }, BHB) === true, 'BHB: turned on for one person');
+ok(activityToolsOn({ role: 'advisor', activity_tools: null }, BIG) === true && activityToolsOn({ role: 'advisor', activity_tools: false }, BIG) === false, 'BIG: on unless turned off');
+ok(activityToolsOn({ role: 'super_admin', activity_tools: false }, BHB) === true, 'super admins always have them');
+ok(activityToolsOn({ role: 'advisor' }, {}) === true && activityToolsOn({ role: 'advisor' }, null) === true, 'before the database update: on');
+ch = personChanges({ ...before, activity_tools: false }, { ...before, activity_tools: true }, nameOf);
+ok(ch.length === 1 && ch[0].label === 'Activity tools' && ch[0].from === 'Off' && ch[0].to === 'On' && !needsReason(ch), 'activity tools: Off → On, no reason needed');
+ok(JSON.stringify(changesPayload(ch, { ...before, activity_tools: true })) === '{"activity_tools":true}', 'payload: activity_tools true');
+ok(personChanges(before, { ...before, activity_tools: true }, nameOf).length === 0, 'no switch shown (super admin): never a change');
 console.log(fails ? `${fails} FAILED` : 'ALL PERSON EDIT UNIT TESTS PASSED');
 process.exit(fails ? 1 : 0);

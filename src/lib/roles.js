@@ -20,6 +20,21 @@ export function isSuperManager(user) {
   return !!user && user.role === 'super_manager';
 }
 
+// Activity tools (Today's pace, Clients, Calendar, Growth, Team views),
+// turned on or off per person in Manage Team. person.activity_tools is
+// true / false, or null (or missing, before the database update) for their
+// solar system's default: on for Big Insurance Network, off for Big Huge
+// Business. Super admins always have them. See
+// supabase/migrations/20261118200000_activity_tools.sql.
+export function activityToolsOn(person, system) {
+  if (!person) return true;
+  if (person.role === 'super_admin') return true;
+  if (person.activity_tools === true || person.activity_tools === false) return person.activity_tools;
+  return !system || system.activity_tools_default !== false;
+}
+// The signed-in user (App.jsx works it out once).
+export const hasActivityTools = user => !user || user.activityTools !== false;
+
 const LABELS = { super_admin: 'Admin', super_manager: 'Super Manager', manager: 'Manager', advisor: 'Advisor' };
 export function roleLabel(role) {
   return LABELS[role] || role || '';

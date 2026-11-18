@@ -286,9 +286,11 @@ const SAVE_ERRORS = [
   [/upline_loop/, "They can't report to someone on their own team."],
   [/last_admin/, "They're the only super admin. Make someone else a super admin first."],
   [/not_allowed_role/, 'Only super admins can make someone a Super Manager or super admin.'],
+  [/not_allowed_tools/, 'Only a super admin can turn activity tools on or off.'],
+  [/bad_activity_tools/, "Activity tools can only be on or off."],
   [/not_allowed/, "You can't change this person's account."],
 ];
-// changes: any of { display_name, phone, role, manager_id, hierarchy_tier }.
+// changes: any of { display_name, phone, role, manager_id, hierarchy_tier, activity_tools }.
 export async function adminSavePerson(id, changes, reason) {
   clearSharedPeople();
   const { data, error } = await supabase.rpc('pl_admin_save_person', { p_user: id, p_changes: changes, p_reason: reason || null });

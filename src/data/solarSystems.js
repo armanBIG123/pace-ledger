@@ -7,7 +7,8 @@ const missing = error => !!error && (error.code === '42P01' || error.code === 'P
 
 // [{ id, short_name, name }], or [] before the database update.
 export async function fetchSolarSystems() {
-  const { data, error } = await supabase.from('solar_systems').select('id, short_name, name').order('created_at');
+  // Every column: activity_tools_default rides along once the database has it.
+  const { data, error } = await supabase.from('solar_systems').select('*').order('created_at');
   if (error) { if (!missing(error)) console.error(error); return []; }
   return data || [];
 }

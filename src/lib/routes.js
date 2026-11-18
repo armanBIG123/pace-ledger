@@ -1,13 +1,13 @@
 // Every screen's web address, so a refresh keeps your place, Back and
 // Forward work, and links (emails, notifications) can open one screen:
 //   /today  /clients  /clients/<list>  /calendar  /growth  /growth/<part>
-//   /resources  /chat  /chat/<room>
+//   /resources  /chat  /chat/<room>  /contracting (people without activity tools)
 //   /team  /team/prospecting  /team/pace  /team/production  /team/org
 //   /team/profiles  /team/forms  /team/manage
 // The view state in views/RoleViews.jsx stays the source of truth; this only
 // turns it into a path and back.
 
-const MINE = { today: 'overview', clients: 'pipeline', calendar: 'calendar', growth: 'growth', resources: 'resources' };
+const MINE = { today: 'overview', clients: 'pipeline', calendar: 'calendar', growth: 'growth', resources: 'resources', contracting: 'contracting' };
 const TEAM = { '': 'teamhome', prospecting: 'teamsystems', pace: 'pace', production: 'production', org: 'org', profiles: 'profiles', forms: 'clientforms', manage: 'users' };
 export const CLIENT_LISTS = ['clients', 'names', 'booked', 'outcome', 'followup', 'won'];
 export const GROWTH_PARTS = ['path', 'pay', 'plan', 'licensing', 'incentives', 'guide'];

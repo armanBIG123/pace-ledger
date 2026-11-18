@@ -3,8 +3,8 @@ import { Suspense, useEffect, useRef, useState } from 'react';
 import { CHAT_ROOMS, pathFor, routeFor } from '../lib/routes.js';
 import { GroupSwitch, Shell } from '../components/ui.jsx';
 import { Header } from '../components/Header.jsx';
-import { ADMIN_TEAM_TABS, MY_WORK_TABS, SUPER_MANAGER_TEAM_TABS, TabNav, TEAM_TABS, useAndroidBackButton } from '../components/navigation.jsx';
-import { isGalaxyAdmin } from '../lib/roles.js';
+import { ADMIN_TEAM_TABS, LIMITED_ADMIN_TABS, LIMITED_TABS, MY_WORK_TABS, SUPER_MANAGER_TEAM_TABS, TabNav, TEAM_TABS, useAndroidBackButton } from '../components/navigation.jsx';
+import { isAdmin, isGalaxyAdmin } from '../lib/roles.js';
 import { GlobalSearch, useNewMenu } from '../components/quickActions.jsx';
 import { useAppointmentReminders } from '../components/reminders.jsx';
 import { ChatButton, useChatUnread } from '../components/chatButton.jsx';
@@ -30,6 +30,7 @@ const OrgChartBody = lazyScreen(() => import('../screens/team/OrgChart.jsx'), 'O
 const ManageUsersView = lazyScreen(() => import('../screens/team/ManageTeam.jsx'), 'ManageUsersView');
 const ClientFormsBody = lazyScreen(() => import('../screens/team/ClientForms.jsx'), 'ClientFormsBody');
 const ProfilesBody = lazyScreen(() => import('../screens/team/Profiles.jsx'), 'ProfilesBody');
+const MyContractingBody = lazyScreen(() => import('../screens/MyContracting.jsx'), 'MyContractingBody');
 
 // The screen area: a loading placeholder while a screen's file arrives, and
 // a "didn't load" message (instead of a blank page) if it can't.
@@ -42,7 +43,7 @@ function Screens({ id, children }) {
   );
 }
 
-const MY_WORK_IDS = new Set(MY_WORK_TABS.map(t => t.id));
+const MY_WORK_IDS = new Set([...MY_WORK_TABS.map(t => t.id), 'contracting']);
 
 // The old screen names still work everywhere (Today, search, + New, the
 // First 30 days checklist): each opens the part of Clients (the 'pipeline'
@@ -64,8 +65,9 @@ const OUTCOME_INTENTS = new Set(['nolog', 'presented', 'reschedule']);
 // go(tab, intent), which lets one place send you to a specific spot in
 // another (e.g. Today's "3 appointments with no outcome logged" opens
 // Follow Up on that filter, or search opens a prospect in Prospecting).
-// allows(tab): which screens this layout has (the address can't open others).
-function useViewNav(allows = () => true) {
+// allows(tab): which screens this layout has (the address, links, search
+// and menus can't open others). home: where it opens and falls back to.
+function useViewNav(allows = () => true, home = 'overview') {
   // The screen in the address (/team/pace…) opens first; anything else, Today.
   // Older email links (…/?chat=urgent) open that chat room.
   const [start] = useState(() => {
@@ -76,7 +78,7 @@ function useViewNav(allows = () => true) {
     return r && (r.tab === 'chat' || allows(r.tab)) ? r : null;
   });
   const [group, setGroup] = useState(start && start.group ? start.group : 'mine'); // 'mine' | 'team'
-  const [tab, setTab] = useState(start ? start.tab : 'overview');
+  const [tab, setTab] = useState(start ? start.tab : home);
   const [prefillData, setPrefillData] = useState(null);
   const [navIntent, setNavIntent] = useState(start && start.tab === 'chat' && start.room ? { tab: 'chat', intent: start.room } : null);
   // Where you were when you opened "Log appointment" from another screen,
@@ -95,6 +97,9 @@ function useViewNav(allows = () => true) {
     if (t === 'chat') {
       setCameFrom(null); setNavIntent(intent ? { tab: 'chat', intent } : null); setTab('chat'); window.scrollTo(0, 0); return;
     }
+    // Somewhere this layout doesn't have (no activity tools): its home screen.
+    const dest = t === 'teampromo' ? 'pace' : ROUTES[t] ? ROUTES[t].tab : t;
+    if (!allows(dest)) { setCameFrom(null); setNavIntent(null); setGroup('mine'); setTab(home); window.scrollTo(0, 0); return; }
     setCameFrom(opensForm(t, intent) && !onBooked() ? here : null);
     if (t === 'teampromo') {
       setGroup('team'); setNavIntent({ tab: 'pace', intent: 'promotion' }); setTab('pace'); window.scrollTo(0, 0); return;
@@ -118,7 +123,7 @@ function useViewNav(allows = () => true) {
   function selectGroup(g) {
     setCameFrom(null);
     setGroup(g);
-    setTab(g === 'mine' ? 'overview' : 'teamhome');
+    setTab(g === 'mine' ? home : 'teamhome');
   }
   function logAppointment(p) { setCameFrom(!onBooked() ? here : null); setPrefillData(p); setGroup('mine'); setStage('booked'); setTab('pipeline'); }
   function goBack() {
@@ -175,7 +180,7 @@ function useViewNav(allows = () => true) {
       fromHistory.current = true;
       setCameFrom(null); setClient(null);
       if (r && r.tab === 'chat') { setNavIntent(r.room ? { tab: 'chat', intent: r.room } : null); setTab('chat'); return; }
-      if (!r || !allows(r.tab)) { setGroup('mine'); setTab('overview'); return; }
+      if (!r || !allows(r.tab)) { setGroup('mine'); setTab(home); return; }
       setGroup(r.group); setTab(r.tab);
       setStage(r.stage || 'clients');
       setGrowthView(r.growthView || 'path');
@@ -304,6 +309,37 @@ export function AdminView({ user }) {
       {newEl}
       <AppointmentPanel user={user} />
       <IntakePanel user={user} />
+      <AnnouncementGate user={user} />
+    </Shell>
+  );
+}
+
+// Without activity tools (Manage Team): Contracting, Resources and Chat,
+// plus Manage Team for a Super Manager. No Today, Clients, Calendar,
+// Growth or Team views, no search, and + New only invites a recruit.
+export function LimitedView({ user }) {
+  const tabs = isAdmin(user) ? LIMITED_ADMIN_TABS : LIMITED_TABS;
+  const ids = new Set(tabs.map(t => t.id));
+  const nav = useViewNav(t => ids.has(t) || t === 'chat', 'contracting');
+  const { tab, go } = nav;
+  useAndroidBackButton(tab, () => go('contracting'));
+  const { openNew, newEl } = useNewMenu(user, go, { kinds: ['invite'] });
+  const chatCounts = useChatUnread(user);
+  return (
+    <Shell>
+      <DialogHost />
+      <Header user={user} onNew={openNew}
+        chat={<ChatButton counts={chatCounts} onOpen={() => go('chat')} active={tab === 'chat'} />}
+        nav={<TabNav tabs={tabs} tab={tab} onSelect={t => go(t)} onNew={openNew} />} />
+      <main className="tr-main">
+        <Screens id={tab}>
+          {tab === 'contracting' && <MyContractingBody user={user} />}
+          {tab === 'resources' && <DocumentsBody user={user} />}
+          {tab === 'chat' && <ChatBody user={user} initialChannel={nav.intentFor('chat')} onIntentConsumed={nav.clearIntent} />}
+          {tab === 'users' && <ManageUsersView user={user} currentUserId={user.id} currentUserName={user.displayName} />}
+        </Screens>
+      </main>
+      {newEl}
       <AnnouncementGate user={user} />
     </Shell>
   );

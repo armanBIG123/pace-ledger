@@ -1,6 +1,6 @@
 // Tab lists, the tab bar / phone bottom bar, and the Android back button.
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { BookUser, Calendar, ChevronDown, ChevronRight, ClipboardCheck, DollarSign, FolderOpen, LayoutDashboard, Menu, Network, Plus, Sun, TrendingUp, UserCog, Users } from 'lucide-react';
+import { BookUser, Calendar, ChevronDown, ChevronRight, ClipboardCheck, DollarSign, FileSignature, FolderOpen, LayoutDashboard, Menu, Network, Plus, Sun, TrendingUp, UserCog, Users } from 'lucide-react';
 import { minimizeAndroidApp, onAndroidBack } from '../native.js';
 
 // ---------------------------------------------------------------------
@@ -32,6 +32,13 @@ export const TEAM_TABS = [
 export const ADMIN_TEAM_TABS = [...TEAM_TABS, { id: 'profiles', label: 'Profiles', short: 'Profiles', Icon: BookUser }, { id: 'clientforms', label: 'Client Forms', short: 'Forms', Icon: ClipboardCheck }, { id: 'users', label: 'Manage Team', short: 'Manage', Icon: UserCog }];
 // Super Managers: the same, minus Profiles (the Galaxy's partner records).
 export const SUPER_MANAGER_TEAM_TABS = ADMIN_TEAM_TABS.filter(t => t.id !== 'profiles');
+// Without activity tools (Manage Team): Contracting and Resources, plus
+// Manage Team for a Super Manager. Chat stays in the header.
+export const LIMITED_TABS = [
+  { id: 'contracting', label: 'Contracting', short: 'Contracting', Icon: FileSignature },
+  MY_WORK_TABS.find(t => t.id === 'resources'),
+];
+export const LIMITED_ADMIN_TABS = [...LIMITED_TABS, ADMIN_TEAM_TABS.find(t => t.id === 'users')];
 
 // Which tabs fit in the top strip: the first ones in order, always
 // including the one you're on, leaving room for "More" if any don't fit.

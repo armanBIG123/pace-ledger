@@ -15,7 +15,7 @@ export function phoneDigits(raw) {
 
 const squish = s => String(s || '').trim().replace(/\s+/g, ' ');
 
-// before / draft: { display_name, phone, role, manager_id, hierarchy_tier }.
+// before / draft: { display_name, phone, role, manager_id, hierarchy_tier, activity_tools }.
 // nameOf(id) names a reports-to. Returns [{ key, label, from, to, reason }].
 export function personChanges(before, draft, nameOf = () => '') {
   const out = [];
@@ -34,6 +34,10 @@ export function personChanges(before, draft, nameOf = () => '') {
   if ((draft.hierarchy_tier || '') !== (before.hierarchy_tier || '')) {
     out.push({ key: 'hierarchy_tier', label: 'Comp level', from: before.hierarchy_tier || 'none', to: draft.hierarchy_tier || 'none', reason: true });
   }
+  // Activity tools: before and draft hold whether they're on (true / false).
+  if (typeof draft.activity_tools === 'boolean' && typeof before.activity_tools === 'boolean' && draft.activity_tools !== before.activity_tools) {
+    out.push({ key: 'activity_tools', label: 'Activity tools', from: before.activity_tools ? 'On' : 'Off', to: draft.activity_tools ? 'On' : 'Off', reason: false });
+  }
   return out;
 }
 
@@ -45,6 +49,7 @@ export function changesPayload(changes, draft) {
   changes.forEach(c => {
     if (c.key === 'display_name') p.display_name = squish(draft.display_name);
     else if (c.key === 'phone') p.phone = phoneDigits(draft.phone) || '';
+    else if (c.key === 'activity_tools') p.activity_tools = !!draft.activity_tools;
     else p[c.key] = draft[c.key] || '';
   });
   return p;
