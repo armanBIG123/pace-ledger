@@ -18,11 +18,14 @@ export const logTime = at => new Date(at).toLocaleString('en-US', { month: 'shor
 
 // roleOptions: [[value, label]]. uplineOptions: <option>s for Reports to.
 // lockOwn: a Super Manager editing themselves (name and phone only).
-export function EditPersonSheet({ person, phone = '', phonesOn = true, nameOf, roleOptions, roleLocked = false, uplineOptions, lockOwn = false, onClose, onSaved }) {
+// tools: their activity tools, { on, canChange }, or null to leave the
+// switch out (before the database update, or for a super admin).
+export function EditPersonSheet({ person, phone = '', phonesOn = true, nameOf, roleOptions, roleLocked = false, uplineOptions, lockOwn = false, tools = null, onClose, onSaved }) {
   const start = useMemo(() => ({
     display_name: person.display_name || '', phone: phone ? fmtPhone(phone) : '', role: person.role,
     manager_id: person.manager_id || '', hierarchy_tier: person.hierarchy_tier || '',
-  }), [person, phone]);
+    ...(tools ? { activity_tools: tools.on } : {}),
+  }), [person, phone, tools && tools.on]); // eslint-disable-line react-hooks/exhaustive-deps
   const [f, setF] = useState(start);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -37,7 +40,7 @@ export function EditPersonSheet({ person, phone = '', phonesOn = true, nameOf, r
   }, [person.id, person.display_name]);
 
   const set = (k, v) => { setF(x => ({ ...x, [k]: v })); setErr(''); };
-  const changes = personChanges({ ...person, phone }, f, nameOf);
+  const changes = personChanges({ ...person, phone, ...(tools ? { activity_tools: tools.on } : {}) }, f, nameOf);
   const why = needsReason(changes);
   const nameChanged = changes.some(c => c.key === 'display_name');
   const phoneBad = !!f.phone.trim() && phoneDigits(f.phone) === null;
@@ -111,6 +114,25 @@ export function EditPersonSheet({ person, phone = '', phonesOn = true, nameOf, r
             </select>
           </label>
           {lockOwn ? <p className="tr-field-hint tr-ep-wide" style={{ margin: 0 }}>Only a super admin can change your own role, upline or comp level.</p> : null}
+          {tools && f.role !== 'super_admin' ? (
+            <div className="tr-ep-tools tr-ep-wide">
+              <div className="tr-ep-tools-text">
+                <span className="tr-ep-tools-title" id="tr-ep-tools-label">Activity tools</span>
+                <small className="tr-field-hint">
+                  {f.activity_tools
+                    ? 'Today, Clients, Calendar, Growth and the Team views.'
+                    : `Off: ${first} sees only Contracting, Resources and Chat.`}
+                  {tools.canChange ? '' : ' Only a super admin can change this.'}
+                </small>
+              </div>
+              <label className="tr-switch">
+                <input type="checkbox" role="switch" checked={!!f.activity_tools} aria-labelledby="tr-ep-tools-label" disabled={!tools.canChange}
+                  onChange={e => set('activity_tools', e.target.checked)} />
+                <span className="tr-switch-track" aria-hidden="true" />
+                <span>{f.activity_tools ? 'On' : 'Off'}</span>
+              </label>
+            </div>
+          ) : null}
         </div>
 
         {changes.length ? (

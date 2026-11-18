@@ -3586,3 +3586,12 @@ a.tr-intake-way, a.tr-intake-way:visited { color: var(--ink); }
 
 /* Resources → Videos: the player opens under the video's row. */
 .tr-video { display: block; width: 100%; max-height: 70vh; margin-top: 12px; border-radius: 10px; background: #0b1520; aspect-ratio: 16 / 9; }
+
+/* Activity tools (Manage Team): the switch in Edit, and the list's note. */
+.tr-ep-tools { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--paper); }
+.tr-ep-tools-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tr-ep-tools-title { font-weight: 600; color: var(--ink); }
+.tr-ep-tools .tr-switch input:disabled + .tr-switch-track { opacity: .55; }
+.tr-ep-tools .tr-switch:has(input:disabled) { cursor: default; }
+.tr-mt-tools-off { display: inline-block; margin-top: 4px; padding: 1px 8px; border-radius: 999px; font-size: var(--text-xs); font-weight: 600; color: var(--slate); background: var(--paper); border: 1px solid var(--line-strong); }
+.tr-my-contracting .tr-ann { margin-bottom: 16px; }

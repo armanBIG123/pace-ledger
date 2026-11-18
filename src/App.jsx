@@ -7,8 +7,8 @@ import { Shell, Spinner } from './components/ui.jsx';
 import { AndroidBackLeavesApp } from './components/navigation.jsx';
 import { lazyScreen, ScreenBoundary } from './components/lazyScreen.jsx';
 import { AuthScreen, ResetPasswordScreen } from './screens/Auth.jsx';
-import { AdminView, AdvisorView, ManagerView } from './views/RoleViews.jsx';
-import { isAdmin } from './lib/roles.js';
+import { AdminView, AdvisorView, LimitedView, ManagerView } from './views/RoleViews.jsx';
+import { activityToolsOn, isAdmin } from './lib/roles.js';
 import { fetchSolarSystems } from './data/solarSystems.js';
 import { fetchContractingSettings } from './data/contracting.js';
 import { setContractingInApp } from './licensing.js';
@@ -206,11 +206,14 @@ function AccountApp() {
     solarSystemId: profile.solar_system_id || null, solarSystemName: (home && home.name) || '',
     writerSystemShort: (home || {}).short_name || '',
     solarSystems: systems,
+    // Activity tools on or off (Manage Team); off: Contracting, Resources and Chat.
+    activityTools: activityToolsOn(profile, home),
   };
   return (
     <>
       <ConnectionBanner banner={connectionBanner} onDismiss={() => setConnectionBanner(null)} />
-      {isAdmin(user) ? <AdminView user={user} /> : seesTeam(user) ? <ManagerView user={user} /> : <AdvisorView user={user} />}
+      {!user.activityTools ? <LimitedView user={user} />
+        : isAdmin(user) ? <AdminView user={user} /> : seesTeam(user) ? <ManagerView user={user} /> : <AdvisorView user={user} />}
     </>
   );
 }

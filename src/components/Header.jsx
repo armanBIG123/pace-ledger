@@ -12,7 +12,7 @@ import { phoneDigits } from '../lib/personEdits.js';
 import { avatarUrl, removeAllMyAvatarFiles } from '../data/avatars.js';
 import { InviteShare } from './invites.jsx';
 import { ProfilePhoto } from './profilePhoto.jsx';
-import { isGalaxyAdmin, roleLabel } from '../lib/roles.js';
+import { hasActivityTools, isGalaxyAdmin, roleLabel } from '../lib/roles.js';
 import { askConfirm } from './confirm.jsx';
 import { ConnectionsSheet, presentsForTeam } from './connections.jsx';
 
@@ -142,8 +142,8 @@ function AccountMenu({ user, onProfile, onConnections }) {
             <span>{user.email}{user.email ? ' · ' : ''}{roleLabel(user.role)}</span>
           </div>
           {item('My profile', UserRound, onProfile)}
-          {item('Calendar & Zoom', CalendarDays, onConnections)}
-          {presentsForTeam(user) ? item('Schedule availability', CalendarClock, () => window.dispatchEvent(new Event('paceledger:edit-presenting-hours'))) : null}
+          {hasActivityTools(user) ? item('Calendar & Zoom', CalendarDays, onConnections) : null}
+          {hasActivityTools(user) && presentsForTeam(user) ? item('Schedule availability', CalendarClock, () => window.dispatchEvent(new Event('paceledger:edit-presenting-hours'))) : null}
           <a role="menuitem" className="tr-acct-item" ref={el => items.current.push(el)} href={`${PUBLIC_SITE_URL}/support.html`} target="_blank" rel="noopener noreferrer" onClick={() => setOpen(false)}>
             <LifeBuoy size={16} aria-hidden="true" /><span>Help &amp; support</span>
           </a>
@@ -398,8 +398,8 @@ export function AccountSheet({ user, focusName = false, onClose, onConnections =
           <a href={`${PUBLIC_SITE_URL}/terms-of-service.html`} target="_blank" rel="noopener noreferrer">Terms of service</a>
           <a href={`${PUBLIC_SITE_URL}/support.html`} target="_blank" rel="noopener noreferrer">Support</a>
         </div>
-        <OnboardingToggle user={user} />
-        {onConnections ? (
+        {hasActivityTools(user) ? <OnboardingToggle user={user} /> : null}
+        {!hasActivityTools(user) ? null : onConnections ? (
           <div className="tr-account-toggle">
             <div>
               <div className="tr-account-toggle-title">Calendar &amp; Zoom</div>

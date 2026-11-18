@@ -26,7 +26,7 @@ export const NEW_ITEMS = [
 
 // A dropdown under the header's + New on a computer; a sheet from the
 // bottom (opened by the + in the bottom bar) on a phone.
-export function NewMenu({ open, onClose, onPick, anchor }) {
+export function NewMenu({ open, onClose, onPick, anchor, items = NEW_ITEMS }) {
   const firstRef = useRef(null);
   useEffect(() => {
     if (!open) return undefined;
@@ -42,7 +42,7 @@ export function NewMenu({ open, onClose, onPick, anchor }) {
         style={anchor ? { top: anchor.bottom + 8, left: Math.max(12, Math.min(anchor.right - 300, window.innerWidth - 312)) } : undefined}>
         <div className="tr-sheet-grip tr-new-grip" />
         <div className="tr-new-head">Add or log</div>
-        {NEW_ITEMS.map((it, i) => (
+        {items.map((it, i) => (
           <button key={it.kind} ref={i === 0 ? firstRef : null} type="button" role="menuitem" className="tr-new-item" onClick={() => onPick(it.kind)}>
             <span className="tr-new-icon"><it.Icon size={17} /></span>
             <span className="tr-new-text"><strong>{it.title}</strong><span>{it.sub}</span></span>
@@ -70,7 +70,9 @@ export function InviteModal({ user, onClose }) {
 
 // Everything a view needs for + New: open it, and the menu + invite
 // window to render. `go(tab, intent)` is the view's navigation.
-export function useNewMenu(user, go) {
+// kinds: just these items (people without activity tools only invite recruits).
+export function useNewMenu(user, go, { kinds = null } = {}) {
+  const items = kinds ? NEW_ITEMS.filter(it => kinds.includes(it.kind)) : NEW_ITEMS;
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState(null);
   const [inviting, setInviting] = useState(false);
@@ -85,7 +87,7 @@ export function useNewMenu(user, go) {
   }
   const el = (
     <>
-      <NewMenu open={open} onClose={close} onPick={pick} anchor={anchor} />
+      <NewMenu open={open} onClose={close} onPick={pick} anchor={anchor} items={items} />
       {inviting && <InviteModal user={user} onClose={() => setInviting(false)} />}
     </>
   );
