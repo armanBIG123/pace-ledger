@@ -3583,3 +3583,6 @@ a.tr-intake-way, a.tr-intake-way:visited { color: var(--ink); }
   .tr-booked { padding: 14px; }
   .tr-booked-acts { width: 100%; padding-left: 56px; }
 }
+
+/* Resources → Videos: the player opens under the video's row. */
+.tr-video { display: block; width: 100%; max-height: 70vh; margin-top: 12px; border-radius: 10px; background: #0b1520; aspect-ratio: 16 / 9; }
