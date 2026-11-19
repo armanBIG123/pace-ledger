@@ -1,7 +1,7 @@
 // + New (add or log anything from any tab) and search (find any teammate,
 // appointment, client or prospect from any tab).
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { CalendarDays, CalendarPlus, ClipboardCheck, FileText, Search, Send, Star, User, UserPlus, X } from 'lucide-react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
+import { CalendarDays, CalendarPlus, ClipboardCheck, FileText, Search, Send, Star, Trophy, User, UserPlus, X } from 'lucide-react';
 import { apptLocalDate, apptStartMs, fmtApptDateTime, todayStr } from '../lib/dates.js';
 import { buildChildrenMap, downlineIds, hierarchyTierLabel } from '../hierarchy.js';
 import { fetchMyAppointments, typeLabel } from '../data/appointments.js';
@@ -11,7 +11,9 @@ import { fetchHierarchyPeople } from '../data/team.js';
 import { InviteSomeone } from './Header.jsx';
 import { openAppointment } from './appointmentPanel.jsx';
 import { openIntakeSend } from '../lib/intakeEvents.js';
-import { isAdmin } from '../lib/roles.js';
+import { isAdmin, isGalaxyAdmin } from '../lib/roles.js';
+
+const ChallengeEditor = lazy(() => import('./challengeEditor.jsx'));
 
 // ---------------------------------------------------------------------
 // + New
@@ -22,6 +24,7 @@ export const NEW_ITEMS = [
   { kind: 'outcome', Icon: ClipboardCheck, title: 'Log how it went', sub: 'Appointments with no outcome yet' },
   { kind: 'intake', Icon: FileText, title: 'Send a client intake', sub: 'Text or email their form' },
   { kind: 'invite', Icon: Send, title: 'Invite a recruit', sub: 'Text or email their sign-up link' },
+  { kind: 'challenge', Icon: Trophy, title: 'Start a challenge', sub: 'A push with a live top 3 on Today', admins: true },
 ];
 
 // A dropdown under the header's + New on a computer; a sheet from the
@@ -72,10 +75,11 @@ export function InviteModal({ user, onClose }) {
 // window to render. `go(tab, intent)` is the view's navigation.
 // kinds: just these items (people without activity tools only invite recruits).
 export function useNewMenu(user, go, { kinds = null } = {}) {
-  const items = kinds ? NEW_ITEMS.filter(it => kinds.includes(it.kind)) : NEW_ITEMS;
+  const items = (kinds ? NEW_ITEMS.filter(it => kinds.includes(it.kind)) : NEW_ITEMS).filter(it => !it.admins || isGalaxyAdmin(user));
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState(null);
   const [inviting, setInviting] = useState(false);
+  const [challenging, setChallenging] = useState(false);
   const close = useCallback(() => setOpen(false), []);
   function pick(kind) {
     setOpen(false);
@@ -84,11 +88,17 @@ export function useNewMenu(user, go, { kinds = null } = {}) {
     else if (kind === 'prospect') go('clients', { add: true });
     else if (kind === 'outcome') go('followup', 'nolog');
     else if (kind === 'intake') openIntakeSend({ pick: true });
+    else if (kind === 'challenge') setChallenging(true);
   }
   const el = (
     <>
       <NewMenu open={open} onClose={close} onPick={pick} anchor={anchor} items={items} />
       {inviting && <InviteModal user={user} onClose={() => setInviting(false)} />}
+      {challenging && (
+        <Suspense fallback={null}>
+          <ChallengeEditor onClose={() => setChallenging(false)} onSaved={() => { setChallenging(false); go('overview'); }} />
+        </Suspense>
+      )}
     </>
   );
   // Opened from the header button: the menu drops down under it. From the

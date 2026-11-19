@@ -15,6 +15,9 @@ const SUITES = {
   // The activity tools migration runs twice: it must be safe to run again.
   'activity-tools': { setup: [S('stubs/base.sql'), M('migration-manage-team-edits.sql'),
     M('supabase/migrations/20261118200000_activity_tools.sql'), M('supabase/migrations/20261118200000_activity_tools.sql')], test: S('activity-tools.sql') },
+  // The challenges migration runs twice: it must be safe to run again.
+  challenges: { setup: [S('stubs/base.sql'), S('stubs/challenges-extra.sql'),
+    M('supabase/migrations/20261119160000_challenges.sql'), M('supabase/migrations/20261119160000_challenges.sql')], test: S('challenges.sql') },
   // The test-address migration runs twice: it must be safe to run again.
   commissions: { setup: [S('stubs/base.sql'), S('stubs/commissions-extra.sql'), M('migration-commissions.sql'),
     M('supabase/migrations/20261110210000_commission_test_address.sql'), M('supabase/migrations/20261110210000_commission_test_address.sql')], test: S('commissions.sql') },
