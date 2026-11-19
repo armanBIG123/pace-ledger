@@ -23,6 +23,7 @@ import { LogAllSheet } from '../components/logAll.jsx';
 import { appointmentTexts, CallButton, prospectTexts, TextButton } from '../components/contact.jsx';
 import { isValidPhone } from '../lib/phone.js';
 import { AnnouncementToday } from '../components/announcements.jsx';
+import { ChallengeBanner } from '../components/challenge.jsx';
 import { applyAppointmentEdit, openAppointment, useAppointmentEdits } from '../components/appointmentPanel.jsx';
 import { fetchMyIntakeStatus } from '../clientIntake.js';
 import { openIntakeSend } from '../lib/intakeEvents.js';
@@ -734,6 +735,7 @@ export function TodayBody({ user, onNavigate, initialIntent = null, onIntentCons
           <p className="tr-empty" style={{ margin: '2px 0 0' }}>{now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</p>
         </div>
       </div>
+      <ChallengeBanner user={user} />
       <AnnouncementToday user={user} />
 
       {flash && <div className="tr-flash" role="status">{flash}</div>}
