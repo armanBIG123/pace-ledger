@@ -333,11 +333,12 @@ export function clientMatches(c, query) {
     || (digits.length >= 3 && (c.phone || '').replace(/\D/g, '').includes(digits));
 }
 // People you presented for someone else are under "You presented", and in
-// the rest only while their outcome is yours to log, so a presenter's own
-// clients aren't buried under the team's.
+// the rest only while you're presenting their next appointment (in
+// Appointments, like on Today) or their outcome is yours to log, so a
+// presenter's own clients aren't buried under the team's.
 export function inFilter(c, f) {
   if (f === 'presented') return c.presented;
-  if (c.presented && c.stage !== 'outcome') return false;
+  if (c.presented && c.stage !== 'outcome' && c.stage !== 'booked') return false;
   if (f === 'all') return c.stage !== 'closed';
   return c.stage === f;
 }

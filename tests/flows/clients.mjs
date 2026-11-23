@@ -323,7 +323,22 @@ try {
   await toClients(page);
   const grace = rowOf(page, 'Grace Kim');
   ok(await grace.count() === 1 && /for Jordan/.test(await grace.innerText()), 'Dana sees Grace Kim, for Jordan');
-  ok(await rowOf(page, 'Sam Carter').count() === 0, "Everyone: only what needs Dana's outcome from the team");
+  ok(await rowOf(page, 'Sam Carter').count() === 0, "Everyone: from the team, only what Dana's presenting next or needs her outcome");
+  // Coming up that Dana's presenting for Jordan: under Appointments, like on Today
+  const kevin = rowOf(page, 'Kevin Tran');
+  ok(await kevin.count() === 1 && /presenting for Jordan/i.test(await kevin.innerText()) && await kevin.getByRole('button', { name: /Change/ }).count() === 0,
+    "Coming up: Kevin Tran, Dana's presenting for Jordan (Jordan's to change)");
+  ok(/Appointments 2 Next: /.test((await page.locator('.tr-clbar').innerText()).replace(/\s+/g, ' ')), 'the Appointments count has the two she is presenting');
+  await page.locator('.tr-clbar').getByRole('button', { name: /Appointments/ }).click();
+  await page.waitForTimeout(300);
+  ok((await page.locator('.tr-cl-row-top strong').allInnerTexts()).sort().join() === 'Kevin Tran,Maria Lopez', 'Appointments: Kevin Tran and Maria Lopez');
+  ok(/Soonest first, with the ones you're presenting for your team/.test(await page.locator('main').innerText()), 'and says why they are there');
+  await shot(page, `${SHOTS}/08a-presenting-appointments.png`, { fullPage: true });
+  await openProfile(page, 'Kevin Tran');
+  ok(/Jordan booked Kevin, so Kevin is on their list\. You see Kevin here because you are presenting\./.test(await page.locator('.tr-cl-profile').innerText()), 'his profile says why');
+  await page.locator('.tr-cl-back').click();
+  await page.getByRole('button', { name: /^Everyone/ }).click();
+  await page.waitForTimeout(300);
   await page.getByRole('button', { name: /^More/ }).click();
   await page.getByRole('menuitem', { name: /You presented/ }).click();
   ok(/for Jordan/.test(await rowOf(page, 'Sam Carter').innerText()), 'You presented: Sam Carter, the sale they split');

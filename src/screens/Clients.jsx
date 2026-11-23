@@ -110,7 +110,7 @@ function ClientsMore({ counts, onFilter, onOpenList }) {
 
 const FILTER_HINTS = {
   prospect: 'Highest score first. Book from any row.',
-  booked: 'Soonest first. Booked someone new? Log the appointment here.',
+  booked: "Soonest first, with the ones you're presenting for your team. Booked someone new? Log the appointment here.",
   outcome: 'Appointments that already happened. Log how each one went, oldest first.',
   followup: 'Nothing booked yet. Due ones first; the date comes from the last outcome or touch.',
   pending: 'Sold, not issued yet. Oldest first.',
@@ -181,7 +181,7 @@ function Avatar({ c, big = false }) {
 }
 function ForTag({ c }) {
   if (!c.presented) return null;
-  return <span className="tr-cl-for"><Presentation size={12} aria-hidden="true" /> for {firstOf(c.owner.name) || 'your team'}</span>;
+  return <span className="tr-cl-for"><Presentation size={12} aria-hidden="true" /> {c.stage === 'booked' ? 'presenting for' : 'for'} {firstOf(c.owner.name) || 'your team'}</span>;
 }
 
 // The appointment form, filled in for this person.
@@ -537,7 +537,7 @@ export function ClientsBody({ user, selected, onSelect, onLogAppointment, intent
             {c.action ? <button type="button" className="tr-btn tr-btn-brass" onClick={() => act(c, c.action)}>{c.action.label}</button> : null}
             {secondary.map(s => <button key={s.label} type="button" className="tr-btn tr-btn-ghost" onClick={s.run}><s.Icon size={15} aria-hidden="true" /> {s.label}</button>)}
           </div>
-          {c.presented ? <p className="tr-cl-muted">{firstOf(c.owner.name) || 'Your teammate'} booked {first}, so {first} is on their list. You see {first} here because you presented.</p> : null}
+          {c.presented ? <p className="tr-cl-muted">{firstOf(c.owner.name) || 'Your teammate'} booked {first}, so {first} is on their list. You see {first} here because you {c.stage === 'booked' ? 'are presenting' : 'presented'}.</p> : null}
           {c.stage === 'followup' && !c.presented ? <NextContact c={c} busy={noting} onSet={d => setNextContact(c, d)} /> : null}
           {!c.presented && (c.appts.length || p) ? (
             <div className="tr-cl-touch">
@@ -656,7 +656,7 @@ export function ClientsBody({ user, selected, onSelect, onLogAppointment, intent
           <Avatar c={c} />
           <span className="tr-cl-row-main">
             <span className="tr-cl-row-top"><strong>{c.name}</strong><StageChip c={c} short /><ForTag c={c} /></span>
-            <span className="tr-cl-row-next">{c.presented ? <span className="tr-cl-for-inline">For {firstOf(c.owner.name) || 'your team'} · </span> : null}{c.next}</span>
+            <span className="tr-cl-row-next">{c.presented ? <span className="tr-cl-for-inline">{c.stage === 'booked' ? 'Presenting for' : 'For'} {firstOf(c.owner.name) || 'your team'} · </span> : null}{c.next}</span>
             {c.sub ? <span className="tr-cl-row-sub">{c.sub}</span> : null}
           </span>
         </button>

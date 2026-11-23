@@ -77,6 +77,16 @@ const sorted = sortClients(list, 'next').map(c => c.stage);
 ok(sorted[0] === 'outcome' && sorted[1] === 'outcome' && sorted.indexOf('closed') === sorted.length - 1, `next step first: ${sorted.join(',')}`);
 ok(clientMatches(by('Priya Shah'), '555-0100') && clientMatches(by('Priya Shah'), 'priya') && !clientMatches(by('Priya Shah'), 'kevin'), 'search by name or phone');
 ok(clientMatches(grace, 'riley'), 'search finds the advisor you presented for');
+// One you're presenting for Riley in two days: under Appointments (and
+// Coming up), like on Today, without Riley's Change button.
+const omarList = buildClients({ presenting: [{ ...appt('Omar Diaz', 2, { userId: 'riley', presenterId: ME, presenter: 'Me Advisor' }), presentingFor: true, setByName: 'Riley Stone' }], userId: ME, nameOf: id => names[id] || '' });
+const omar = omarList[0];
+ok(omar.presented && omar.stage === 'booked' && omar.action === null && !/ with /.test(omar.next), "Omar: you're presenting for Riley, booked, Riley's to change");
+ok(inFilter(omar, 'booked') && inFilter(omar, 'all') && inFilter(omar, 'presented') && !inFilter(omar, 'outcome'), 'under Appointments, Everyone and You presented');
+ok(filterCounts(omarList).booked === 1 && pipelineCounts(omarList).booked.n === 1 && /^Next: /.test(pipelineCounts(omarList).booked.sub), 'the Appointments count has him, and his time');
+ok(clientSections(omarList).find(sc => sc.key === 'soon').people.length === 1, 'Coming up has him');
+const omarRiley = buildClients({ presenting: [{ ...appt('Omar Diaz', 2, { userId: 'riley', presenterId: 'dana', presenter: 'Dana Brooks', traineeId: ME }), presentingFor: false, setByName: 'Riley Stone' }], userId: ME, nameOf: id => names[id] || '' });
+ok(omarRiley.length === 0, "one you're only training on isn't yours to show")
 // The same people, the other way round: a later appointment logged supersedes an old unlogged one.
 const two = buildClients({ prospects: [pros('q1', 'Old', 'Case')], appointments: [appt('Old Case', -30), appt('Old Case', -3, logged('went_well'))], userId: ME });
 ok(two[0].stage === 'followup', 'an old unlogged appointment followed by a logged one is not "needs outcome"');

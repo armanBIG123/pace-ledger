@@ -166,8 +166,12 @@ await go('p03-calendar', JORDAN, ['Calendar'], { size: PH, check: async p => {
 } });
 await go('p04-growth', JORDAN, ['Growth'], { size: PH });
 await go('p05-team-overview', DANA, [T], { size: PH, check: async p => {
+  // Beside the first line of the words (a long item wraps under its own
+  // text, so the whole block's middle can be far below the box's).
   const li = p.locator('.tr-check-list li').first();
-  ok(await sameRow(p, li.locator('.tr-check-box'), li.locator('.tr-tov-text')), 'Team Overview on a phone: the checkbox and the words share a line');
+  const [box, words] = [await li.locator('.tr-check-box').boundingBox(), await li.locator('.tr-tov-text').boundingBox()];
+  const mid = box && box.y + box.height / 2;
+  ok(box && words && box.x + box.width <= words.x && mid >= words.y - 4 && mid <= words.y + 28, 'Team Overview on a phone: the checkbox and the words share a line');
 } });
 await go('p06-team-pace', DANA, [T, 'Pace'], { size: PH, check: async p => {
   ok(await sameRow(p, p.getByRole('button', { name: 'Previous week' }), p.getByRole('button', { name: 'Next week' })), 'Team Pace on a phone: the week arrows share a line');
