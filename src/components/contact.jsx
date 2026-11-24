@@ -2,16 +2,16 @@
 // texts to pick from. Texts open in your own Messages app with the words
 // filled in; PaceLedger never sends a text by itself.
 import { useEffect, useRef, useState } from 'react';
+import { agencyName } from '../lib/agency.js';
 import { createPortal } from 'react-dom';
 import { Copy, MessageSquareText, Phone } from 'lucide-react';
 import { fmtPhone, smsHref, telHref } from '../lib/phone.js';
 import { EmailButton } from './email.jsx';
 import { Modal } from './ui.jsx';
 
-const AGENCY = 'Big Insurance Network';
 const firstOf = n => (n || '').trim().split(/\s+/)[0] || '';
 // "it's Arman with Big Insurance Network" (or just the agency, without a name).
-const fromLine = m => (m ? `it's ${m} with ${AGENCY}` : `it's ${AGENCY}`);
+const fromLine = m => (m ? `it's ${m} with ${agencyName()}` : `it's ${agencyName()}`);
 
 // Texts for someone on your list.
 export function prospectTexts(name, me) {

@@ -24,7 +24,7 @@ export function isSuperManager(user) {
 // turned on or off per person in Manage Team. person.activity_tools is
 // true / false, or null (or missing, before the database update) for their
 // solar system's default: on for Big Insurance Network, off for Big Huge
-// Business. Super admins always have them. See
+// Business and Elite Financial Services. Super admins always have them. See
 // supabase/migrations/20261118200000_activity_tools.sql.
 export function activityToolsOn(person, system) {
   if (!person) return true;

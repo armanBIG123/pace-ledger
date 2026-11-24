@@ -54,6 +54,9 @@ export function ChallengeBanner({ user }) {
   const fold = v => { setFolded(v); try { localStorage.setItem(foldKey(ch.id), v ? '1' : '0'); } catch { /* private window */ } };
   const groups = groupBoard(board.data || [], ch.metrics, user.id);
   const theme = ch.theme === 'thanksgiving' ? 'thanksgiving' : 'classic';
+  // The BIG logo on Big Insurance Network's; another solar system's name on theirs.
+  const sys = (user.solarSystems || []).find(s => s.id === ch.solar_system_id) || null;
+  const isBig = !sys || sys.short_name === 'BIG';
   const art = theme === 'thanksgiving' ? <TurkeyArt medal={phase === 'winners'} /> : <TrophyArt />;
   const editor = editing ? (
     <Suspense fallback={null}><ChallengeEditor challenge={ch} onClose={() => setEditing(false)} onSaved={() => setEditing(false)} /></Suspense>
@@ -91,8 +94,8 @@ export function ChallengeBanner({ user }) {
       <div className="tr-chal-art">{art}</div>
       <div className="tr-chal-intro">
         <div className="tr-chal-brand">
-          <img className="tr-chal-logo" src={bigMark} alt="BIG" />
-          <span className="tr-chal-brand-text"><span className="tr-chal-network">Big Insurance Network</span><span className="tr-chal-presents">presents</span></span>
+          {isBig ? <img className="tr-chal-logo" src={bigMark} alt="BIG" /> : null}
+          <span className={`tr-chal-brand-text ${isBig ? '' : 'tr-chal-brand-plain'}`}><span className="tr-chal-network">{isBig ? 'Big Insurance Network' : sys.name}</span><span className="tr-chal-presents">presents</span></span>
         </div>
         <h2 className="tr-chal-title" id="tr-chal-title">{ch.title}</h2>
         {phase === 'winners' ? <p className="tr-chal-tagline">That’s a wrap. Congratulations to our winners!</p>
