@@ -6,6 +6,7 @@
 // Today can say "Texted Oct 22" and nudge clients who haven't filled it in.
 // Mounted once per view (see RoleViews), like the appointment window.
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { agencyName } from '../lib/agency.js';
 import { CalendarDays, Check, Copy, FileText, Mail, MessageSquareText, Search, X } from 'lucide-react';
 import { buildIntakeLink, createClientIntakeCandidate, fetchIntakeForAppointment, fetchMyIntakeStatus, markIntakeSent, sendIntakeEmail } from '../clientIntake.js';
 import { fetchMyAppointments, isPastAppointment, saveAppointmentContact, setAppointmentIntakeRequested } from '../data/appointments.js';
@@ -20,13 +21,12 @@ import { Modal, Sheet, useIsPhone } from './ui.jsx';
 
 export { intakeStatusText, openIntakeSend };
 
-const AGENCY = 'Big Insurance Network';
 const firstOf = n => String(n || '').trim().split(/\s+/)[0] || '';
 
 // The words that go with the link.
 export function intakeMessage(appointment, me, link) {
   const f = firstOf(appointment.client);
-  const from = firstOf(me) ? `it's ${firstOf(me)} with ${AGENCY}` : `it's ${AGENCY}`;
+  const from = firstOf(me) ? `it's ${firstOf(me)} with ${agencyName()}` : `it's ${agencyName()}`;
   const ahead = !isPastAppointment(appointment) && appointment.appointmentDate;
   return ahead
     ? `Hi ${f}, ${from}. Before we meet ${whenText(appointment.appointmentDate, appointment.appointmentTime)}, could you fill in this short form? It takes about 10 minutes and saves as you go: ${link}`

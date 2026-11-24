@@ -3,6 +3,7 @@
 // to the chat rules once (Apple requires it). Any message can be reported
 // or its sender blocked; super admins review reports here too.
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { agencyName } from '../lib/agency.js';
 import { ArrowDown, ArrowLeft, Briefcase, Flag, Hash, LifeBuoy, Megaphone, Send, ShieldCheck, X } from 'lucide-react';
 import {
   acceptChatRules, blockChatUser, CHAT_CHANNELS, CHAT_MAX_LENGTH, deleteChatMessage, fetchChatBlocks, fetchChatMessages,
@@ -73,7 +74,7 @@ function RulesCard({ onAgree, busy, error, readOnly = false, onClose }) {
     <div className={readOnly ? 'tr-chat-rules' : 'tr-card tr-chat-rules'}>
       <div className="tr-chat-rules-icon"><ShieldCheck size={22} aria-hidden="true" /></div>
       <h2 className="tr-h2" id="tr-chat-rules-title">Chat rules</h2>
-      <p>Chat is for everyone at Big Insurance Network. {readOnly ? 'Everyone agreed to these before joining:' : 'Before you join, please agree to these:'}</p>
+      <p>Chat is for everyone at {agencyName()}. {readOnly ? 'Everyone agreed to these before joining:' : 'Before you join, please agree to these:'}</p>
       <ul>
         <li><strong>Be respectful.</strong> No harassment, bullying, threats, hate or discrimination.</li>
         <li><strong>Keep it clean.</strong> No sexual, violent or graphic content, and no spam.</li>

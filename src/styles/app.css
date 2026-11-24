@@ -3623,6 +3623,7 @@ a.tr-intake-way, a.tr-intake-way:visited { color: var(--ink); }
 .tr-chal-network { font-size: 9.5px; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: #002C5F; }
 .tr-chal-presents { font-family: 'Newsreader', serif; font-style: italic; font-size: 12.5px; color: var(--chal-soft); }
 .tr-chal-classic .tr-chal-brand-text { border-left-color: rgba(255,255,255,.25); }
+.tr-chal-brand-plain { padding-left: 0; border-left: none; }
 .tr-chal-classic .tr-chal-network { color: var(--brass-light); }
 .tr-chal-title { margin: 0; font-family: 'Newsreader', serif; font-size: var(--text-3xl); font-weight: 700; line-height: 1.05; letter-spacing: -.01em; color: var(--chal-ink); }
 .tr-chal-tagline { margin: 5px 0 0; max-width: 38ch; font-size: 13px; line-height: 1.4; color: var(--chal-text); }
@@ -3719,6 +3720,7 @@ a.tr-intake-way, a.tr-intake-way:visited { color: var(--ink); }
   .tr-chal-thanksgiving::before { background-position: 0 0; -webkit-mask-image: radial-gradient(circle at 46px 30%, #000 0, transparent 170px); mask-image: radial-gradient(circle at 46px 30%, #000 0, transparent 170px); }
   .tr-chal-art { align-self: start; margin-top: 18px; }
   .tr-chal-network { display: none; }
+  .tr-chal-brand-plain .tr-chal-network { display: inline; }
   .tr-chal-brand-text { border-left: none; padding-left: 0; }
   .tr-chal-logo { height: 20px; }
   .tr-chal-title { font-size: var(--text-2xl); }

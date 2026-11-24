@@ -105,7 +105,9 @@ PL.db = {
     { id: MORGAN.id, display_name: 'Morgan Lee', role: 'super_admin' },
     { id: PAM.id, display_name: 'Pam Ortiz', role: 'super_admin' },
     { id: JORDAN.id, display_name: 'Jordan Ellis', role: 'advisor' },
+    { id: 'e5e5e5e5-e5e5-e5e5-e5e5-e5e5e5e5e5e5', display_name: 'Ellis Vaughn', role: 'advisor', solar_system_id: 's-efs' },
   ],
+  solar_systems: [{ id: 's-efs', short_name: 'EFS', name: 'Elite Financial Services', contracting: false }],
   contracting_staff: [{ user_id: MORGAN.id }],
   contracting_settings: [{ id: true, enabled: true, paused: false, public_key: key.publicJwk, key_id: key.keyId, agreement_version: 'BIG-IAA-2026.1', docuseal_template_id: 77 }],
   licensing_progress: [{ user_id: JORDAN.id, contracting_sent_on: '2026-09-01', profile_submitted_on: null }],
@@ -139,6 +141,11 @@ try {
   ok(r.status === 401 && r.data.error === 'not_signed_in', 'no sign-in is refused');
   r = await call(JORDAN, { action: 'nope' });
   ok(r.status === 400 && r.data.error === 'unknown_action', 'unknown action is refused');
+
+  // ---- Elite Financial Services doesn't contract through BIG ----
+  r = await call({ id: 'e5e5e5e5-e5e5-e5e5-e5e5-e5e5e5e5e5e5', email: 'ellis@example.com' }, { action: 'agreement-session' });
+  ok(r.status === 400 && r.data.error === 'contracting_not_here' && DS.calls.length === 0 && PL.db.producer_agreements.length === 0,
+    "someone in Elite Financial Services gets no BIG agreement (DocuSeal isn't asked)");
 
   // ---- agent starts signing ----
   r = await call(JORDAN, { action: 'agreement-session' });

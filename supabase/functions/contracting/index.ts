@@ -134,6 +134,17 @@ async function caller(req: Request): Promise<Caller | null> {
   if (error || !data?.user) return null;
   return { id: data.user.id, email: data.user.email || '', claims: decodeJwt(jwt) };
 }
+// Contracting in PaceLedger is BIG's (its producer agreement). It's off for a
+// solar system that doesn't contract through BIG (Elite Financial Services);
+// the database refuses those too. Reads every column, so it works before
+// the column is added.
+async function contractsHere(admin: any, userId: string): Promise<boolean> {
+  const { data: p } = await admin.from('profiles').select('solar_system_id').eq('id', userId).maybeSingle();
+  if (!p || !p.solar_system_id) return true;
+  const { data: s } = await admin.from('solar_systems').select('*').eq('id', p.solar_system_id).maybeSingle();
+  return !s || s.contracting !== false;
+}
+
 async function isStaff(admin: any, id: string): Promise<boolean> {
   const { data: s } = await admin.from('contracting_staff').select('user_id').eq('user_id', id).maybeSingle();
   if (!s) return false;
@@ -479,6 +490,7 @@ export async function handle(req: Request): Promise<Response> {
     switch (action) {
       // ---- an agent's signing form -------------------------------------------
       case 'agreement-session': {
+        if (!(await contractsHere(admin, me.id))) return json({ error: 'contracting_not_here' }, 400);
         if (!settings || !settings.docuseal_template_id || !settings.agreement_version) return json({ error: 'agreement_not_set_up' }, 400);
         if (!settings.enabled && !(await isStaff(admin, me.id))) return json({ error: 'contracting_off' }, 400);
         const { data: rows } = await admin.from('producer_agreements').select('*').eq('user_id', me.id)

@@ -12,6 +12,7 @@ import { activityToolsOn, isAdmin } from './lib/roles.js';
 import { fetchSolarSystems } from './data/solarSystems.js';
 import { fetchContractingSettings } from './data/contracting.js';
 import { setContractingInApp } from './licensing.js';
+import { setAgencyName } from './lib/agency.js';
 import { forgetAll } from './data/live.js';
 
 // The client intake form (opened from a link sent to a client) loads only
@@ -159,8 +160,12 @@ function AccountApp() {
     Promise.all([supabase.from('profiles').select('*').eq('id', userId).single(), hasDirectReports(userId), fetchSolarSystems(), fetchContractingSettings(true), fetchMyPhone(userId)])
       .then(([{ data, error }, leads, systems, contracting, phone]) => {
         if (cancelled) return;
-        // Contracting in PaceLedger, once a super admin turns it on (Profiles -> Contracting).
-        setContractingInApp(!!(contracting && contracting.enabled));
+        // Contracting in PaceLedger, once a super admin turns it on (Profiles ->
+        // Contracting), for solar systems that contract through BIG (not
+        // Elite Financial Services: their manager sends their own link).
+        const homeSystem = (systems || []).find(s => data && s.id === data.solar_system_id) || null;
+        setContractingInApp(!!(contracting && contracting.enabled) && !(homeSystem && homeSystem.contracting === false));
+        setAgencyName(homeSystem && homeSystem.email_name);
         if (error) setProfileError('Could not load your profile. Try refreshing the page.');
         setProfile(data ? { ...data, _leads: leads, _systems: systems, _phone: phone } : null);
         setProfileLoading(false);
